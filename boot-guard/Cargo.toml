@@ -1,0 +1,11 @@
+[package]
+name = "boot-guard"
+version = "0.1.0"
+edition = "2024"
+description = "Reset-time escape hatch into the WB32 ROM DFU bootloader"
+
+[features]
+# Bring-up only: enter the ROM bootloader on every boot.
+always-dfu = []
+# Provide a #[panic_handler] that resets into DFU.
+panic-dfu = []

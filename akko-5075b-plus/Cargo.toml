@@ -1,0 +1,22 @@
+[package]
+name = "akko-5075b-plus"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cortex-m = "0.7.7"
+cortex-m-rt = "0.7.5"
+boot-guard = { path = "../boot-guard", features = ["panic-dfu"] }
+
+[features]
+always-dfu = ["boot-guard/always-dfu"]
+
+[[bin]]
+name = "m1a-bounce"
+test = false
+bench = false
+
+[[bin]]
+name = "m1b-stub"
+test = false
+bench = false

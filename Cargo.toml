@@ -1,0 +1,14 @@
+[workspace]
+resolver = "3"
+members = ["boot-guard", "akko-5075b-plus"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+debug = 2
+panic = "abort"
+
+[profile.dev]
+opt-level = "s"
+panic = "abort"
