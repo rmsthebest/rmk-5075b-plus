@@ -4,3 +4,6 @@ target = "thumbv7m-none-eabi"
 [target.thumbv7m-none-eabi]
 linker = "flip-link"
 rustflags = ["-C", "link-arg=-Tlink.x"]
+
+[env]
+KEYBOARD_TOML_PATH = { value = "akko-5075b-plus/rmk.toml", relative = true }

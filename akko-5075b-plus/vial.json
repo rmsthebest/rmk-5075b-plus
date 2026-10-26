@@ -1,0 +1,275 @@
+{
+ "name": "AKKO 5075B Plus",
+ "vendorId": "0x342D",
+ "productId": "0xE4F6",
+ "lighting": "none",
+ "matrix": {
+  "rows": 6,
+  "cols": 15
+ },
+ "customKeycodes": [
+  {
+   "name": "KC_BT1",
+   "title": "Bluetooth 1",
+   "shortName": "BT1"
+  },
+  {
+   "name": "KC_BT2",
+   "title": "Bluetooth 2",
+   "shortName": "BT2"
+  },
+  {
+   "name": "KC_BT3",
+   "title": "Bluetooth 3",
+   "shortName": "BT3"
+  },
+  {
+   "name": "KC_2G4",
+   "title": "2.4 GHz",
+   "shortName": "2.4G"
+  },
+  {
+   "name": "KC_USB",
+   "title": "USB",
+   "shortName": "USB"
+  },
+  {
+   "name": "RP_P0",
+   "title": "Lighting record slot 1",
+   "shortName": "Rec 1"
+  },
+  {
+   "name": "RP_P1",
+   "title": "Lighting record slot 2",
+   "shortName": "Rec 2"
+  },
+  {
+   "name": "RP_P2",
+   "title": "Lighting record slot 3",
+   "shortName": "Rec 3"
+  },
+  {
+   "name": "RP_END",
+   "title": "End lighting recording",
+   "shortName": "Rec End"
+  },
+  {
+   "name": "RL_MOD",
+   "title": "Side light mode",
+   "shortName": "Side Mod"
+  },
+  {
+   "name": "HS_BATQ",
+   "title": "Show battery level",
+   "shortName": "Batt"
+  },
+  {
+   "name": "HS_DIR",
+   "title": "Swap arrows / WASD",
+   "shortName": "Dir"
+  },
+  {
+   "name": "BT_TEST",
+   "title": "Force Bluetooth pairing",
+   "shortName": "BT Pair"
+  },
+  {
+   "name": "HS_SIRI",
+   "title": "Siri (Cmd+Space)",
+   "shortName": "Siri"
+  },
+  {
+   "name": "HS_CT_A",
+   "title": "Hold 3s: Right Ctrl <-> Menu",
+   "shortName": "RCtl/App"
+  },
+  {
+   "name": "KC_ENCW",
+   "title": "Toggle LED indicator",
+   "shortName": "LED Ind"
+  }
+ ],
+ "layouts": {
+  "keymap": [
+   [
+    "0,0",
+    {
+     "x": 0.25
+    },
+    "0,1",
+    "0,2",
+    "0,3",
+    "0,4",
+    {
+     "x": 0.25
+    },
+    "0,5",
+    "0,6",
+    "0,7",
+    "0,8",
+    {
+     "x": 0.25
+    },
+    "0,9",
+    "0,10",
+    "0,11",
+    "0,12",
+    {
+     "x": 0.25
+    },
+    "0,13",
+    {
+     "x": 0.5
+    },
+    "0,14",
+    {
+     "x": 0.5
+    },
+    "0,0\n\n\n\n\n\n\n\n\ne",
+    "0,1\n\n\n\n\n\n\n\n\ne"
+   ],
+   [
+    {
+     "y": 0.25
+    },
+    "1,0",
+    "1,1",
+    "1,2",
+    "1,3",
+    "1,4",
+    "1,5",
+    "1,6",
+    "1,7",
+    "1,8",
+    "1,9",
+    "1,10",
+    "1,11",
+    "1,12",
+    {
+     "w": 2
+    },
+    "1,13",
+    {
+     "x": 0.5
+    },
+    "1,14"
+   ],
+   [
+    {
+     "w": 1.5
+    },
+    "2,0",
+    "2,1",
+    "2,2",
+    "2,3",
+    "2,4",
+    "2,5",
+    "2,6",
+    "2,7",
+    "2,8",
+    "2,9",
+    "2,10",
+    "2,11",
+    "2,12",
+    {
+     "x": 0.25,
+     "w": 1.25,
+     "h": 2,
+     "w2": 1.5,
+     "h2": 1,
+     "x2": -0.25
+    },
+    "2,13",
+    {
+     "x": 0.5
+    },
+    "2,14"
+   ],
+   [
+    {
+     "w": 1.75
+    },
+    "3,0",
+    "3,1",
+    "3,2",
+    "3,3",
+    "3,4",
+    "3,5",
+    "3,6",
+    "3,7",
+    "3,8",
+    "3,9",
+    "3,10",
+    "3,11",
+    "3,13",
+    {
+     "x": 1.75
+    },
+    "3,14"
+   ],
+   [
+    {
+     "w": 1.25
+    },
+    "4,0",
+    "4,1",
+    "4,2",
+    "4,3",
+    "4,4",
+    "4,5",
+    "4,6",
+    "4,7",
+    "4,8",
+    "4,9",
+    "4,10",
+    "4,11",
+    {
+     "w": 1.75
+    },
+    "4,12",
+    {
+     "x": 1.5
+    },
+    "4,14"
+   ],
+   [
+    {
+     "y": -0.75,
+     "x": 14.25
+    },
+    "4,13"
+   ],
+   [
+    {
+     "y": -0.25,
+     "w": 1.25
+    },
+    "5,0",
+    {
+     "w": 1.25
+    },
+    "5,1",
+    {
+     "w": 1.25
+    },
+    "5,2",
+    {
+     "w": 6.25
+    },
+    "5,6",
+    "5,9",
+    "5,10",
+    "5,11"
+   ],
+   [
+    {
+     "y": -0.75,
+     "x": 13.25
+    },
+    "5,12",
+    "5,13",
+    "5,14"
+   ]
+  ]
+ }
+}

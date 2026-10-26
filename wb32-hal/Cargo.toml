@@ -15,11 +15,13 @@ embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
 embassy-time = "0.5.1"
 embassy-usb-driver = "0.2.0"
+embedded-storage = "0.3.1"
+embedded-storage-async = "0.4.1"
 # Vendored musb 0.3.1 plus our WB32 profile (third_party/musb/README-wb32.md).
 musb = { path = "../third_party/musb", default-features = false, features = ["prebuild", "builtin-wb32fq95", "embassy-usb-driver-impl"] }
 
 [features]
-# Simulator tests only: start TIM2 2 s before its counter's half-wrap or full
+# Simulator tests only: start TIM2 20 ms before its counter's half-wrap or full
 # wrap, so a short run exercises the time driver's period handling.
 sim-time-near-half = []
 sim-time-near-wrap = []

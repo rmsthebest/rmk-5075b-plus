@@ -4,6 +4,8 @@ pub use wb32_pac as pac;
 
 pub mod exti;
 pub mod gpio;
+pub mod qspi;
 pub mod rcc;
+pub mod spi_nor;
 pub mod time_driver;
 pub mod usb;

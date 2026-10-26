@@ -3,7 +3,8 @@ resolver = "3"
 members = ["boot-guard", "wb32-pac", "wb32-hal", "akko-5075b-plus"]
 
 [profile.release]
-opt-level = "s"
+# "z": the RMK image needs it to fit the 128K the linker script allows.
+opt-level = "z"
 lto = true
 codegen-units = 1
 debug = 2
