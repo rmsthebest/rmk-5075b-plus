@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run an image in the simulator and print its register writes in order, one per
 # line ("BLOCK+0xOFF = 0xVALUE"), without timestamps, so two images can be diffed.
+# SPI flash commands are included as "FLASH ..." lines.
 #   sim/trace.sh <image.elf|image.bin> [seconds=0.5] [block-regex=.]
 # e.g. the QMK clock-setup reference:
 #   sim/trace.sh ../akko_5075b_plus_fixes.bin 0.5 '^(PWR|ANCTL|RCC)'
@@ -27,4 +28,7 @@ trap 'rm -f "$log"' EXIT
 
 grep -E "LOCKED|non existing" "$log" | sed -E 's/^\[[0-9:.]+\] //' >&2 || true
 # Renode folds repeats as "... (N)"; keep them, they're part of the sequence.
-grep -E "\] [a-z]+: MMIO W " "$log" | sed -E 's/^.*MMIO W //' | grep -E "$filter" || true
+# The SPI flash model's commands come out as "FLASH <command> ..." lines, in
+# order with the writes (each is logged when its chip select goes high).
+grep -E "\] [a-z]+: MMIO W |\] qspi: flash: " "$log" \
+    | sed -E -e 's/^.*MMIO W //' -e 's/^.*\] qspi: flash: /FLASH /' | grep -E "$filter" || true

@@ -10,6 +10,7 @@ ${GOLDEN}       ${CURDIR}/../golden/qmk_sysctl_writes.txt
 ${GOLDEN_CLOCK}    ${CURDIR}/../golden/qmk_clock_init.txt
 ${GOLDEN_USB}      ${CURDIR}/../golden/qmk_usb_init.txt
 ${USB_INIT_REGS}    ^(RCC\\+0x(014|034|040|06c|07c|088)|SFM)
+${GOLDEN_QSPI}    ${CURDIR}/../golden/qmk_qspi_init.txt
 
 *** Keywords ***
 Boot QMK
@@ -50,6 +51,14 @@ QMK Reaches The ChibiOS Scheduler
     ${pc}=    Execute Command    cpu PC
     ${pc}=    Convert To Integer    ${pc.strip()}
     Should Be True    0x08000000 <= ${pc} < 0x08020000
+
+QMK SPI Flash Bring-Up Matches Its Golden Trace
+    # Without the hooks: QSPI setup (BAUDR 0x20 = PCLK1/32, SER, CR0 8-bit
+    # mode 0, the FIFO depth probe), chip select on C12 (GPIOC BSRR) and the
+    # first flash commands on a blank chip (sim/peripherals/qspi.py).
+    ${trace}=    Run Process    ${SIM}/trace.sh    ${QMK_BIN}    1.5    ^(QSPI|FLASH|GPIOC\\+0x018)
+    ${golden}=    Get File    ${GOLDEN_QSPI}
+    Should Be Equal    ${trace.stdout.strip()}    ${golden.strip()}
 
 QMK USB Bring-Up Matches Its Golden Trace
     # tests/m3_usb.robot checks our image against the same file.

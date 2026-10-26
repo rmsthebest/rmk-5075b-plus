@@ -15,6 +15,10 @@
 #                1 = high, 2 = released (back to pull/floating)
 #   0xFF8 write: any value releases every key
 #
+# C12 is the SPI flash chip select: after every write its level and its count
+# of rising edges go to the AppDomain ("akko-gpio-c12"), where qspi.py reads
+# them to tell where one flash command ends.
+#
 # EXTI lines 0-15 follow the pin AFIO EXTICR selects. After every write here
 # (firmware or test control) each line's level is recomputed; an edge enabled
 # in RTSR/FTSR sets PR, and each NVIC line (EXTI0-4, EXTI9_5, EXTI15_10) is
@@ -105,6 +109,17 @@ if request.IsInit:
                 irq_level[irq] = level
                 nvic.OnGPIO(irq, level)
 
+    from System import AppDomain, Tuple
+    CS_KEY = "akko-gpio-c12"
+    cs_state = [1, 0]     # level, rising edges
+
+    def cs_update():
+        lv = pin_level(C, 12)
+        if lv and not cs_state[0]:
+            cs_state[1] += 1
+        cs_state[0] = lv
+        AppDomain.CurrentDomain.SetData(CS_KEY, Tuple.Create(lv, cs_state[1]))
+
     def idr(port):
         v = 0
         for pin in range(16):
@@ -194,3 +209,4 @@ else:
 
 if not request.IsInit and request.IsWrite:
     exti_update()
+    cs_update()

@@ -13,6 +13,7 @@ machine PyDevFromFile $ORIGIN/peripherals/gpio.py 0x40000000 0x2000 True "gpio"
 machine PyDevFromFile $ORIGIN/peripherals/sysctl.py 0x40010000 0x1000 True "sysctl"
 machine PyDevFromFile $ORIGIN/peripherals/cache.py 0x40015400 0x400 True "cache"
 machine PyDevFromFile $ORIGIN/peripherals/usb.py 0x40014000 0x1000 True "usb"
+machine PyDevFromFile $ORIGIN/peripherals/qspi.py 0x40003000 0x100 True "qspi"
 
 # ROM stub at the DFU bootloader address: initial SP, then a reset handler that
 # spins at 0x1FFF_E008 (ROM_PARKED). "PC is at 0x1FFFE008" = "entered DFU".

@@ -36,7 +36,8 @@ renode-venv/bin/pip install -r renode/tests/requirements.txt
 | Boot ROM `0x1FFF_E000` | stub in `akko.resc` | Parks at `0x1FFF_E008`, which means "entered DFU" |
 | GPIO A–D, AFIO, EXTI | `peripherals/gpio.py` | MODER/PUPDR/ODR/BSRR/IDR, WB32 `CFGMSK` write masking, ROW2COL key matrix. EXTI lines 0–15 follow the pin AFIO selects; enabled edges set PR and drive the EXTI0–4/9_5/15_10 NVIC lines |
 | PWR, ANCTL, IWDG, RCC | `peripherals/sysctl.py` | Ready bits follow their enables; ANCTL writes need the ANAKEY window, and locked writes are dropped and logged as `LOCKED` |
-| TIM2 | Renode `STM32_Timer` (in the `.repl`) | Same register layout as WB32's TIM; 32-bit, 96 MHz input. QMK doesn't use it (its tick is SysTick), so `m2_hal.robot` checks it against virtual time |
+| TIM2 | Renode `STM32_Timer` (in the `.repl`) | Same register layout as WB32's TIM; 16-bit as on the chip (`akko.resc` drops the upper bits of CNT/ARR/CCRx writes), 96 MHz input. QMK doesn't use it (its tick is SysTick), so `m2_hal.robot` checks it against virtual time |
+| QSPI + SPI NOR flash | `peripherals/qspi.py` | The DesignWare SSI controller in SPI mode (CR0/CR1/BAUDR locked while enabled, RX FIFO with overflow, TXE/RXF/RXO interrupts on NVIC 26) and a 512 KB 25-series NOR on it, chip select on C12. WREN/WIP/page-wrap rules are enforced and broken ones logged as errors; every erase and program is logged (`flash: SE 0x010000`), and the contents survive a machine reset. The JEDEC ID is QMK's default part, since the real one is unknown |
 | Flash cache | `peripherals/cache.py` | Remembers writes, so the clock setup's cache write shows in traces |
 | DWT | Renode `Miscellaneous.DWT` (in the `.repl`) | CYCCNT at 96 MHz; QMK's ChibiOS busy-waits on it |
 | USB (MUSB) + a USB host | `peripherals/usb.py` | Device registers, FIFOs and interrupts, plus a scripted Linux-like host that attaches once PA11/PA12, the USB clocks (48 MHz) and the PHY are set up, enumerates, then polls every IN endpoint. Logs `HOST: ...` per request, `HOST CDC: <line>` for CDC-ACM text, `HOST HID <ep>: <hex>` for reports, and `HOST ERROR: ...` for anything a host wouldn't accept. The register semantics it assumes are listed at the top of the file. Also covers CRC and SFM (the PHY enable) as plain registers |
@@ -48,11 +49,10 @@ renode-venv/bin/pip install -r renode/tests/requirements.txt
 - USB host, `usb` offset `0xF00`: `0x01` open the CDC port, `0x02 | byte << 8` send a byte to it, `0x03 | leds << 8` keyboard LED report, `0x04`/`0x05` suspend/resume, `0x06` reset and enumerate again, `0x07`/`0x08` unplug/plug. `0xF04` reads the host state (0 detached, 1 enumerating, 2 configured, 3 suspended, 4 failed).
 
 **Not modelled yet:** add each one when its milestone needs it, and check the model against the QMK binary first.
-- QSPI and the SPI NOR flash (QMK's settings): needed for M4. QMK currently stops at its first flash transfer.
 - DMAC, SPIM2 (WS2812 LEDs), UART3 plus a scripted radio module: M5 and M6. The frames can come from `../tools/wls_host_test`.
 - TIM1/3/4, ADC, and the cache's actual behaviour.
 
-**QMK hooks.** `qmk-hooks.resc` makes QMK's `spi_flash_start()` fail at once, so QMK gets past the unmodelled QSPI flash and reaches USB. Include it after loading the QMK image (`SIM_SETUP='include @sim/qmk-hooks.resc' sim/trace.sh ...` for traces). QMK then runs with unreadable settings: it enumerates, but sends its key reports to the radio module, so its HID IN reports can't be checked yet.
+**QMK hooks.** On the blank simulated flash, QMK reads its settings (that part is checked against `golden/qmk_qspi_init.txt`), then HardFaults (INVSTATE) in a context switch during `init_usb_driver`'s first sleep. That's not investigated. It might be a model problem or QMK's fresh-settings path, and the real chip isn't blank. `qmk-hooks.resc` makes QMK's `spi_flash_start()` fail at once, so QMK skips the flash and reaches USB. Include it after loading the QMK image (`SIM_SETUP='include @sim/qmk-hooks.resc' sim/trace.sh ...` for traces). QMK then runs with unreadable settings: it enumerates, but sends its key reports to the radio module, so its HID IN reports can't be checked yet.
 
 ## Golden traces
 
@@ -63,6 +63,8 @@ diff (sim/trace.sh target/thumbv7m-none-eabi/release/m2-blink 0.05 '^(PWR|ANCTL|
 ```
 
 `golden/qmk_clock_init.txt` is the part of that sequence `wb32_hal::rcc::init` ports (through the APB2 bus-matrix enable), with the cache write included. `tests/m2_hal.robot` checks that m2-blink produces exactly this after boot-guard's own 6 writes.
+
+`golden/qmk_qspi_init.txt` is QMK's QSPI setup, chip select and first flash commands on a blank chip (QSPI writes, GPIOC BSRR and the model's `FLASH` lines).
 
 `golden/qmk_usb_init.txt` is QMK's USB bring-up (ChibiOS `wb32_usb_init`: USB and FIFO clocks, reset, PHY, 48 MHz prescaler), which `wb32_hal::usb` reproduces write for write.
 
@@ -75,7 +77,7 @@ diff (sim/trace.sh target/thumbv7m-none-eabi/release/m2-blink 0.05 '^(PWR|ANCTL|
 | `boot_guard.robot` | m1a-bounce, m1b-stub | DFU entry by magic word, Esc at cold start, HardFault; pin state restored |
 | `qmk_reference.robot` | QMK fixes build | The models against known-good firmware, including enumeration and the LED report on the USB model |
 | `m3_usb.robot` | m3-usb | USB bring-up trace = QMK's; attach after 50 ms; enumeration as CDC-ACM + HID (IN/OUT sharing endpoint numbers); boot banner and commands over CDC; `type` sends the right reports; host Caps Lock drives the LED; suspend/resume in order and after every bus reset; `dfu`, Esc and panic all reach DFU; the panic message is printed once after the next boot; DFU after 30 s without a host |
-| `m2_hal.robot` | m2-blink (3 builds) | Clock trace = QMK's; 1 MHz time base; 500 ms blink edges within ±10 ms and DFU at 10 s; the time driver's period count across the half-wrap and wrap (`sim-time-near-half`/`-wrap` builds start 2 s before them); Esc via EXTI returns to DFU within 2 ms |
+| `m2_hal.robot` | m2-blink (3 builds) | Clock trace = QMK's; 1 MHz time base; TIM2 is 16-bit; 500 ms blink edges within ±10 ms and DFU at 10 s; the time driver's period count across the half-wrap and wrap (`sim-time-near-half`/`-wrap` builds start 20 ms before them); Esc via EXTI returns to DFU within 2 ms |
 
 ## Limits
 
