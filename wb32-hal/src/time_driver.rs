@@ -1,9 +1,12 @@
-//! embassy-time driver on TIM2 (32-bit), 1 MHz tick.
+//! embassy-time driver on TIM2 (16-bit), 1 MHz tick.
 //!
-//! Same scheme as embassy-stm32's timer driver, widened to a 32-bit counter:
-//! - The counter runs freely over the full 32-bit range.
+//! Same scheme as embassy-stm32's timer driver:
+//! - The counter runs freely over 16 bits, wrapping every 65.5 ms. TIM2 is
+//!   not 32-bit on this chip (ChibiOS's `WB32_TIM2_IS_32BITS FALSE`; on the
+//!   board ARR reads back 0xFFFFF after writing 0xFFFF_FFFF, and CCR1 0 after
+//!   0x8000_0000), so a 32-bit scheme loses time at every wrap.
 //! - `period` counts half-wraps: the update event (wrap to 0) and CC1 at
-//!   0x8000_0000 each add one, so `now = period << 31 + (CNT with its top bit
+//!   0x8000 each add one, so `now = period << 15 + (CNT with bit 15
 //!   corrected by period's parity)`. This stays right even if a half-wrap
 //!   interrupt is pending while `now()` runs.
 //! - CC2 is the alarm. It's only armed once the alarm is less than one
@@ -21,30 +24,31 @@ use wb32_pac::{Interrupt, TIM2, interrupt, tim};
 
 use crate::rcc;
 
-const HALF: u32 = 1 << 31;
+const HALF: u32 = 1 << 15;
+const MAX: u32 = 0xFFFF;
 
 // TIM2 runs from PCLK1; the prescaler brings it down to the tick rate.
 const _: () = assert!((rcc::PCLK1_HZ as u64).is_multiple_of(TICK_HZ));
 const PSC: u32 = (rcc::PCLK1_HZ as u64 / TICK_HZ) as u32 - 1;
 
-/// Counter value at start-up. The simulator test builds start 2 s before
-/// the counter's half-wrap or full wrap (as if the chip had been up for 36 or
-/// 71 minutes), so a short run crosses that boundary.
+/// Counter value at start-up. The simulator test builds start 20 ms before
+/// the counter's half-wrap or full wrap, so the first boundary crossed is
+/// the one under test.
 #[cfg(not(any(feature = "sim-time-near-half", feature = "sim-time-near-wrap")))]
 const START: u32 = 0;
 #[cfg(feature = "sim-time-near-half")]
-const START: u32 = HALF - 2 * TICK_HZ as u32;
+const START: u32 = HALF - 20 * TICK_HZ as u32 / 1000;
 #[cfg(feature = "sim-time-near-wrap")]
-const START: u32 = 0u32.wrapping_sub(2 * TICK_HZ as u32);
+const START: u32 = MAX + 1 - 20 * TICK_HZ as u32 / 1000;
 
 fn calc_now(period: u32, counter: u32) -> u64 {
-    ((period as u64) << 31) + (counter ^ ((period & 1) << 31)) as u64
+    ((period as u64) << 15) + (counter ^ ((period & 1) << 15)) as u64
 }
 
 // repr(C) keeps `period` at offset 0: the simulator tests read it.
 #[repr(C)]
 struct TimDriver {
-    /// Number of half-wraps of the 32-bit counter.
+    /// Number of half-wraps of the 16-bit counter.
     period: AtomicU32,
     /// Next alarm time, `u64::MAX` when none.
     alarm: Mutex<Cell<u64>>,
@@ -52,7 +56,7 @@ struct TimDriver {
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimDriver = TimDriver {
-    period: AtomicU32::new(START >> 31),
+    period: AtomicU32::new(START >> 15),
     alarm: Mutex::new(Cell::new(u64::MAX)),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
@@ -68,7 +72,7 @@ pub fn init(prio: u8) {
         w.set_urs(true);
     });
     r.psc().write_value(tim::regs::Psc(PSC));
-    r.arr().write_value(tim::regs::Arr(u32::MAX));
+    r.arr().write_value(tim::regs::Arr(MAX));
     // Load PSC now rather than at the first wrap.
     r.egr().write(|w| w.set_ug(true));
     r.cnt().write_value(tim::regs::Cnt(START));
@@ -114,11 +118,11 @@ impl TimDriver {
     fn next_period(&self, cs: CriticalSection) {
         let period = self.period.load(Ordering::Relaxed) + 1;
         self.period.store(period, Ordering::Relaxed);
-        let t = (period as u64) << 31;
+        let t = (period as u64) << 15;
 
         // The alarm is now within reach of CCR2 (set by `set_alarm`).
         let at = self.alarm.borrow(cs).get();
-        if at < t + 0xC000_0000 {
+        if at < t + 0xC000 {
             TIM2.dier().modify(|w| w.set_cc2ie(true));
         }
     }
@@ -143,12 +147,12 @@ impl TimDriver {
             return false;
         }
 
-        r.ccr2().write_value(tim::regs::Ccr2(timestamp as u32));
+        r.ccr2().write_value(tim::regs::Ccr2(timestamp as u32 & MAX));
 
         // Arm now only if the match can't come a wrap early; otherwise
         // `next_period` arms it.
         let diff = timestamp - t;
-        r.dier().modify(|w| w.set_cc2ie(diff < 0xC000_0000));
+        r.dier().modify(|w| w.set_cc2ie(diff < 0xC000));
 
         // The counter may have passed CCR2 while we were setting it up.
         let t = self.now();
@@ -165,7 +169,7 @@ impl Driver for TimDriver {
     fn now(&self) -> u64 {
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
-        let counter = TIM2.cnt().read().0;
+        let counter = TIM2.cnt().read().0 & MAX;
         calc_now(period, counter)
     }
 

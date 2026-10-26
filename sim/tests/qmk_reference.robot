@@ -8,12 +8,19 @@ ${SIM}          ${CURDIR}/..
 ${QMK_BIN}      ${CURDIR}/../../../akko_5075b_plus_fixes.bin
 ${GOLDEN}       ${CURDIR}/../golden/qmk_sysctl_writes.txt
 ${GOLDEN_CLOCK}    ${CURDIR}/../golden/qmk_clock_init.txt
+${GOLDEN_USB}      ${CURDIR}/../golden/qmk_usb_init.txt
+${USB_INIT_REGS}    ^(RCC\\+0x(014|034|040|06c|07c|088)|SFM)
 
 *** Keywords ***
 Boot QMK
     Execute Command    include @${SIM}/akko.resc
     Execute Command    sysbus LoadBinary @${QMK_BIN} 0x08000000
     Execute Command    machine Reset
+
+Boot QMK With Hooks
+    [Documentation]    QMK past the unmodelled SPI flash (sim/qmk-hooks.resc), so it reaches USB.
+    Boot QMK
+    Execute Command    include @${SIM}/qmk-hooks.resc
 
 *** Test Cases ***
 QMK Clock Setup Respects The ANCTL Key
@@ -43,3 +50,31 @@ QMK Reaches The ChibiOS Scheduler
     ${pc}=    Execute Command    cpu PC
     ${pc}=    Convert To Integer    ${pc.strip()}
     Should Be True    0x08000000 <= ${pc} < 0x08020000
+
+QMK USB Bring-Up Matches Its Golden Trace
+    # tests/m3_usb.robot checks our image against the same file.
+    ${trace}=    Run Process    ${SIM}/trace.sh    ${QMK_BIN}    1.0    ${USB_INIT_REGS}
+    ...    env:SIM_SETUP=include @${SIM}/qmk-hooks.resc
+    ${golden}=    Get File    ${GOLDEN_USB}
+    Should Be Equal    ${trace.stdout.strip()}    ${golden.strip()}
+
+QMK Enumerates On The USB Model
+    # The model's control-transfer and FADDR timing against ChibiOS's driver,
+    # which sets the address early (before the status stage).
+    Create Log Tester    1
+    Boot QMK With Hooks
+    Execute Command    emulation RunFor "1.0"
+    Wait For Log Entry    HOST: SET_ADDRESS(5) -> ok
+    Wait For Log Entry    HOST: device 342d:e4f6, EP0 64 bytes
+    # Keyboard EP1 IN, VIA raw HID EP2 IN and OUT, shared EP3 IN.
+    Wait For Log Entry    HOST: configured: if 0 class 03 eps [81], if 1 class 03 eps [82 02], if 2 class 03 eps [83]
+    Should Not Be In Log    HOST ERROR
+
+QMK Accepts The Keyboard LED Report
+    Create Log Tester    1
+    Boot QMK With Hooks
+    Execute Command    emulation RunFor "1.0"
+    Execute Command    usb WriteDoubleWord 0xF00 0x0203
+    Execute Command    emulation RunFor "0.05"
+    Wait For Log Entry    HOST: SET_REPORT(output) -> ok
+    Should Not Be In Log    HOST ERROR

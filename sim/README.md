@@ -38,17 +38,21 @@ renode-venv/bin/pip install -r renode/tests/requirements.txt
 | PWR, ANCTL, IWDG, RCC | `peripherals/sysctl.py` | Ready bits follow their enables; ANCTL writes need the ANAKEY window, and locked writes are dropped and logged as `LOCKED` |
 | TIM2 | Renode `STM32_Timer` (in the `.repl`) | Same register layout as WB32's TIM; 32-bit, 96 MHz input. QMK doesn't use it (its tick is SysTick), so `m2_hal.robot` checks it against virtual time |
 | Flash cache | `peripherals/cache.py` | Remembers writes, so the clock setup's cache write shows in traces |
+| DWT | Renode `Miscellaneous.DWT` (in the `.repl`) | CYCCNT at 96 MHz; QMK's ChibiOS busy-waits on it |
+| USB (MUSB) + a USB host | `peripherals/usb.py` | Device registers, FIFOs and interrupts, plus a scripted Linux-like host that attaches once PA11/PA12, the USB clocks (48 MHz) and the PHY are set up, enumerates, then polls every IN endpoint. Logs `HOST: ...` per request, `HOST CDC: <line>` for CDC-ACM text, `HOST HID <ep>: <hex>` for reports, and `HOST ERROR: ...` for anything a host wouldn't accept. The register semantics it assumes are listed at the top of the file. Also covers CRC and SFM (the PHY enable) as plain registers |
 
-**Test control registers** (write with `sysbus WriteDoubleWord`):
+**Test control registers** (write with `sysbus WriteDoubleWord`; the USB host's with `usb WriteDoubleWord`):
 - `0x4000_0FF0 = (down << 16) | (row << 8) | col` presses or releases a key.
 - `0x4000_0FF4 = (level << 16) | (port << 8) | pin` forces a pin: level 0 = low, 1 = high, 2 = let go (port 0 = A). Use it for the Win/Mac switch (C14/C15), cable detect (A7) and charge-full (A15).
 - `0x4000_0FF8` releases all keys.
+- USB host, `usb` offset `0xF00`: `0x01` open the CDC port, `0x02 | byte << 8` send a byte to it, `0x03 | leds << 8` keyboard LED report, `0x04`/`0x05` suspend/resume, `0x06` reset and enumerate again, `0x07`/`0x08` unplug/plug. `0xF04` reads the host state (0 detached, 1 enumerating, 2 configured, 3 suspended, 4 failed).
 
 **Not modelled yet:** add each one when its milestone needs it, and check the model against the QMK binary first.
 - QSPI and the SPI NOR flash (QMK's settings): needed for M4. QMK currently stops at its first flash transfer.
 - DMAC, SPIM2 (WS2812 LEDs), UART3 plus a scripted radio module: M5 and M6. The frames can come from `../tools/wls_host_test`.
-- USB (MUSB): there's no model. M3 is checked on hardware.
-- TIM1/3/4, ADC, DWT, and the cache's actual behaviour.
+- TIM1/3/4, ADC, and the cache's actual behaviour.
+
+**QMK hooks.** `qmk-hooks.resc` makes QMK's `spi_flash_start()` fail at once, so QMK gets past the unmodelled QSPI flash and reaches USB. Include it after loading the QMK image (`SIM_SETUP='include @sim/qmk-hooks.resc' sim/trace.sh ...` for traces). QMK then runs with unreadable settings: it enumerates, but sends its key reports to the radio module, so its HID IN reports can't be checked yet.
 
 ## Golden traces
 
@@ -60,16 +64,19 @@ diff (sim/trace.sh target/thumbv7m-none-eabi/release/m2-blink 0.05 '^(PWR|ANCTL|
 
 `golden/qmk_clock_init.txt` is the part of that sequence `wb32_hal::rcc::init` ports (through the APB2 bus-matrix enable), with the cache write included. `tests/m2_hal.robot` checks that m2-blink produces exactly this after boot-guard's own 6 writes.
 
-`tests/qmk_reference.robot` re-checks the QMK build against both files, so if a model change alters the reference, that test fails.
+`golden/qmk_usb_init.txt` is QMK's USB bring-up (ChibiOS `wb32_usb_init`: USB and FIFO clocks, reset, PHY, 48 MHz prescaler), which `wb32_hal::usb` reproduces write for write.
+
+`tests/qmk_reference.robot` re-checks the QMK build against these files, so if a model change alters the reference, that test fails.
 
 ## Suites
 
 | Suite | Image | Checks |
 |---|---|---|
 | `boot_guard.robot` | m1a-bounce, m1b-stub | DFU entry by magic word, Esc at cold start, HardFault; pin state restored |
-| `qmk_reference.robot` | QMK fixes build | The models against known-good firmware |
+| `qmk_reference.robot` | QMK fixes build | The models against known-good firmware, including enumeration and the LED report on the USB model |
+| `m3_usb.robot` | m3-usb | USB bring-up trace = QMK's; attach after 50 ms; enumeration as CDC-ACM + HID (IN/OUT sharing endpoint numbers); boot banner and commands over CDC; `type` sends the right reports; host Caps Lock drives the LED; suspend/resume in order and after every bus reset; `dfu`, Esc and panic all reach DFU; the panic message is printed once after the next boot; DFU after 30 s without a host |
 | `m2_hal.robot` | m2-blink (3 builds) | Clock trace = QMK's; 1 MHz time base; 500 ms blink edges within ±10 ms and DFU at 10 s; the time driver's period count across the half-wrap and wrap (`sim-time-near-half`/`-wrap` builds start 2 s before them); Esc via EXTI returns to DFU within 2 ms |
 
 ## Limits
 
-The simulator checks logic and register sequences. It can't prove silicon behaviour: real timing, analog behaviour, what the ROM bootloader does, or USB. The bring-up images still need one hardware check each, but only after they pass here.
+The simulator checks logic and register sequences. It can't prove silicon behaviour: real timing, analog behaviour, or what the ROM bootloader does (for example, whether it overwrites the panic record at `0x2000_7000`). The USB model is written from the Mentor programming model and checked against QMK's ChibiOS driver, but where the two drivers depend on details neither exercises (the exact status-stage handshake, when FADDR takes effect, what a bus reset clears), it encodes assumptions; `tools/m3-check.py` is the hardware check for those. The bring-up images still need one hardware check each, but only after they pass here.

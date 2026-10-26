@@ -1,7 +1,7 @@
 *** Comments ***
 M2: the HAL core (clocks, TIM2 time base, GPIO, EXTI) on embassy, through the
 m2-blink image. sim/run.sh builds it three times: normally, and with the time
-base started 2 s before its 32-bit counter's half-wrap (sim-time-near-half)
+base started 20 ms before its 16-bit counter's half-wrap (sim-time-near-half)
 or full wrap (sim-time-near-wrap), the two points where the driver's period
 count advances.
 "In DFU" means the CPU is parked in the ROM stub at 0x1FFFE008 (see sim/akko.resc).
@@ -52,19 +52,19 @@ Period Count
     RETURN    ${period}
 
 Boundary Advances The Period
-    [Documentation]    Boots ${elf}, whose counter starts 2 s before ${boundary}.
+    [Documentation]    Boots ${elf}, whose counter starts 20 ms before ${boundary}.
     [Arguments]    ${elf}    ${boundary}    ${period_before}
     Boot    ${elf}
-    Run For    1
+    Run For    0.01
     ${cnt}=    Read Word    ${TIM2_CNT}
-    ${left}=    Evaluate    (${boundary} - ${cnt}) % (1 << 32)
-    Should Be True    900000 <= ${left} <= 1100000    TIM2 CNT ${cnt} is not 1 s before ${boundary}
+    ${left}=    Evaluate    (${boundary} - ${cnt}) % (1 << 16)
+    Should Be True    8000 <= ${left} <= 11000    TIM2 CNT ${cnt} is not 10 ms before ${boundary}
     ${p}=    Period Count    ${elf}
     Should Be Equal As Integers    ${p}    ${period_before}
-    Run For    2
+    Run For    0.02
     ${cnt}=    Read Word    ${TIM2_CNT}
-    ${past}=    Evaluate    (${cnt} - ${boundary}) % (1 << 32)
-    Should Be True    900000 <= ${past} <= 1100000    TIM2 CNT ${cnt} is not 1 s past ${boundary}
+    ${past}=    Evaluate    (${cnt} - ${boundary}) % (1 << 16)
+    Should Be True    8000 <= ${past} <= 11000    TIM2 CNT ${cnt} is not 10 ms past ${boundary}
     ${p}=    Period Count    ${elf}
     ${expected}=    Evaluate    int(${period_before}) + 1
     Should Be Equal As Integers    ${p}    ${expected}
@@ -119,25 +119,39 @@ Only Modelled Peripherals Are Touched
     Should Not Be In Log    non existing peripheral
 
 Time Base Runs At 1 MHz
+    # now = period << 15 + (CNT with bit 15 corrected by period's parity)
     Boot    ${M2}
     Run For    1
     ${cnt}=    Read Word    ${TIM2_CNT}
-    Should Be True    999000 <= ${cnt} <= 1001000    TIM2 CNT ${cnt} after 1 s
+    ${p}=    Period Count    ${M2}
+    ${now}=    Evaluate    (${p} << 15) + (${cnt} ^ ((${p} & 1) << 15))
+    Should Be True    999000 <= ${now} <= 1001000    time base at ${now} us after 1 s (CNT ${cnt}, period ${p})
+
+The Counter Is 16-Bit
+    # The chip keeps only the low bits of ARR, as akko.resc models: a 32-bit
+    # time driver passes everything else here and fails on the board.
+    Boot    ${M2}
+    Run For    0.2
+    ${arr}=    Read Word    0x4000202C
+    Should Be Equal As Integers    ${arr}    0xFFFF
+    ${cnt}=    Read Word    ${TIM2_CNT}
+    Should Be True    ${cnt} <= 0xFFFF
 
 Caps LED Blinks For 10 s Then Returns To DFU
     Boot    ${M2}
     Caps LED Toggles Every 500 ms Then DFU
 
 Half-Wrap Advances The Period
-    # CC1 at 0x8000_0000
-    Boundary Advances The Period    ${M2_HALF}    0x80000000    0
+    # CC1 at 0x8000
+    Boundary Advances The Period    ${M2_HALF}    0x8000    0
 
 Wrap Advances The Period
     # update event at the wrap to 0
-    Boundary Advances The Period    ${M2_WRAP}    0x100000000    1
+    Boundary Advances The Period    ${M2_WRAP}    0x10000    1
 
 Time Base Survives The Half-Wrap
-    # The blink timing and the 10 s deadline must not notice the boundary at 2 s.
+    # The blink timing and the 10 s deadline must not notice the boundary at
+    # 20 ms (or the ~300 after it).
     Boot    ${M2_HALF}
     Caps LED Toggles Every 500 ms Then DFU
 

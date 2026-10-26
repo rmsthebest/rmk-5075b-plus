@@ -7,7 +7,8 @@
 # hal_lld.c brackets every ANCTL access). Locked writes are dropped and logged
 # as "LOCKED", which tests treat as a firmware bug.
 #
-# Log lines: "MMIO <R|W> <BLOCK>+0x<off> = 0x<val>" (Info; status polls Noisy).
+# Log lines: "MMIO <R|W> <BLOCK>+0x<off> = 0x<val>" (writes Info, reads Noisy:
+# the USB model polls the clock enables every simulated millisecond).
 
 if request.IsInit:
     regs = {}
@@ -41,10 +42,7 @@ if not request.IsInit:
         s = status(off)
         v = reg(off) if s is None else s
         request.Value = v
-        if s is None:
-            self.InfoLog("MMIO R %s = 0x%08x" % (name(off), v))
-        else:
-            self.NoisyLog("MMIO R %s = 0x%08x" % (name(off), v))
+        self.NoisyLog("MMIO R %s = 0x%08x" % (name(off), v))
     else:
         v = request.Value & 0xFFFFFFFF
         if ANCTL <= off < IWDG and not anctl_unlocked():

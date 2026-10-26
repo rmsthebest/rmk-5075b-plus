@@ -12,6 +12,9 @@ wb32-pac = { path = "../wb32-pac", features = ["rt"] }
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
 embassy-time = "0.5.1"
 embassy-futures = "0.1.2"
+embassy-sync = "0.8.0"
+embassy-usb = { version = "0.6.0", default-features = false }
+heapless = "0.9"
 
 [features]
 always-dfu = ["boot-guard/always-dfu"]
@@ -31,5 +34,10 @@ bench = false
 
 [[bin]]
 name = "m2-blink"
+test = false
+bench = false
+
+[[bin]]
+name = "m3-usb"
 test = false
 bench = false

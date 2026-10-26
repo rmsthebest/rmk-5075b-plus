@@ -5,6 +5,8 @@
 # e.g. the QMK clock-setup reference:
 #   sim/trace.sh ../akko_5075b_plus_fixes.bin 0.5 '^(PWR|ANCTL|RCC)'
 # Also prints any LOCKED writes or accesses to unmodelled addresses to stderr.
+# SIM_SETUP= adds monitor commands after loading, e.g. the QMK hook from
+# sim/qmk-hooks.resc: SIM_SETUP='include @sim/qmk-hooks.resc'.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,7 +23,7 @@ esac
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 "$RENODE/renode" --console --disable-gui --plain \
-    -e "include @sim/akko.resc; $load; machine Reset; emulation RunFor \"$secs\"; quit" >"$log" 2>&1
+    -e "include @sim/akko.resc; $load; machine Reset; ${SIM_SETUP:-}; emulation RunFor \"$secs\"; quit" >"$log" 2>&1
 
 grep -E "LOCKED|non existing" "$log" | sed -E 's/^\[[0-9:.]+\] //' >&2 || true
 # Renode folds repeats as "... (N)"; keep them, they're part of the sequence.

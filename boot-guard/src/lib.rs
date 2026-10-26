@@ -14,6 +14,8 @@
 //! - `HardFault` and `DefaultHandler` that request the bootloader, so a
 //!   crash lands in DFU instead of hanging.
 //! - [`request_bootloader`] for the firmware's own bootloader keycode.
+//! - With `panic-dfu`, a panic handler that keeps the panic message for the
+//!   next boot ([`take_panic_message`]) and then requests the bootloader.
 //!
 //! Everything that runs at reset is plain assembly that touches only
 //! peripheral registers and the hardware-provided stack.
@@ -211,9 +213,109 @@ pub fn request_bootloader() -> ! {
     unsafe { __boot_guard_reset_to_dfu() }
 }
 
-/// Any panic lands in DFU instead of hanging.
+/// Where the panic handler leaves the panic message for the next boot: just
+/// above the 28K the images link (and QMK uses), so neither RAM init nor the
+/// stack touches it. What the ROM bootloader does to this RAM is unknown, so
+/// the record carries a check word and [`take_panic_message`] ignores a
+/// damaged one.
+pub const PANIC_RECORD_ADDR: u32 = 0x2000_7000;
+pub const PANIC_MSG_MAX: usize = 120;
+const PANIC_MAGIC: u32 = 0x504E_4943; // "PNIC"
+
+#[repr(C)]
+struct PanicRecord {
+    magic: u32,
+    len: u32,
+    check: u32,
+    msg: [u8; PANIC_MSG_MAX],
+}
+
+fn panic_record() -> *mut PanicRecord {
+    PANIC_RECORD_ADDR as *mut PanicRecord
+}
+
+fn panic_check(len: u32, msg: &[u8]) -> u32 {
+    // FNV-1a over the length and the message.
+    let mut h: u32 = 0x811C_9DC5;
+    for b in len.to_le_bytes().iter().chain(msg) {
+        h = (h ^ *b as u32).wrapping_mul(0x0100_0193);
+    }
+    h
+}
+
+/// Returns the message of the panic that ended the previous run, at most
+/// once: the record is cleared on the first call.
+pub fn take_panic_message(buf: &mut [u8; PANIC_MSG_MAX]) -> Option<&str> {
+    let r = panic_record();
+    unsafe {
+        if (&raw const (*r).magic).read_volatile() != PANIC_MAGIC {
+            return None;
+        }
+        (&raw mut (*r).magic).write_volatile(0);
+        let len = (&raw const (*r).len).read_volatile();
+        let check = (&raw const (*r).check).read_volatile();
+        if len as usize > PANIC_MSG_MAX {
+            return None;
+        }
+        let len = len as usize;
+        for (i, b) in buf[..len].iter_mut().enumerate() {
+            *b = (&raw const (*r).msg[i]).read_volatile();
+        }
+        if panic_check(len as u32, &buf[..len]) != check {
+            return None;
+        }
+        // The writer truncates on a byte boundary; keep the valid prefix.
+        Some(match core::str::from_utf8(&buf[..len]) {
+            Ok(s) => s,
+            Err(e) => core::str::from_utf8(&buf[..e.valid_up_to()]).unwrap_or(""),
+        })
+    }
+}
+
+#[cfg(feature = "panic-dfu")]
+struct RecordWriter {
+    len: usize,
+}
+
+#[cfg(feature = "panic-dfu")]
+impl core::fmt::Write for RecordWriter {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let r = panic_record();
+        for b in s.bytes() {
+            if self.len == PANIC_MSG_MAX {
+                return Err(core::fmt::Error);
+            }
+            unsafe { (&raw mut (*r).msg[self.len]).write_volatile(b) };
+            self.len += 1;
+        }
+        Ok(())
+    }
+}
+
+/// Any panic lands in DFU instead of hanging, leaving its message for
+/// [`take_panic_message`]. A fault while formatting it still ends in DFU,
+/// through HardFault.
 #[cfg(feature = "panic-dfu")]
 #[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    use core::fmt::Write;
+    // No interrupt handler runs on a half-written record.
+    unsafe { core::arch::asm!("cpsid i", options(nomem, nostack, preserves_flags)) };
+    let r = panic_record();
+    let mut w = RecordWriter { len: 0 };
+    // One line: "file:line:col: message".
+    if let Some(loc) = info.location() {
+        let _ = write!(w, "{loc}: ");
+    }
+    let _ = write!(w, "{}", info.message());
+    let mut msg = [0u8; PANIC_MSG_MAX];
+    for (i, b) in msg[..w.len].iter_mut().enumerate() {
+        *b = unsafe { (&raw const (*r).msg[i]).read_volatile() };
+    }
+    unsafe {
+        (&raw mut (*r).len).write_volatile(w.len as u32);
+        (&raw mut (*r).check).write_volatile(panic_check(w.len as u32, &msg[..w.len]));
+        (&raw mut (*r).magic).write_volatile(PANIC_MAGIC);
+    }
     request_bootloader()
 }

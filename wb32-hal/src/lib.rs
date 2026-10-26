@@ -6,3 +6,4 @@ pub mod exti;
 pub mod gpio;
 pub mod rcc;
 pub mod time_driver;
+pub mod usb;

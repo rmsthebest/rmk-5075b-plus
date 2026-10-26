@@ -1,0 +1,23 @@
+name: wb32fq95
+# Westberry WB32FQ95xx (and WB32F3G71xx, same USB block). Register layout from
+# USB_TypeDef in the vendor CMSIS header wb32fq95xx.h. IN and OUT endpoints
+# with the same number have separate FIFOs (QMK's ChibiOS port uses EP n IN
+# and EP n OUT at once on this chip).
+target: thumbv7m-none-eabi
+block: wb32
+base_address: 0x40014000
+fifo:
+  type: fixed
+  shared: false
+reg_bit_size:
+  fifo: 8
+  intr: 8
+endpoints:
+  - type: rxtx
+    max_packet_size: 64
+  - type: rxtx
+    max_packet_size: 64
+  - type: rxtx
+    max_packet_size: 64
+  - type: rxtx
+    max_packet_size: 64
