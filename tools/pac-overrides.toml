@@ -1,0 +1,47 @@
+# Field overrides for tools/gen_pac.py: [BLOCK.REG] replaces the fields derived
+# from the header. An entry with len/stride becomes an indexed field, e.g.
+# GPIOA.moder().modify(|w| w.set_moder(5, 1)).
+# bit = offset of element 0, width = bits per element.
+
+[GPIO.MODER]
+moder = { bit = 0, width = 2, len = 16, stride = 2 }
+[GPIO.OTYPER]
+ot = { bit = 0, width = 1, len = 16, stride = 1 }
+[GPIO.OSPEEDR]
+ospeedr = { bit = 0, width = 2, len = 16, stride = 2 }
+[GPIO.PUPDR]
+pupdr = { bit = 0, width = 2, len = 16, stride = 2 }
+[GPIO.IDR]
+idr = { bit = 0, width = 1, len = 16, stride = 1 }
+[GPIO.ODR]
+odr = { bit = 0, width = 1, len = 16, stride = 1 }
+[GPIO.BSRR]
+bs = { bit = 0, width = 1, len = 16, stride = 1 }
+br = { bit = 16, width = 1, len = 16, stride = 1 }
+[GPIO.AFRL]
+afr = { bit = 0, width = 4, len = 8, stride = 4 }
+[GPIO.AFRH]
+afr = { bit = 0, width = 4, len = 8, stride = 4 }
+[GPIO.CURRENT]
+current = { bit = 0, width = 2, len = 16, stride = 2 }
+[GPIO.CFGMSK]
+# 1 = pin is protected from MODER/OTYPER/OSPEEDR/PUPDR/AFR/CURRENT writes
+cfgmsk = { bit = 0, width = 1, len = 16, stride = 1 }
+
+# The header has no EXTI field defines: one bit per line (0-18).
+[EXTI.IMR]
+line = { bit = 0, width = 1, len = 19, stride = 1 }
+[EXTI.EMR]
+line = { bit = 0, width = 1, len = 19, stride = 1 }
+[EXTI.RTSR]
+line = { bit = 0, width = 1, len = 19, stride = 1 }
+[EXTI.FTSR]
+line = { bit = 0, width = 1, len = 19, stride = 1 }
+[EXTI.SWIER]
+line = { bit = 0, width = 1, len = 19, stride = 1 }
+[EXTI.PR]
+line = { bit = 0, width = 1, len = 19, stride = 1 }
+
+# EXTICR[0..4]: 4 lines per register, value = port (0 = A, 1 = B, ...)
+[AFIO.EXTICR]
+exti = { bit = 0, width = 4, len = 4, stride = 4 }
