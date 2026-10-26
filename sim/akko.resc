@@ -1,0 +1,16 @@
+# Akko 5075B Plus machine for Renode. Callers load an image afterwards:
+#   include @sim/akko.resc
+#   sysbus LoadELF @target/thumbv7m-none-eabi/release/m1b-stub      (Rust)
+#   sysbus LoadBinary @../akko_5075b_plus_fixes.bin 0x08000000       (QMK .bin)
+#   machine Reset                                                    (boot from flash)
+
+mach create "akko"
+machine LoadPlatformDescription $ORIGIN/wb32fq95.repl
+machine PyDevFromFile $ORIGIN/peripherals/gpio.py 0x40000000 0x1000 True "gpio"
+machine PyDevFromFile $ORIGIN/peripherals/sysctl.py 0x40010000 0x1000 True "sysctl"
+
+# ROM stub at the DFU bootloader address: initial SP, then a reset handler that
+# spins at 0x1FFF_E008 (ROM_PARKED). "PC is at 0x1FFFE008" = "entered DFU".
+sysbus WriteDoubleWord 0x1FFFE000 0x20001000
+sysbus WriteDoubleWord 0x1FFFE004 0x1FFFE009
+sysbus WriteWord 0x1FFFE008 0xE7FE
