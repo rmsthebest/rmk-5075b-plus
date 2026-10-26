@@ -5,6 +5,8 @@
 #![no_main]
 
 use boot_guard as _;
+// Device interrupt vectors (all DefaultHandler -> DFU).
+use wb32_pac as _;
 use cortex_m_rt::entry;
 
 #[entry]

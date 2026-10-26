@@ -30,5 +30,16 @@ sram: Memory.MappedMemory @ sysbus 0x20000000
 
 // The WB32-specific peripherals are Python models added by akko.resc
 // (machine PyDevFromFile), because .repl files can't locate them by path:
-//   gpio   0x4000_0000  ports A-D + key matrix          peripherals/gpio.py
+//   gpio   0x4000_0000  ports A-D, AFIO, EXTI + key matrix  peripherals/gpio.py
 //   sysctl 0x4001_0000  PWR, ANCTL, IWDG, RCC            peripherals/sysctl.py
+//   cache  0x4001_5400  flash cache controller           peripherals/cache.py
+
+// TIM2: same register layout as an STM32 general-purpose timer (CR1..CCR4,
+// BDTR), 32-bit counter, clocked from PCLK1 (96 MHz with our clock setup).
+// Renode's model counts in virtual time. QMK doesn't use TIM2 (its ChibiOS
+// tick is SysTick), so there's no reference run; tests/m2_hal.robot checks
+// our time driver against virtual time instead.
+tim2: Timers.STM32_Timer @ sysbus 0x40002000
+    frequency: 96000000
+    initialLimit: 0xFFFFFFFF
+    -> nvic@21

@@ -1,3 +1,3 @@
 # reviewed boot-guard fingerprints (tools/precheck.py --accept-stub)
 always-dfu d8a3c7228442867b7842780f2b3e6835e746c9de221f1d054b0522ea5e1231fe
-full 31756ca2c7b9f811f7a7de487ed16483abe4de86b779982c5a630ec61abc6334
+full 0eef42016d8359d31a03e1b8fdae39851ec003329cbc3026ce6eb7cf86b2070a

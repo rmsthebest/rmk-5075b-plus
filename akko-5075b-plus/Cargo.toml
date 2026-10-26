@@ -7,9 +7,17 @@ edition = "2024"
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.5"
 boot-guard = { path = "../boot-guard", features = ["panic-dfu"] }
+wb32-hal = { path = "../wb32-hal" }
+wb32-pac = { path = "../wb32-pac", features = ["rt"] }
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
+embassy-time = "0.5.1"
+embassy-futures = "0.1.2"
 
 [features]
 always-dfu = ["boot-guard/always-dfu"]
+# Simulator only: start the time base 2 s before its counter's half-wrap or wrap.
+sim-time-near-half = ["wb32-hal/sim-time-near-half"]
+sim-time-near-wrap = ["wb32-hal/sim-time-near-wrap"]
 
 [[bin]]
 name = "m1a-bounce"
@@ -18,5 +26,10 @@ bench = false
 
 [[bin]]
 name = "m1b-stub"
+test = false
+bench = false
+
+[[bin]]
+name = "m2-blink"
 test = false
 bench = false

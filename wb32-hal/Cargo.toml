@@ -1,0 +1,21 @@
+[package]
+name = "wb32-hal"
+version = "0.1.0"
+edition = "2024"
+description = "Embassy HAL pieces for the WB32FQ95 on the Akko 5075B Plus"
+
+[dependencies]
+wb32-pac = { path = "../wb32-pac", features = ["rt"] }
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+critical-section = "1.2.0"
+embassy-time-driver = { version = "0.2.2", features = ["tick-hz-1_000_000"] }
+embassy-time-queue-utils = "0.3.2"
+embassy-sync = "0.8.0"
+embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
+
+[features]
+# Simulator tests only: start TIM2 2 s before its counter's half-wrap or full
+# wrap, so a short run exercises the time driver's period handling.
+sim-time-near-half = []
+sim-time-near-wrap = []

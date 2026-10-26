@@ -34,8 +34,10 @@ renode-venv/bin/pip install -r renode/tests/requirements.txt
 | Cortex-M3, NVIC, SysTick | Renode built-in | Interrupts, `SYSRESETREQ` resets with RAM kept (as on the chip) |
 | Flash `0x0800_0000` (+ alias at 0), SRAM 36K | memory | |
 | Boot ROM `0x1FFF_E000` | stub in `akko.resc` | Parks at `0x1FFF_E008`, which means "entered DFU" |
-| GPIO A–D | `peripherals/gpio.py` | MODER/PUPDR/ODR/BSRR/IDR, WB32 `CFGMSK` write masking, ROW2COL key matrix |
+| GPIO A–D, AFIO, EXTI | `peripherals/gpio.py` | MODER/PUPDR/ODR/BSRR/IDR, WB32 `CFGMSK` write masking, ROW2COL key matrix. EXTI lines 0–15 follow the pin AFIO selects; enabled edges set PR and drive the EXTI0–4/9_5/15_10 NVIC lines |
 | PWR, ANCTL, IWDG, RCC | `peripherals/sysctl.py` | Ready bits follow their enables; ANCTL writes need the ANAKEY window, and locked writes are dropped and logged as `LOCKED` |
+| TIM2 | Renode `STM32_Timer` (in the `.repl`) | Same register layout as WB32's TIM; 32-bit, 96 MHz input. QMK doesn't use it (its tick is SysTick), so `m2_hal.robot` checks it against virtual time |
+| Flash cache | `peripherals/cache.py` | Remembers writes, so the clock setup's cache write shows in traces |
 
 **Test control registers** (write with `sysbus WriteDoubleWord`):
 - `0x4000_0FF0 = (down << 16) | (row << 8) | col` presses or releases a key.
@@ -46,17 +48,27 @@ renode-venv/bin/pip install -r renode/tests/requirements.txt
 - QSPI and the SPI NOR flash (QMK's settings): needed for M4. QMK currently stops at its first flash transfer.
 - DMAC, SPIM2 (WS2812 LEDs), UART3 plus a scripted radio module: M5 and M6. The frames can come from `../tools/wls_host_test`.
 - USB (MUSB): there's no model. M3 is checked on hardware.
-- Timers, EXTI, ADC, the cache controller, DWT.
+- TIM1/3/4, ADC, DWT, and the cache's actual behaviour.
 
 ## Golden traces
 
-`golden/qmk_sysctl_writes.txt` holds the ordered PWR/ANCTL/RCC writes of the flashed QMK build (`akko_5075b_plus_fixes.bin`), which is its full 96 MHz clock bring-up. The M2 clock code should produce the same sequence:
+`golden/qmk_sysctl_writes.txt` holds the ordered PWR/ANCTL/RCC writes of the flashed QMK build (`akko_5075b_plus_fixes.bin`): its 96 MHz clock bring-up, then the board's peripheral clock enables. To compare an image by hand:
 
 ```fish
-diff (sim/trace.sh target/thumbv7m-none-eabi/release/<image> 0.5 '^(PWR|ANCTL|RCC)' | psub) sim/golden/qmk_sysctl_writes.txt
+diff (sim/trace.sh target/thumbv7m-none-eabi/release/m2-blink 0.05 '^(PWR|ANCTL|RCC|CACHE)' | tail -n +7 | psub) sim/golden/qmk_clock_init.txt
 ```
 
-`tests/qmk_reference.robot` re-checks the QMK build against this file, so if a model change alters the reference, that test fails.
+`golden/qmk_clock_init.txt` is the part of that sequence `wb32_hal::rcc::init` ports (through the APB2 bus-matrix enable), with the cache write included. `tests/m2_hal.robot` checks that m2-blink produces exactly this after boot-guard's own 6 writes.
+
+`tests/qmk_reference.robot` re-checks the QMK build against both files, so if a model change alters the reference, that test fails.
+
+## Suites
+
+| Suite | Image | Checks |
+|---|---|---|
+| `boot_guard.robot` | m1a-bounce, m1b-stub | DFU entry by magic word, Esc at cold start, HardFault; pin state restored |
+| `qmk_reference.robot` | QMK fixes build | The models against known-good firmware |
+| `m2_hal.robot` | m2-blink (3 builds) | Clock trace = QMK's; 1 MHz time base; 500 ms blink edges within ±10 ms and DFU at 10 s; the time driver's period count across the half-wrap and wrap (`sim-time-near-half`/`-wrap` builds start 2 s before them); Esc via EXTI returns to DFU within 2 ms |
 
 ## Limits
 

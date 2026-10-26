@@ -14,6 +14,12 @@ VENV=${RENODE_VENV:-$TOOLS/renode-venv}
 # m1a needs boot-guard's always-dfu feature, so it's built on its own.
 cargo build --release --bin m1b-stub
 cargo build --release --bin m1a-bounce --features always-dfu
+cargo build --release --bin m2-blink
+# m2-blink again with the time base started just before its counter's
+# half-wrap and full wrap.
+for b in half wrap; do
+    CARGO_TARGET_DIR=target/sim-near-$b cargo build --release --bin m2-blink --features sim-time-near-$b
+done
 
 if [ $# -eq 0 ]; then
     set -- sim/tests/*.robot

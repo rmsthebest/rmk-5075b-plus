@@ -1,5 +1,6 @@
-# WB32FQ95 GPIO ports A-D (0x4000_0000, 0x400 each) plus the Akko 5075B Plus
-# key matrix and other board-level inputs. Renode Python peripheral (IronPython 2.7).
+# WB32FQ95 GPIO ports A-D (0x4000_0000, 0x400 each), AFIO (0x4000_1400) and
+# EXTI (0x4000_1800), plus the Akko 5075B Plus key matrix and other board-level
+# inputs. Renode Python peripheral (IronPython 2.7), mapped at 0x4000_0000 +0x2000.
 #
 # Register layout per port (wb32fq95xx.h GPIO_TypeDef):
 #   0x00 MODER  0x04 OTYPER  0x08 OSPEEDR  0x0C PUPDR  0x10 IDR  0x14 ODR
@@ -13,6 +14,11 @@
 #   0xFF4 write: drive = (level << 16) | (port << 8) | pin, level 0 = low,
 #                1 = high, 2 = released (back to pull/floating)
 #   0xFF8 write: any value releases every key
+#
+# EXTI lines 0-15 follow the pin AFIO EXTICR selects. After every write here
+# (firmware or test control) each line's level is recomputed; an edge enabled
+# in RTSR/FTSR sets PR, and each NVIC line (EXTI0-4, EXTI9_5, EXTI15_10) is
+# held high while PR & IMR has a bit in its group. PR clears on writing 1.
 
 if request.IsInit:
     PORTS = 4
@@ -64,6 +70,41 @@ if request.IsInit:
             return 1
         return 0  # pull-down or floating: read as low
 
+    AFIO, EXTI = 0x1400, 0x1800
+    exticr = [0, 0, 0, 0]                 # AFIO+0x08..0x14
+    exti = dict((off, 0) for off in (0x00, 0x04, 0x08, 0x0C, 0x10, 0x14))
+    IMR, RTSR, FTSR, SWIER, PR = 0x00, 0x08, 0x0C, 0x10, 0x14
+    EXTI_IRQS = [(6, 1 << 0), (7, 1 << 1), (8, 1 << 2), (9, 1 << 3), (10, 1 << 4),
+                 (16, 0x03E0), (33, 0xFC00)]
+    irq_level = {}
+    line_last = [None] * 16
+
+    from Antmicro.Renode.Core import EmulationManager
+    nvic = None
+    for m in EmulationManager.Instance.CurrentEmulation.Machines:
+        nvic = m.SystemBus.WhatPeripheralIsAt(0xE000E000)
+
+    def line_level(line):
+        port = (exticr[line // 4] >> ((line % 4) * 4)) & 0xF
+        return pin_level(port, line) if port < PORTS else 0
+
+    def exti_update():
+        for line in range(16):
+            lv = line_level(line)
+            old = line_last[line]
+            line_last[line] = lv
+            if old is None or lv == old:
+                continue
+            bit = 1 << line
+            if (lv and exti[RTSR] & bit) or (not lv and exti[FTSR] & bit):
+                exti[PR] |= bit
+        active = exti[PR] & exti[IMR]
+        for irq, mask in EXTI_IRQS:
+            level = (active & mask) != 0
+            if irq_level.get(irq, False) != level:
+                irq_level[irq] = level
+                nvic.OnGPIO(irq, level)
+
     def idr(port):
         v = 0
         for pin in range(16):
@@ -72,6 +113,33 @@ if request.IsInit:
 
 if request.IsInit:
     pass
+elif request.Offset >= EXTI:
+    off = request.Offset - EXTI
+    if request.IsRead:
+        request.Value = exti.get(off, 0)
+    else:
+        v = request.Value & 0xFFFFFFFF
+        self.InfoLog("MMIO W EXTI+0x%03x = 0x%08x" % (off, v))
+        if off == PR:
+            exti[PR] &= ~v
+        elif off == SWIER:
+            exti[PR] |= v & ~exti[SWIER]
+            exti[SWIER] = v
+        elif off in exti:
+            exti[off] = v
+elif request.Offset >= AFIO:
+    off = request.Offset - AFIO
+    idx = (off - 0x08) // 4
+    if request.IsRead:
+        request.Value = exticr[idx] if 0 <= idx < 4 else 0
+    else:
+        v = request.Value & 0xFFFF
+        self.InfoLog("MMIO W AFIO+0x%03x = 0x%08x" % (off, v))
+        if 0 <= idx < 4:
+            exticr[idx] = v
+elif request.Offset >= 0x1000:
+    if request.IsRead:
+        request.Value = 0
 elif request.Offset >= 0xFF0:
     if request.IsWrite:
         v = request.Value
@@ -123,3 +191,6 @@ else:
             pass
         else:
             r[off] = v
+
+if not request.IsInit and request.IsWrite:
+    exti_update()

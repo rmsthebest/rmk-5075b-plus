@@ -73,6 +73,10 @@ def guard_listing(elf, variant):
         line = re.sub(r"\s+@?\s*imm = #-?0x[0-9a-f]+", "", line)
         if line.strip() and "file format" not in line and "Disassembly" not in line:
             lines.append(line.strip())
+    # The last pool runs on to the next symbol, so it may end in lld's
+    # alignment fill, depending on what the image links after it.
+    while lines[-1] == ".word\t0xd4d4d4d4":
+        lines.pop()
     return "\n".join(lines) + "\n"
 
 
