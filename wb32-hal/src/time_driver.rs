@@ -11,7 +11,8 @@
 //!   interrupt is pending while `now()` runs.
 //! - CC2 is the alarm. It's only armed once the alarm is less than one
 //!   half-period plus margin away (`next_period` arms it then), so a CCR2
-//!   match can never come a full wrap early.
+//!   match can never come a full wrap early. Each half-wrap also fires an
+//!   overdue alarm, so a missed match costs at most 32 ms, not the alarm.
 
 use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
@@ -109,7 +110,12 @@ impl TimDriver {
             if sr.cc1if() {
                 self.next_period(cs);
             }
-            if sr.cc2if() && dier.cc2ie() {
+            // Also on a half-wrap if the alarm is overdue: a missed CC2 match
+            // would otherwise leave it pending for good, and with it every
+            // later timer (the timer queue only re-arms for earlier ones).
+            // Renode's timer never matches CCR2 = 0, an alarm right at a wrap.
+            let overdue = (sr.uif() || sr.cc1if()) && self.alarm.borrow(cs).get() <= self.now();
+            if (sr.cc2if() && dier.cc2ie()) || overdue {
                 self.trigger_alarm(cs);
             }
         })
