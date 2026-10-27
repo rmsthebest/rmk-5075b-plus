@@ -438,7 +438,7 @@ impl<'a> KeyMap<'a> {
             .is_err()
         {
             error!("Failed to read from storage, clearing...");
-            storage.flash.erase_all().await.ok();
+            storage.erase_all().await.ok();
             reboot_keyboard();
         }
 

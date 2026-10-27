@@ -363,8 +363,8 @@ Storage Stays Out Of QMK's Block
         Should Be Equal As Integers    ${v.strip()}    ${{ 0xA5000000 | ${a} }}
     END
     Should Not Be In Log    flash: (CE|(SE|BE|PP) 0x00)    treatAsRegex=true
-    # RMK's sectors are the last four of its window.
-    ${b}=    Flash Byte    0x1C000
+    # RMK's sectors are its whole window, 0x10000-0x1FFFF.
+    ${b}=    Flash Byte    0x10000
     Should Not Be Equal As Integers    ${b}    0xFF
 
 A Keymap Change Through Vial Survives A Reset

@@ -40,3 +40,7 @@ Fixes:
 - `src/storage/mod.rs`: the map storage caches page states and pointers
   (`CACHE_PAGES` = 16 sectors at most). Uncached, every operation re-read
   each page's header and walked to its end over the 3 MHz SPI flash.
+  `Storage::erase_all` starts a fresh cache after erasing:
+  `MapStorage::erase_all` keeps the old one, and page states cached from a
+  previous layout sent writes to the wrong place (found in the sim, moving
+  the board's 4-sector storage to 16 sectors: the next boot wiped it).

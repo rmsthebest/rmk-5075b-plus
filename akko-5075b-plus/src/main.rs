@@ -281,8 +281,9 @@ async fn main(_spawner: Spawner) {
             serial_number: RMK_BUILD_INFO,
         },
         vial_config: VialConfig { insecure: true, ..VialConfig::new(&VIAL_KEYBOARD_ID, &VIAL_KEYBOARD_DEF, &[]) },
-        // start_addr 0: the last num_sectors of the window.
-        storage_config: StorageConfig { start_addr: 0, num_sectors: 4, ..Default::default() },
+        // start_addr 0: the last num_sectors of the window, here all 16 of
+        // it. More room means fewer page migrations (each moves every item).
+        storage_config: StorageConfig { start_addr: 0, num_sectors: 16, ..Default::default() },
     };
 
     let mut behavior = BehaviorConfig::default();

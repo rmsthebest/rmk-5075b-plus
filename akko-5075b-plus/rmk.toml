@@ -1,8 +1,39 @@
 # RMK's compile-time sizes (read by rmk-types' build script through
-# KEYBOARD_TOML_PATH in .cargo/config.toml). Only the [event.*] sizes are
-# used; the keyboard itself is set up in Rust (src/main.rs), and the
-# debounce is src/scan.rs's.
+# KEYBOARD_TOML_PATH in .cargo/config.toml). The keyboard itself is set up in
+# Rust (src/main.rs), and the debounce is src/scan.rs's.
+
+[rmk]
+# Only layers and lighting are used: no combos, key overrides (forks),
+# tap dance (morse) or macros from Vial. Each slot costs RAM in the keymap's
+# behaviour config, the keyboard and the storage messages. Changing these
+# changes stored items: bump RMK_BUILD_HASH (.cargo/config.toml) with them.
+combo_max_num = 0
+fork_max_num = 0
+morse_max_num = 0
+morse_profile_max_num = 0
+# Its minimum.
+max_patterns_per_key = 4
+# Sizes every storage message (the flash channel holds 4).
+macro_space_size = 64
+report_channel_size = 8
 
 # bootloader.rs, lighting.rs and radio.rs subscribe to resolved actions.
 [event.action]
 subs = 3
+
+# The keyboard and lighting.rs.
+[event.keyboard]
+subs = 2
+
+# RMK's caps-lock LED processor only.
+[event.led_indicator]
+subs = 1
+
+# Nothing subscribes: publishing is a no-op.
+[event.modifier]
+subs = 0
+channel_size = 1
+
+[event.layer_change]
+subs = 0
+channel_size = 1

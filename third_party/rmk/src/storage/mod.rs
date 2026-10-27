@@ -375,8 +375,14 @@ pub async fn new_storage_without_keymap<F: AsyncNorFlash>(
 /// akko-5075b-plus: page states and pointers cached for up to this many
 /// sectors. Uncached, every operation re-read each page's header and walked
 /// to its end over the SPI flash.
+/// `MapStorage::erase_all` leaves the cache as it was, so erase through
+/// `Storage::erase_all`, which starts a fresh one.
 const CACHE_PAGES: usize = 16;
 type StorageCache = Cache<ArrayPageStates<CACHE_PAGES>, ArrayPagePointers<CACHE_PAGES>, Uncached, StorageKey>;
+
+fn new_cache() -> StorageCache {
+    Cache::new(ArrayPageStates::new(), ArrayPagePointers::new(), Uncached)
+}
 
 pub struct Storage<
     F: AsyncNorFlash,
@@ -406,6 +412,21 @@ macro_rules! update_storage_field {
 impl<F: AsyncNorFlash, const ROW: usize, const COL: usize, const NUM_LAYER: usize, const NUM_ENCODER: usize>
     Storage<F, ROW, COL, NUM_LAYER, NUM_ENCODER>
 {
+    /// Erases the whole storage range and forgets the cache, which
+    /// `MapStorage::erase_all` doesn't: page states cached before the erase
+    /// (a previous layout's, say) would send later writes to the wrong place.
+    pub(crate) async fn erase_all(&mut self) -> Result<(), sequential_storage::Error<F::Error>> {
+        let result = self.flash.erase_all().await;
+        let range = self.flash.flash_range();
+        // SAFETY: `self.flash` is moved out and written back with nothing in
+        // between that can panic or return.
+        unsafe {
+            let (flash, _) = core::ptr::read(&self.flash).destroy();
+            core::ptr::write(&mut self.flash, MapStorage::new(flash, MapConfig::new(range), new_cache()));
+        }
+        result
+    }
+
     async fn fetch_data(&mut self, key: StorageKey) -> Option<StorageData> {
         match self.flash.fetch_item(&mut self.buffer, &key).await {
             Ok(data) => data,
@@ -472,7 +493,7 @@ impl<F: AsyncNorFlash, const ROW: usize, const COL: usize, const NUM_LAYER: usiz
             flash: MapStorage::new(
                 flash,
                 MapConfig::new(storage_range),
-                Cache::new(ArrayPageStates::new(), ArrayPagePointers::new(), Uncached),
+                new_cache(),
             ),
             buffer: [0; get_buffer_size()],
         };
@@ -481,7 +502,7 @@ impl<F: AsyncNorFlash, const ROW: usize, const COL: usize, const NUM_LAYER: usiz
         if !storage.check_enable().await || storage_config.clear_storage {
             // Clear storage first
             debug!("Clearing storage!");
-            let _ = storage.flash.erase_all().await;
+            let _ = storage.erase_all().await;
 
             // Initialize storage from keymap and config
             if storage
@@ -715,7 +736,7 @@ impl<F: AsyncNorFlash, const ROW: usize, const COL: usize, const NUM_LAYER: usiz
                     update_storage_field!(&mut self.flash, &mut self.buffer, LayoutConfig, layout_option)
                 }
                 FlashOperationMessage::Reset => {
-                    let result = self.flash.erase_all().await;
+                    let result = self.erase_all().await;
                     reboot_keyboard();
                     result
                 }
