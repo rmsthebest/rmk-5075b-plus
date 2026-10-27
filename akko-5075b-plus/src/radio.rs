@@ -29,8 +29,13 @@
 //! board): it takes the device changes from `take_board_event` and the
 //! module's state from `module_state` before each frame.
 //!
-//! Not yet: the pairing and reconnect timeouts that put the board to sleep
-//! (M7), and Vial through the dongle (the module's raw HID frames are
+//! Sleep (src/power.rs) asks here: whether a wireless device is selected
+//! (`wireless`), whether a pairing key's hold started the pairing
+//! (`pairing`), the module told before sleeping (`module_sleep`), the
+//! device re-selected on waking (`reselect`); the module's host state
+//! frames go to `power::host_state`.
+//!
+//! Not yet: Vial through the dongle (the module's raw HID frames are
 //! ignored).
 
 use core::cell::RefCell;
@@ -51,7 +56,7 @@ use rmk::types::led_indicator::LedIndicator;
 use wb32_hal::gpio::{AnyPin, Input, Output, Port, Pull};
 use wb32_hal::uart::Uart3;
 use wireless::frame::{devctrl, utf16z};
-use wireless::{Device, DeviceStrings, Link};
+use wireless::{Device, DeviceStrings, Event, Link};
 
 pub const BAUD: u32 = 115_200;
 
@@ -90,6 +95,9 @@ static STRINGS: DeviceStrings = DeviceStrings {
 static LINK: Mutex<CriticalSectionRawMutex, RefCell<Link>> = Mutex::new(RefCell::new(Link::new(&STRINGS)));
 /// Reports go to the module, not USB.
 static WIRELESS: AtomicBool = AtomicBool::new(false);
+/// hs_pairing_flag: a pairing key's hold started pairing; a pairing key's
+/// press ends it.
+static PAIRING: AtomicBool = AtomicBool::new(false);
 /// Wakes the task after the report hook queued something.
 static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 /// confinfo.devs and last_btdevs, for the lighting record.
@@ -131,6 +139,39 @@ pub fn take_board_event() -> Option<BoardEvent> {
 
 pub fn module_state() -> u8 {
     MODULE_STATE.load(Ordering::Relaxed)
+}
+
+/// A wireless device is selected (reports go to the module).
+pub fn wireless() -> bool {
+    WIRELESS.load(Ordering::Relaxed)
+}
+
+/// A pairing key's hold started pairing.
+pub fn pairing() -> bool {
+    PAIRING.load(Ordering::Relaxed)
+}
+
+/// Before sleeping on a timeout or a flat battery: devctrl USB, as the
+/// vendor's wls.c sends then.
+pub fn module_sleep() {
+    LINK.lock(|l| l.borrow_mut().send_devctrl(devctrl::USB));
+    POKE.signal(());
+}
+
+/// On waking: the current device selected again
+/// (wireless_devs_change(cur, cur, false)), and its indicator restarted.
+pub fn reselect() {
+    if !wireless() {
+        return;
+    }
+    let dev = LINK.lock(|l| {
+        let mut l = l.borrow_mut();
+        let dev = l.device();
+        l.select(dev, false);
+        dev
+    });
+    board_event(BoardEvent::Select(dev as u8));
+    POKE.signal(());
 }
 
 fn now_ms() -> u32 {
@@ -264,6 +305,7 @@ impl Radio {
             return;
         }
         board_event(BoardEvent::Key(dev as u8));
+        PAIRING.store(false, Ordering::Relaxed);
         let current = LINK.lock(|l| l.borrow().device());
         if current != dev {
             self.change(dev, false).await;
@@ -330,8 +372,10 @@ impl Radio {
                 l.rx_idle(now);
             }
             while let Some(b) = uart.read() {
-                // Raw HID, host state and the rest: nothing for us yet.
-                let _ = l.receive(b, now, &mut tx);
+                // Raw HID and the rest: nothing for us yet.
+                if let Some(Event::HostState { resume }) = l.receive(b, now, &mut tx) {
+                    crate::power::host_state(resume);
+                }
             }
         });
         UART_ERRORS.store(self.uart.rx_errors(), Ordering::Relaxed);
@@ -354,6 +398,7 @@ impl Radio {
             && now.wrapping_sub(at) as i32 >= 0
         {
             self.hold = None;
+            PAIRING.store(true, Ordering::Relaxed);
             board_event(BoardEvent::Pair(dev as u8));
             self.change(dev, true).await;
         }

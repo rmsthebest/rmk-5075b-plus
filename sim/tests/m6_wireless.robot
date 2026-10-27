@@ -18,7 +18,12 @@ ${HOST_CMD}         0xF00
 ${HOST_OUT_BYTE}    0xF0C
 ${VIAL_OUT_EP}      2
 ${GPIO_KEY}         0x40000FF0
+${GPIOA_ODR}        0x40000014
 ${GPIOB_ODR}        0x40000414
+${GPIOC_MODER}      0x40000800
+${GPIO_DRIVE}       0x40000FF4
+${LED_POWER}        0x100
+${LED_BOOST}        0x200
 ${GPIOC_ODR}        0x40000814
 ${USB_POWER}        0x02
 ${CAPS_LED}         0x20
@@ -44,6 +49,8 @@ ${A_DOWN}           a1 00 00 04 00 00 00 00 00 a5
 ${CONNECTED}        0x325B
 ${DISCONNECTED}     0x335B
 ${CAPS_ON}          0x025A
+${HOST_SUSPEND}     0x0060
+${HOST_RESUME}      0x0160
 ${LED_SELECT}       0xF8
 ${LED_COLOUR}       0xFC
 ${LED_2G4}          38
@@ -135,6 +142,33 @@ On The Dongle
     Radio Should Get    ${SEL_DONGLE}
     Module Sends    ${CONNECTED}
     Radio Should Get    ${ALL_UP}
+
+Should Be Asleep
+    [Documentation]    Asleep (src/power.rs): the LED supply and boost off,
+    ...    the Caps LED off, and (unless ${lower}) the columns driven low:
+    ...    C0-C3 are outputs (MODER 01).
+    [Arguments]    ${asleep}    ${lower}=${False}
+    ${a}=    Execute Command    sysbus ReadDoubleWord ${GPIOA_ODR}
+    ${a}=    Evaluate    int($a.strip(), 0)
+    Should Be Equal    ${{ not ($a & ${LED_BOOST}) }}    ${asleep}    boost
+    IF    ${asleep}
+        Should Be Equal    ${{ bool($a & ${LED_POWER}) }}    ${False}    LED power
+        Caps LED Should Be    ${False}
+    END
+    ${moder}=    Execute Command    sysbus ReadDoubleWord ${GPIOC_MODER}
+    ${driven}=    Evaluate    (int($moder.strip(), 0) & 0xFF) == 0x55
+    Should Be Equal    ${driven}    ${{ ${asleep} and not ${lower} }}    columns driven
+
+Set Sleep Timeout
+    [Documentation]    Over Vial channel 0xD7: 0 never, 1 = 1 min, ..., 7 = 2 min.
+    [Arguments]    ${index}
+    Raw HID Send    0x08    0xD7    ${{ ${index} + 1 }}
+    Wait For Log Entry    HOST HID 3: 08 d7 ${{ "%02x %02x" % (${index} + 1, ${index}) }}    timeout=1    pauseEmulation=true
+
+Drive
+    [Documentation]    Pin ${pin} of port ${port} (0 A, 1 B, 2 C): 0 low, 1 high, 2 released.
+    [Arguments]    ${port}    ${pin}    ${level}
+    Execute Command    sysbus WriteDoubleWord ${GPIO_DRIVE} ${{ (${level} << 16) | (${port} << 8) | ${pin} }}
 
 LED
     [Documentation]    LED ${i}'s colour in the last frame, 0xRRGGBB.
@@ -312,3 +346,104 @@ The Dongle's Key Blinks Until Connected, Then Shows Green For 2 s
     ${seen}=    LED Colours Over    ${LED_2G4}    0.5
     Should Not Contain    ${seen}    ${{ ${GREEN} }}
     Should Not Contain    ${seen}    ${{ ${RED} }}
+
+Idle On The Dongle It Sleeps, And A Key Wakes It And Is Typed
+    [Documentation]    Sleep timeout 1 min (src/power.rs): a minute without
+    ...    input on the dongle, it sleeps: the lights' supply, the boost and
+    ...    the Caps LED off, the columns driven low. A key wakes it; the key
+    ...    reaches the host, the device is selected again, the lights come
+    ...    back.
+    Boot
+    On The Dongle
+    Module Sends    ${CAPS_ON}
+    Set Sleep Timeout    1
+    Run For    58
+    Should Be Asleep    ${False}
+    Caps LED Should Be    ${True}
+    Run For    3
+    Should Be Asleep    ${True}
+    Key    ${KEY_A}    1
+    Radio Should Get    ${A_DOWN}
+    Radio Should Get    ${SEL_DONGLE}
+    Key    ${KEY_A}    0
+    Radio Should Get    ${ALL_UP}
+    Run For    0.3
+    Should Be Asleep    ${False}
+    Caps LED Should Be    ${True}
+    ${a}=    Execute Command    sysbus ReadDoubleWord ${GPIOA_ODR}
+    Should Be True    int($a.strip(), 0) & ${LED_POWER}    the lights are back
+    No Radio Errors
+
+Never Means Never; Otherwise A Link Down For 30 s Sleeps
+    [Documentation]    With the setting "never" the keyboard stays awake with the
+    ...    link down; with the default (2 min) it sleeps 30 s after the link
+    ...    went down, telling the module first (devctrl USB, as the vendor).
+    Boot
+    On The Dongle
+    Set Sleep Timeout    0
+    Module Sends    ${DISCONNECTED}
+    Run For    35
+    Should Be Asleep    ${False}
+    Set Sleep Timeout    7
+    Run For    0.5
+    # Input (the Vial request isn't) restarted nothing: 35 s down already.
+    Radio Should Get    ${SEL_USB}
+    Run For    0.5
+    Should Be Asleep    ${True}
+
+The Host Suspending Sleeps It At Once, Its Resume Wakes It
+    [Documentation]    The module's host state frame (0x60): 0 the host
+    ...    suspended, 1 it resumed. Also with the setting "never". A long
+    ...    sleep doesn't trip the watchdog.
+    Boot
+    On The Dongle
+    Set Sleep Timeout    0
+    Module Sends    ${HOST_SUSPEND}
+    Run For    0.5
+    Should Be Asleep    ${True}
+    # Asleep, the scan runs at 10 ms: the watchdog (2 s) stays quiet. A
+    # reset would have woken it.
+    Run For    10
+    Should Be Asleep    ${True}
+    Module Sends    ${HOST_RESUME}
+    Radio Should Get    ${SEL_DONGLE}
+    Run For    0.3
+    Should Be Asleep    ${False}
+
+The Knob Wakes It, And The Turn Is Sent
+    Boot
+    On The Dongle
+    Module Sends    ${HOST_SUSPEND}
+    Run For    0.5
+    Should Be Asleep    ${True}
+    Drive    1    7    0
+    Run For    0.002
+    Drive    1    6    0
+    Run For    0.002
+    Drive    1    7    2
+    Run For    0.002
+    Drive    1    6    2
+    # A consumer report through the module: a3, volume up (e9).
+    Radio Should Get    a3 e9 00
+    Run For    0.3
+    Should Be Asleep    ${False}
+
+A Flat Battery Sleeps It Until The Cable Goes In
+    [Documentation]    At 0% for a minute (M7a's timer) the module is told and
+    ...    the keyboard sleeps; keys don't wake it (the columns stay
+    ...    released); the cable going in (A7 high) does.
+    Boot
+    Execute Command    uart3 WriteDoubleWord ${RADIO_FLAGS} 0
+    On The Dongle
+    Run For    62
+    Radio Should Get    ${SEL_USB}    timeout=5
+    Run For    0.5
+    Should Be Asleep    ${True}    lower=${True}
+    Key    ${KEY_A}    1
+    Run For    0.3
+    Key    ${KEY_A}    0
+    Should Be Asleep    ${True}    lower=${True}
+    Drive    0    7    1
+    Run For    0.5
+    Should Be Asleep    ${False}
+    Drive    0    7    2

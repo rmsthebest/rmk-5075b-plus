@@ -3,6 +3,10 @@
 //! (`drivers/encoder/encoder_quadrature.c`, resolution 4), so a detent turns
 //! the same way as on the QMK build: +4 is counter-clockwise, -4 clockwise.
 //!
+//! Asleep (src/power.rs), it waits for an edge only, without the 5 ms poll;
+//! an edge wakes the keyboard and the turn is sent. A step counts as input
+//! for the sleep timeout.
+//!
 //! RMK's own `RotaryEncoder` only waits on edges with the `async_matrix`
 //! feature, and otherwise polls every 20 ms, too slow for a quick turn.
 
@@ -72,17 +76,24 @@ impl Knob {
                     let dir = if self.queued > 0 { Direction::CounterClockwise } else { Direction::Clockwise };
                     self.queued -= self.queued.signum();
                     self.held = Some((dir, now + TAP));
+                    crate::power::input();
                     return KeyboardEvent::rotary_encoder(self.id, dir, true);
                 }
                 _ => {}
             }
             // An edge between the read above and arming EXTI would only be
             // seen at the next one; the timeout catches it.
+            let edge = select(self.a.wait_for_any_edge(), self.b.wait_for_any_edge());
+            if self.held.is_none() && crate::power::sleeping() {
+                edge.await;
+                crate::power::input();
+                continue;
+            }
             let wake = match self.held {
                 Some((_, until)) => until.min(now + POLL),
                 None => now + POLL,
             };
-            select(select(self.a.wait_for_any_edge(), self.b.wait_for_any_edge()), Timer::at(wake)).await;
+            select(edge, Timer::at(wake)).await;
         }
     }
 }

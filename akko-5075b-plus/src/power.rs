@@ -1,14 +1,66 @@
-//! Sleep (M7b).
+//! Sleep (M7b): "light sleep", as the vendor's lowpower.c decides when,
+//! but without stop mode (M7c): the clocks and SysTick run on, and the
+//! executor waits in WFE as always. What saves power is what stops:
+//! - the lighting: the LED chain's supply (A8) and the boost (A9) off, and
+//!   the aux, Win-lock and Caps Lock LEDs off (src/lighting.rs, `CapsPin`);
+//! - the scan: every column driven low and the rows read every 10 ms, for
+//!   any key to wake on (src/scan.rs); no 1 kHz scan;
+//! - the knob's 5 ms poll: it waits for an edge (src/knob.rs).
+//!
+//! When: only while a wireless device is selected (QMK never sleeps the MCU
+//! on USB; there the lighting goes off 7 s after the host suspends, see
+//! src/lighting.rs):
+//! - no key or knob input for the sleep timeout (the setting below);
+//! - the link down (DISCONNECTED) for 30 s, or 2 min after a pairing
+//!   key's hold; pairing (PAIRING) for 2 min. The module is told first
+//!   (devctrl USB, as the vendor's wls.c). Not with the setting "never":
+//!   unlike the vendor's, never means never;
+//! - the host suspending (the module's host state frame, `host_state`);
+//! - the battery at 0% for a minute (the lighting's `shutdown_requested`):
+//!   "lower sleep", which keys and the knob don't wake; the columns stay
+//!   released.
+//!
+//! Waking: a key, a knob edge, the cable going in (A7, polled every
+//! 250 ms), or the host resuming. The radio re-selects the device (as the
+//! vendor's suspend_wakeup_init_kb), and the key that woke it is read and
+//! sent as usual.
 //!
 //! The sleep timeout is the vendor's setting (`record::SLEEP_*`: never, 1,
 //! 3, 5, 10, 20, 30 minutes, default 2), set over Vial channel 0xD7
 //! (tools/sleep.py) and saved with the lighting record.
 
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::convert::Infallible;
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
+use embassy_futures::select::select;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
+use embassy_time::{Instant, Timer};
+use lighting_crate::board::{MD_STATE_DISCONNECTED, MD_STATE_PAIRING};
 use lighting_crate::record;
+use wb32_hal::gpio::{AnyPin, Input, Output, Port, Pull};
+
+use crate::radio;
+
+/// HS_LBACK_TIMEOUT and HS_PAIR_TIMEOUT (wls.h).
+const RECONNECT_TIMEOUT_MS: u32 = 30_000;
+const PAIR_TIMEOUT_MS: u32 = 120_000;
+/// How often the task looks, awake or asleep.
+const TICK_MS: u64 = 250;
+/// The vendor's wait after telling the module (wls.c, wait_ms(200)).
+const MODULE_SLEEP_WAIT_MS: u64 = 200;
 
 static SETTING: AtomicU8 = AtomicU8::new(record::SLEEP_DEFAULT);
+static SLEEPING: AtomicBool = AtomicBool::new(false);
+/// Asleep for the flat battery: only the cable wakes.
+static LOWER: AtomicBool = AtomicBool::new(false);
+/// The last key or knob input, ms.
+static LAST_INPUT: AtomicU32 = AtomicU32::new(0);
+/// Asked to sleep now: the host suspended, or the battery is flat.
+static HOST_SUSPENDED: AtomicBool = AtomicBool::new(false);
+static FLAT: AtomicBool = AtomicBool::new(false);
+/// Wakes the task: input while asleep, the host's state, a flat battery.
+static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// The sleep timeout, `record::SLEEP_*`.
 pub fn setting() -> u8 {
@@ -20,5 +72,210 @@ pub fn setting() -> u8 {
 pub fn set_setting(index: u8) {
     if index <= record::SLEEP_DEFAULT {
         SETTING.store(index, Ordering::Relaxed);
+    }
+}
+
+/// Asleep: the lights, the scan and the knob's poll are off.
+pub fn sleeping() -> bool {
+    SLEEPING.load(Ordering::Relaxed)
+}
+
+/// Asleep for the flat battery: keys don't wake it.
+pub fn lower() -> bool {
+    LOWER.load(Ordering::Relaxed)
+}
+
+fn now_ms() -> u32 {
+    Instant::now().as_millis() as u32
+}
+
+/// A key or knob input: restarts the idle time, and wakes the keyboard
+/// unless it's asleep for the flat battery.
+pub fn input() {
+    LAST_INPUT.store(now_ms(), Ordering::Relaxed);
+    if sleeping() && !lower() {
+        SLEEPING.store(false, Ordering::Relaxed);
+        POKE.signal(());
+    }
+}
+
+/// The module's host state frame: the host suspended (false) or resumed.
+pub fn host_state(resume: bool) {
+    HOST_SUSPENDED.store(!resume, Ordering::Relaxed);
+    POKE.signal(());
+}
+
+/// The battery sat at 0% for a minute.
+pub fn flat_battery() {
+    FLAT.store(true, Ordering::Relaxed);
+    POKE.signal(());
+}
+
+/// Why it went to sleep.
+#[derive(Clone, Copy, PartialEq)]
+enum Why {
+    Idle,
+    Link,
+    Host,
+    Flat,
+}
+
+pub struct Power {
+    cable: Input,
+    /// The module's state, and when it was entered (ms).
+    state: u8,
+    state_since: u32,
+    cable_was: bool,
+    /// Why it's asleep (None: awake).
+    asleep: Option<Why>,
+}
+
+impl Power {
+    pub fn new() -> Self {
+        // A7, the cable sense; also read by the lighting and the radio.
+        let cable = Input::new(unsafe { AnyPin::steal(Port::A, 7) }, Pull::None);
+        let now = now_ms();
+        LAST_INPUT.store(now, Ordering::Relaxed);
+        let cable_was = cable.is_high();
+        Power { cable, state: 0, state_since: now, cable_was, asleep: None }
+    }
+
+    /// Whether to sleep now, and why.
+    fn due(&mut self, now: u32) -> Option<Why> {
+        let state = radio::module_state();
+        if state != self.state {
+            self.state = state;
+            self.state_since = now;
+        }
+        // Input restarts the link timers too (as a key restarts the
+        // vendor's hs_rgb_blink_hook timer).
+        let last = LAST_INPUT.load(Ordering::Relaxed);
+        if now.wrapping_sub(last) < now.wrapping_sub(self.state_since) {
+            self.state_since = last;
+        }
+        if FLAT.swap(false, Ordering::Relaxed) && radio::wireless() {
+            return Some(Why::Flat);
+        }
+        if !radio::wireless() {
+            return None;
+        }
+        if HOST_SUSPENDED.load(Ordering::Relaxed) {
+            return Some(Why::Host);
+        }
+        let timeout = record::sleep_ms(setting());
+        if timeout == 0 {
+            return None;
+        }
+        if now.wrapping_sub(last) >= timeout {
+            return Some(Why::Idle);
+        }
+        let link = match state {
+            MD_STATE_DISCONNECTED if radio::pairing() => PAIR_TIMEOUT_MS,
+            MD_STATE_DISCONNECTED => RECONNECT_TIMEOUT_MS,
+            MD_STATE_PAIRING => PAIR_TIMEOUT_MS,
+            _ => return None,
+        };
+        (now.wrapping_sub(self.state_since) >= link && !crate::lighting::recording()).then_some(Why::Link)
+    }
+
+    async fn sleep(&mut self, why: Why) {
+        if matches!(why, Why::Link | Why::Flat) {
+            radio::module_sleep();
+            Timer::after_millis(MODULE_SLEEP_WAIT_MS).await;
+        }
+        LOWER.store(why == Why::Flat, Ordering::Relaxed);
+        self.cable_was = self.cable.is_high();
+        self.asleep = Some(why);
+        SLEEPING.store(true, Ordering::Relaxed);
+        refresh_caps();
+    }
+
+    /// Asleep: true once something woke it.
+    fn woken(&mut self) -> bool {
+        let cable = self.cable.is_high();
+        let plugged = cable && !self.cable_was;
+        self.cable_was = cable;
+        let resumed = self.asleep == Some(Why::Host) && !HOST_SUSPENDED.load(Ordering::Relaxed);
+        if plugged || resumed {
+            SLEEPING.store(false, Ordering::Relaxed);
+        }
+        !sleeping()
+    }
+
+    fn wake(&mut self) {
+        let now = now_ms();
+        LOWER.store(false, Ordering::Relaxed);
+        HOST_SUSPENDED.store(false, Ordering::Relaxed);
+        LAST_INPUT.store(now, Ordering::Relaxed);
+        self.state_since = now;
+        self.asleep = None;
+        refresh_caps();
+        radio::reselect();
+    }
+}
+
+impl rmk::core_traits::Runnable for Power {
+    async fn run(&mut self) -> ! {
+        loop {
+            select(POKE.wait(), Timer::after_millis(TICK_MS)).await;
+            let now = now_ms();
+            if self.asleep.is_none() {
+                if let Some(why) = self.due(now) {
+                    self.sleep(why).await;
+                }
+            } else if self.woken() {
+                self.wake();
+            }
+        }
+    }
+}
+
+/// The Caps Lock LED's pin for RMK's indicator: off while asleep, back to
+/// what RMK last set on waking (`refresh_caps`).
+pub struct CapsPin(Output);
+
+static CAPS_ON: AtomicBool = AtomicBool::new(false);
+
+impl CapsPin {
+    pub fn new(pin: Output) -> Self {
+        CapsPin(pin)
+    }
+}
+
+/// Applies the Caps Lock LED's state (active low): off while asleep.
+pub fn refresh_caps() {
+    // SAFETY: C5 is only ever written as the Caps Lock LED's output.
+    let pin = unsafe { AnyPin::steal(Port::C, 5) };
+    let on = CAPS_ON.load(Ordering::Relaxed) && !sleeping();
+    pin.set_level((!on).into());
+}
+
+impl embedded_hal::digital::ErrorType for CapsPin {
+    type Error = Infallible;
+}
+
+impl embedded_hal::digital::OutputPin for CapsPin {
+    fn set_low(&mut self) -> Result<(), Infallible> {
+        CAPS_ON.store(true, Ordering::Relaxed);
+        if !sleeping() {
+            self.0.set_low();
+        }
+        Ok(())
+    }
+
+    fn set_high(&mut self) -> Result<(), Infallible> {
+        CAPS_ON.store(false, Ordering::Relaxed);
+        self.0.set_high();
+        Ok(())
+    }
+}
+
+impl embedded_hal::digital::StatefulOutputPin for CapsPin {
+    fn is_set_high(&mut self) -> Result<bool, Infallible> {
+        Ok(!CAPS_ON.load(Ordering::Relaxed))
+    }
+
+    fn is_set_low(&mut self) -> Result<bool, Infallible> {
+        Ok(CAPS_ON.load(Ordering::Relaxed))
     }
 }

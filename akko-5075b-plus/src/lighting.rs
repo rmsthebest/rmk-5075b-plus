@@ -20,7 +20,15 @@
 //!
 //! Power: A8 enables the LEDs' supply, as the vendor's code sets it, or
 //! for the lights-off battery flash (`Board::led_power`); it goes on before
-//! a frame is sent. A9, the boost converter, stays on.
+//! a frame is sent. A9, the boost converter, is on but while asleep.
+//!
+//! Sleep (src/power.rs): asleep, the lighting is suspended (black, then
+//! the supply off; `Board::set_sleep`) and the aux and Win-lock LEDs are
+//! off; on waking it comes back as it was. On USB the keyboard doesn't
+//! sleep, but the lighting is suspended 7 s after the host suspends
+//! (USB_POWER_DOWN_DELAY, the vendor's suspend_power_down), until it
+//! resumes. A flat battery's request (`Vendor::shutdown_requested`) goes to
+//! `power::flat_battery`.
 //!
 //! Saving: what QMK keeps in its EEPROM (`lighting_crate::record`) goes to
 //! its own two sectors of the SPI flash, after RMK's window, written in
@@ -61,8 +69,7 @@
 //!
 //! The battery indicators (LED 0, and Fn+Space's bar on 16-25) take the
 //! level and charge state from the radio (`radio::battery`) before each
-//! frame. The flat battery's sleep request (`Vendor::shutdown_requested`)
-//! is M7b's.
+//! frame.
 //!
 //! Not yet: NK_TOGG (RMK has no NKRO toggle), the factory LED test (LCtrl
 //! held at power-up), and the Win-lock LED's suspend rule.
@@ -78,7 +85,7 @@ use lighting_crate::record::{self, Record};
 use lighting_crate::engine::MAX_BRIGHTNESS;
 use lighting_crate::vialrgb;
 
-use crate::radio;
+use crate::{power, radio};
 use lighting_crate::{Board, Key};
 use rmk::event::{ActionEvent, ConnectionStatusChangeEvent, KeyboardEvent, KeyboardEventPos};
 use rmk::macros::processor;
@@ -256,6 +263,8 @@ const USER_GU_TOGG: u8 = 0x80 | 0x0B;
 const LAYER_MBL: u8 = 2;
 /// HS_CT_A's hold.
 const CT_A_HOLD: u32 = 3000;
+/// USB_POWER_DOWN_DELAY: the host suspended this long turns the lights off.
+const USB_LIGHTS_OFF_MS: u32 = 7000;
 /// The Fn layers, whose MO keys recording lets through.
 const LAYER_FL: u8 = 1;
 const LAYER_MFL: u8 = 3;
@@ -311,6 +320,11 @@ pub fn set_flags(f: u8) {
     crate::scan::set_defer_press(f & record::FLAG_DEFER_PRESS != 0);
 }
 
+/// The board is recording colours.
+pub fn recording() -> bool {
+    RECORDING.load(Ordering::Relaxed)
+}
+
 /// Saves the record (with the keyboard flags) at the next frame, as Vial's
 /// save does.
 pub fn request_save() {
@@ -363,8 +377,12 @@ pub struct Lighting {
     win_lock_led: Output,
     aux_led: Output,
     cable: Input,
+    /// A9, the LEDs' boost converter.
+    boost: Output,
     /// When HS_CT_A went down, while it's held and hasn't fired.
     ct_a_since: Option<u32>,
+    /// When USB was suspended, while it is.
+    usb_suspended_at: Option<u32>,
 }
 
 impl Lighting {
@@ -378,8 +396,20 @@ impl Lighting {
         win_lock_led: Output,
         aux_led: Output,
         cable: Input,
+        boost: Output,
     ) -> Self {
-        let mut l = Lighting { board, store, leds, power, win_lock_led, aux_led, cable, ct_a_since: None };
+        let mut l = Lighting {
+            board,
+            store,
+            leds,
+            power,
+            win_lock_led,
+            aux_led,
+            cable,
+            boost,
+            ct_a_since: None,
+            usb_suspended_at: None,
+        };
         l.update_power();
         l
     }
@@ -399,10 +429,18 @@ impl Lighting {
 
     /// The Win-lock and aux LEDs, as 5075b_plus.c's housekeeping sets them.
     fn update_leds(&mut self) {
-        let locked = NO_GUI.load(Ordering::Relaxed) && !MAC.load(Ordering::Relaxed);
+        let asleep = power::sleeping();
+        let locked = NO_GUI.load(Ordering::Relaxed) && !MAC.load(Ordering::Relaxed) && !asleep;
         self.win_lock_led.set_level((!locked).into());
-        let aux = self.board.vendor.conf.rgb_enable && self.cable.is_low();
+        let aux = self.board.vendor.conf.rgb_enable && self.cable.is_low() && !asleep;
         self.aux_led.set_level(aux.into());
+        self.boost.set_level((!asleep).into());
+    }
+
+    /// Asleep, or on USB with the host suspended for USB_LIGHTS_OFF_MS.
+    fn lights_off(&self, now: u32) -> bool {
+        power::sleeping()
+            || (!radio::wireless() && self.usb_suspended_at.is_some_and(|t| now.wrapping_sub(t) >= USB_LIGHTS_OFF_MS))
     }
 
     /// HS_CT_A's hold, as the vendor's housekeeping times it.
@@ -491,6 +529,10 @@ impl Lighting {
 
     async fn on_connection_status_change_event(&mut self, e: ConnectionStatusChangeEvent) {
         self.board.vendor.usb_active = e.0.usb == UsbState::Configured;
+        self.usb_suspended_at = match e.0.usb {
+            UsbState::Suspended => self.usb_suspended_at.or(Some(now_ms())),
+            _ => None,
+        };
     }
 
     /// Runs one whole frame: rgb_matrix_task() until the frame is sent (or
@@ -510,6 +552,14 @@ impl Lighting {
         self.board.vendor.md_state = radio::module_state();
         let v = &mut self.board.vendor;
         (v.bat, v.charging, v.full) = radio::battery();
+        let off = self.lights_off(now);
+        if off != self.board.engine.suspended {
+            if self.board.set_sleep(off, now) {
+                self.leds.write(self.board.engine.leds.rgb.iter().map(|c| [c.r, c.g, c.b])).await;
+            }
+            self.update_power();
+            self.update_leds();
+        }
         loop {
             if self.board.task_sparse(now) {
                 self.update_power();
@@ -521,6 +571,9 @@ impl Lighting {
             // Between chunks: the scan and the rest get their turn, so a
             // heavy effect's frame doesn't delay a key by its whole length.
             embassy_futures::yield_now().await;
+        }
+        if core::mem::take(&mut self.board.vendor.shutdown_requested) {
+            power::flat_battery();
         }
         // EE_CLR's reset happens in a frame.
         self.sync().await;

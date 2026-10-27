@@ -39,6 +39,12 @@
 //! scan's counters (see `fill_diag` for the layout). Counters are totals
 //! since boot except the two marked "since the last query".
 //!
+//! Asleep (src/power.rs): every column is driven low at once and the rows
+//! read every 10 ms; a key down wakes the keyboard (`power::input`), and
+//! the scan starts over, so the key that woke it is read and sent. In the
+//! flat battery's sleep the columns stay released: keys don't wake it.
+//! A key change reported also counts as input for the sleep timeout.
+//!
 //! The Win/Mac switch (C15 Win / C14 Mac, active low, pulled up) is read on
 //! the same pass. When it moves, and once at start-up, the scan taps the
 //! keymap position that sets the matching default layer (keymap::SWITCH_*).
@@ -72,6 +78,8 @@ const RELEASE_SETTLE_US: u32 = 30;
 /// Column modes, as QMK's select_col/unselect_col (ODR stays low).
 const SELECTED: Mode = Mode::output();
 const RELEASED: Mode = Mode::input(Pull::Up);
+/// The rows' poll while asleep.
+const SLEEP_POLL_MS: u64 = 10;
 
 struct Diag {
     passes: u32,
@@ -177,6 +185,8 @@ pub struct Scan {
     /// the release of the tap still to send.
     mac_mode: Option<bool>,
     tap_release: Option<(u8, u8)>,
+    /// Asleep, with the columns driven low (true) or released (false).
+    asleep: Option<bool>,
 }
 
 impl Scan {
@@ -198,6 +208,7 @@ impl Scan {
             count: [[0; COL]; ROW],
             mac_mode: None,
             tap_release: None,
+            asleep: None,
         }
     }
 
@@ -241,6 +252,7 @@ impl Scan {
                     self.count[r][c] = 0;
                     self.state[r] ^= bit;
                     diag_event();
+                    crate::power::input();
                     return Some(KeyboardEvent::key(r as u8, c as u8, press));
                 }
             }
@@ -279,6 +291,14 @@ impl Scan {
             if let Some(e) = self.next_change() {
                 return e;
             }
+            if crate::power::sleeping() {
+                self.sleep_pass().await;
+                continue;
+            }
+            if self.asleep.take().is_some() {
+                self.set_cols(RELEASED);
+                self.last_pass = None;
+            }
             // The next 1 ms tick (see the top of this file).
             if let Some(last) = self.last_pass {
                 Timer::at(Instant::from_millis(last + 1)).await;
@@ -287,6 +307,29 @@ impl Scan {
             let raw = self.read();
             diag_pass(&raw);
             self.take_reading(raw, now);
+        }
+    }
+}
+
+impl Scan {
+    fn set_cols(&self, mode: Mode) {
+        for c in &self.cols {
+            c.set_mode(mode);
+        }
+    }
+
+    /// One look at the keys while asleep: with every column driven low,
+    /// any key down pulls its row low.
+    async fn sleep_pass(&mut self) {
+        let drive = !crate::power::lower();
+        if self.asleep != Some(drive) {
+            self.asleep = Some(drive);
+            self.set_cols(if drive { SELECTED } else { RELEASED });
+        }
+        Timer::after_millis(SLEEP_POLL_MS).await;
+        crate::watchdog::scan_alive();
+        if drive && self.rows.iter().any(|r| r.is_low()) {
+            crate::power::input();
         }
     }
 }

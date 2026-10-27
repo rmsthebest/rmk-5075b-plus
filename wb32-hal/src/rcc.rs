@@ -95,7 +95,14 @@ pub fn init() {
     RCC.apb2enr().modify(|w| w.set_bmx2en(true));
 }
 
-/// Read-modify-write of RCC APB1ENR (ChibiOS `rccEnableAPB1`).
+/// Read-modify-write of RCC APB1ENR (ChibiOS `rccEnableAPB1`), written only
+/// when it changes: `gpio::set_mode` calls this for every column the scan
+/// switches.
 pub fn enable_apb1(f: impl FnOnce(&mut rcc::regs::Apb1enr)) {
-    RCC.apb1enr().modify(f);
+    let was = RCC.apb1enr().read();
+    let mut v = was;
+    f(&mut v);
+    if v.0 != was.0 {
+        RCC.apb1enr().write_value(v);
+    }
 }

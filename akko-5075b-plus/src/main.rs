@@ -2,9 +2,9 @@
 //!
 //! Keys (src/scan.rs), the knob (src/knob.rs), the keymap from the QMK VIA
 //! build (src/keymap.rs, generated), Vial, and RMK's storage on the external
-//! SPI flash, the RGB lighting (src/lighting.rs), and the radio module
-//! for Bluetooth and the 2.4G dongle (src/radio.rs, M6). Battery and sleep
-//! (M7) come later; until then their keys are User(n) and do nothing.
+//! SPI flash, the RGB lighting (src/lighting.rs, with the battery
+//! indicators), the radio module for Bluetooth and the 2.4G dongle
+//! (src/radio.rs, M6), and sleep (src/power.rs).
 //!
 //! Storage lives at SPI flash 0x10000-0x1FFFF, and the lighting's at
 //! 0x20000-0x21FFF (src/lighting.rs). QMK's wear-levelled EEPROM is in the
@@ -308,7 +308,7 @@ async fn main(_spawner: Spawner) {
     // USB's D+ pull-up, on (low); src/radio.rs turns it off in wireless mode.
     let usb_power = Output::new(p.PB1, Level::Low);
     let led_power = Output::new(p.PA8, Level::Low);
-    let _led_boost = Output::new(p.PA9, Level::High);
+    let led_boost = Output::new(p.PA9, Level::High);
     let aux_led = Output::new(p.PB9, Level::Low);
     // The cable sense, high with a cable in (HS_BAT_CABLE_PIN).
     let cable = Input::new(p.PA7, Pull::None);
@@ -367,7 +367,7 @@ async fn main(_spawner: Spawner) {
     let host_service = HostService::new(&keymap, &rmk_config);
     let mut usb = UsbTransport::new(usb::Driver::new(p.PA11, p.PA12, PRIO_USB), rmk_config.device_config)
         .with_host_service(&host_service);
-    let mut caps = KeyboardIndicatorProcessor::new(caps_led, true, LedIndicatorType::CapsLock);
+    let mut caps = KeyboardIndicatorProcessor::new(power::CapsPin::new(caps_led), true, LedIndicatorType::CapsLock);
     let mut boot = bootloader::Bootloader::new();
     // SAFETY: main runs once.
     let store = OwnFrame(lighting::Store::load(lighting_flash, unsafe { ram2_zeroed(&raw mut LIGHTING_RECORD) })).await;
@@ -399,8 +399,10 @@ async fn main(_spawner: Spawner) {
         win_lock_led,
         aux_led,
         cable,
+        led_boost,
     );
     rmk::keyboard::set_action_hook(lighting::action_hook);
+    let mut power = power::Power::new();
     let mut radio = radio::Radio::new(Uart3::new(p.PC10, p.PC11, radio::BAUD, PRIO_UART), usb_power);
     // Vial's "bootloader" button: DFU, as QK_BOOT (src/bootloader.rs).
     rmk::boot::set_bootloader_hook(boot_guard::request_bootloader);
@@ -425,6 +427,7 @@ async fn main(_spawner: Spawner) {
             OwnFrame(boot.run()),
             OwnFrame(lights.run()),
             OwnFrame(radio.run()),
+            OwnFrame(power.run()),
         ),
         stable,
         watchdog::heartbeat(),

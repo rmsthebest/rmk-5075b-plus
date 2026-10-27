@@ -732,3 +732,20 @@ With The Lights Off A Low Battery Flashes LED 0
     Should Be True    len($red) < ${powered} <= 24    ${powered} powered samples
     Should Be True    $red[-1] - $red[0] > 200    one flash only
     No LED Errors
+
+On USB The Lights Go Off 7 s After The Host Suspends
+    [Documentation]    QMK's suspend_power_down after USB_POWER_DOWN_DELAY:
+    ...    the host suspended for 7 s turns the LED power off (the MCU
+    ...    doesn't sleep on USB); its resume turns it back on. (A key's
+    ...    remote wakeup needs the host to enable it, which the model doesn't.)
+    Boot To Lighting
+    Execute Command    usb WriteDoubleWord ${HOST_CMD} 0x04
+    Run For    6.5
+    Should Not Be In Log    device did not detect suspend    timeout=0
+    LED Power Should Be    ${True}
+    Run For    0.8
+    LED Power Should Be    ${False}
+    Execute Command    usb WriteDoubleWord ${HOST_CMD} 0x05
+    Run For    0.3
+    LED Power Should Be    ${True}
+    No LED Errors

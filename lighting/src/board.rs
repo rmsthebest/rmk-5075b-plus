@@ -670,9 +670,17 @@ impl Board {
     }
 
     /// The LED chain's supply (A8): on for the lighting, or for the
-    /// lights-off battery flash.
+    /// lights-off battery flash; never while asleep.
     pub fn led_power(&self) -> bool {
-        self.vendor.power || self.vendor.flash_power
+        !self.engine.suspended && (self.vendor.power || self.vendor.flash_power)
+    }
+
+    /// The keyboard sleeping, or the host suspended (rgb_matrix's
+    /// suspend: black at once, then nothing until it wakes). True when
+    /// that changed the LEDs (`engine.leds`, to send).
+    pub fn set_sleep(&mut self, on: bool, now: u32) -> bool {
+        self.vendor.now = now;
+        self.engine.set_suspended(on, &mut self.vendor)
     }
 
     /// The lights-off low-battery flash; true when it changed the LEDs.
