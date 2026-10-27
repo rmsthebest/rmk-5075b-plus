@@ -1921,6 +1921,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "critical-section",
+ "embassy-futures",
  "embassy-sync",
  "embassy-time",
  "embassy-time-driver",

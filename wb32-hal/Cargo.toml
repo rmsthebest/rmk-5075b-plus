@@ -12,6 +12,7 @@ critical-section = "1.2.0"
 embassy-time-driver = { version = "0.2.2", features = ["tick-hz-1_000_000"] }
 embassy-time-queue-utils = "0.3.2"
 embassy-sync = "0.8.0"
+embassy-futures = "0.1.2"
 embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
 embassy-time = "0.5.1"

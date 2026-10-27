@@ -9,6 +9,8 @@ use postcard::experimental::max_size::MaxSize;
 use rmk_types::connection::ConnectionType;
 use rmk_types::morse::MorseProfile;
 use sequential_storage::Error as SSError;
+use sequential_storage::cache::page_pointers::ArrayPagePointers;
+use sequential_storage::cache::page_states::ArrayPageStates;
 use sequential_storage::cache::{Cache, Uncached};
 use sequential_storage::map::{Key, MapConfig, MapStorage, PostcardValue, SerializationError};
 #[cfg(feature = "host")]
@@ -370,7 +372,11 @@ pub async fn new_storage_without_keymap<F: AsyncNorFlash>(
     .await
 }
 
-type StorageCache = Cache<Uncached, Uncached, Uncached, StorageKey>;
+/// akko-5075b-plus: page states and pointers cached for up to this many
+/// sectors. Uncached, every operation re-read each page's header and walked
+/// to its end over the SPI flash.
+const CACHE_PAGES: usize = 16;
+type StorageCache = Cache<ArrayPageStates<CACHE_PAGES>, ArrayPagePointers<CACHE_PAGES>, Uncached, StorageKey>;
 
 pub struct Storage<
     F: AsyncNorFlash,
@@ -426,6 +432,7 @@ impl<F: AsyncNorFlash, const ROW: usize, const COL: usize, const NUM_LAYER: usiz
             storage_config.num_sectors >= 2,
             "Number of used sector for storage must larger than 1"
         );
+        assert!(storage_config.num_sectors as usize <= CACHE_PAGES, "storage: more sectors than CACHE_PAGES");
 
         // If config.start_addr == 0:
         // - For nRF chips: use sectors starting at 0x0006_0000
@@ -462,7 +469,11 @@ impl<F: AsyncNorFlash, const ROW: usize, const COL: usize, const NUM_LAYER: usiz
         };
 
         let mut storage = Self {
-            flash: MapStorage::new(flash, MapConfig::new(storage_range), Cache::new_uncached()),
+            flash: MapStorage::new(
+                flash,
+                MapConfig::new(storage_range),
+                Cache::new(ArrayPageStates::new(), ArrayPagePointers::new(), Uncached),
+            ),
             buffer: [0; get_buffer_size()],
         };
 

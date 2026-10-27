@@ -407,6 +407,31 @@ The Scan Reports Its Counters Over Vial
     Raw HID Send    0x08    0x01
     HID Should Show    3    08 01 00 00 00 00
 
+Vial Edits Don't Hold Up The Scan
+    [Documentation]    300 key edits through Vial, each saved to the SPI flash
+    ...    by RMK's storage (which fills a sector and moves to the next),
+    ...    while the scan's longest gap between passes stays short. Storage
+    ...    reads are polled at 3 MHz; uncached, it walked whole sectors per
+    ...    edit without letting the scan run.
+    Boot And Enumerate
+    Run For    1
+    Raw HID Send    0x08    0xD1
+    Wait For Log Entry    HOST HID 3: 08 d1 .*    timeout=1    treatAsRegex=true    pauseEmulation=true
+    FOR    ${i}    IN RANGE    300
+        ${kc}=    Evaluate    0x04 + ${i} % 26
+        Raw HID Send    0x05    ${{ ${i} % 2 }}    ${{ (${i} // 15) % 6 }}    ${{ ${i} % 15 }}    0x00    ${kc}
+        Run For    0.01
+    END
+    Run For    1
+    Raw HID Send    0x08    0xD1
+    ${reply}=    Wait For Log Entry    HOST HID 3: 08 d1 .*    timeout=1    treatAsRegex=true    pauseEmulation=true
+    ${b}=    Evaluate    bytes.fromhex($reply.split("HOST HID 3: ")[1].strip())
+    ${gap}=    Evaluate    int.from_bytes($b[18:20], "little")
+    Log To Console    longest scan gap during Vial edits: ${gap / 10} ms
+    # 34.8 ms before the page caches and the read yields.
+    Should Be True    ${gap} <= 50    longest gap between passes ${gap / 10} ms
+    No Panic Since Start-Up
+
 The Last Run's Panic Message Is Readable Over Vial
     [Documentation]    Channel 0xD2 answers with the message boot-guard kept from
     ...    the previous run's panic (record at 0x20007000), 28 bytes per request.

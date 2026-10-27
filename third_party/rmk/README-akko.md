@@ -37,3 +37,6 @@ Fixes:
   32-byte report at size 28 (a panic). Each key's save now waits for room in
   the flash channel instead of being dropped when it's full (sim:
   `m4_rmk.robot` "VIA Bulk Keymap Write Sets And Keeps Keys").
+- `src/storage/mod.rs`: the map storage caches page states and pointers
+  (`CACHE_PAGES` = 16 sectors at most). Uncached, every operation re-read
+  each page's header and walked to its end over the 3 MHz SPI flash.

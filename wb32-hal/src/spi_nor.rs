@@ -4,6 +4,9 @@
 //!
 //! Waiting for a program or erase polls the status register with a 100 us
 //! (program) or 1 ms (erase) timer in between, so other tasks keep running.
+//! Reads are polled byte by byte (3 MHz, about 2.7 us a byte, as QMK), so
+//! they yield to other tasks every `YIELD_EVERY`: RMK's storage walks every
+//! item for some operations, which held up the key scan for tens of ms.
 //!
 //! [`SharedNor::partition`] hands out a window of the chip with offsets
 //! from 0; nothing outside it can be read or written through that handle.
@@ -12,6 +15,7 @@
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_futures::yield_now;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_storage::nor_flash::{ErrorType, NorFlashError, NorFlashErrorKind};
 use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
@@ -25,6 +29,11 @@ const WREN: u8 = 0x06;
 const READ: u8 = 0x03;
 const PP: u8 = 0x02;
 const SE: u8 = 0x20;
+
+/// The longest a run of reads keeps other tasks waiting.
+const YIELD_EVERY: Duration = Duration::from_micros(500);
+/// Bytes read between checks of `YIELD_EVERY` (about 0.35 ms at 3 MHz).
+const READ_CHUNK: usize = 128;
 
 const WIP: u8 = 0x01;
 const WEL: u8 = 0x02;
@@ -61,12 +70,14 @@ pub struct SpiNor {
     spi: Qspi,
     cs: Output,
     jedec_id: [u8; 3],
+    /// When reads last let other tasks run.
+    last_yield: Instant,
 }
 
 impl SpiNor {
     /// `cs` must start high (deselected).
     pub fn new(spi: Qspi, cs: Output) -> Self {
-        let mut f = SpiNor { spi, cs, jedec_id: [0; 3] };
+        let mut f = SpiNor { spi, cs, jedec_id: [0; 3], last_yield: Instant::from_ticks(0) };
         let mut id = [0; 3];
         f.command(&[RDID], &mut id);
         f.jedec_id = id;
@@ -128,11 +139,24 @@ impl SpiNor {
         [cmd, (addr >> 16) as u8, (addr >> 8) as u8, addr as u8]
     }
 
+    /// Lets other tasks run if reads have kept them waiting `YIELD_EVERY`.
+    async fn pause(&mut self) {
+        if self.last_yield.elapsed() >= YIELD_EVERY {
+            yield_now().await;
+            self.last_yield = Instant::now();
+        }
+    }
+
     async fn read_at(&mut self, addr: u32, buf: &mut [u8]) -> Result<(), Error> {
+        self.pause().await;
         self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT).await?;
         self.cs.set_level(Level::Low);
         self.spi.write(&Self::header(READ, addr));
-        self.spi.read(buf);
+        for chunk in buf.chunks_mut(READ_CHUNK) {
+            self.spi.read(chunk);
+            // Chip select stays low: the chip just waits for more clocks.
+            self.pause().await;
+        }
         self.cs.set_level(Level::High);
         Ok(())
     }
