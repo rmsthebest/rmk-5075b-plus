@@ -175,12 +175,12 @@ impl Store {
     /// Writes `board`'s settings if they changed since the last save.
     async fn save(&mut self, board: &Board) {
         self.save_at = None;
-        record::encode(board, flags(), self.seq, self.buf);
+        record::encode(board, flags(), crate::power::setting(), self.seq, self.buf);
         if self.current.is_some() && record::stored_crc(self.buf) == self.crc {
             return;
         }
         let seq = self.seq.wrapping_add(1);
-        record::encode(board, flags(), seq, self.buf);
+        record::encode(board, flags(), crate::power::setting(), seq, self.buf);
         let to = match self.current {
             Some(0) => 1,
             _ => 0,

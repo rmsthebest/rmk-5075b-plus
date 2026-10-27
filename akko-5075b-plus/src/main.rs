@@ -25,8 +25,11 @@
 //! count at their first reading (the default), 2 makes them wait out the
 //! debounce too (for a chattering switch), anything else just reads it;
 //! byte 3 of the answer is 1 while presses wait. A change is saved with the
-//! lighting record. 0xD8 with argument 0x48 ('H') hangs the firmware, to
-//! test the watchdog.
+//! lighting record. 0xD7, the sleep timeout (src/power.rs): argument 0
+//! reads it, 1 + n sets it to n (0 never, 1-6: 1, 3, 5, 10, 20, 30 min, 7:
+//! 2 min, the default); byte 3 of the answer is the setting; a change is
+//! saved with the lighting record. 0xD8 with argument 0x48 ('H') hangs the
+//! firmware, to test the watchdog.
 //!
 //! Crash policy (boot-guard): a panic resets into this image; a second one
 //! before the image has run `STABLE_AFTER` goes to DFU. The software
@@ -39,6 +42,7 @@ mod bootloader;
 mod keymap;
 mod knob;
 mod lighting;
+mod power;
 mod radio;
 mod scan;
 mod watchdog;
@@ -90,6 +94,7 @@ const CHANNEL_CRASH: u8 = 0xD3;
 const CHANNEL_RADIO: u8 = 0xD4;
 const CHANNEL_STACK: u8 = 0xD5;
 const CHANNEL_DEBOUNCE: u8 = 0xD6;
+const CHANNEL_SLEEP: u8 = 0xD7;
 const CHANNEL_HANG: u8 = 0xD8;
 const HANG_CONFIRM: u8 = b'H';
 const DEBOUNCE_EAGER: u8 = 1;
@@ -204,6 +209,15 @@ fn custom_value(buf: &mut [u8]) {
                 }
             }
             buf[3] = scan::defer_press() as u8;
+        }
+        CHANNEL_SLEEP => {
+            if let Some(n) = buf[2].checked_sub(1) {
+                if n != power::setting() {
+                    power::set_setting(n);
+                    lighting::request_save();
+                }
+            }
+            buf[3] = power::setting();
         }
         CHANNEL_STACK => {
             let (used, size) = stack_peak();
@@ -375,6 +389,7 @@ async fn main(_spawner: Spawner) {
     board.vendor.usb_active = false;
     let flags = store.record().map_or(0, |r| r.flags());
     lighting::set_flags(flags);
+    power::set_setting(store.record().map_or(lighting_crate::record::SLEEP_DEFAULT, |r| r.sleep()));
     radio::set_saved_flags(flags);
     let mut lights = lighting::Lighting::new(
         board,

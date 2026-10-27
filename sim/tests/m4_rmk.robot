@@ -473,6 +473,26 @@ Presses Can Wait Out The Debounce, Set Over Vial
     Raw HID Send    0x08    0xD6    0x01
     HID Should Show    3    08 d6 01 00
 
+The Sleep Timeout Is Set Over Vial And Kept
+    [Documentation]    Channel 0xD7 (tools/sleep.py): 0 reads the setting (7, 2
+    ...    min, by default), 1 + n sets it to n; out of range is ignored. It's
+    ...    saved with the lighting record and survives a reset.
+    Boot And Enumerate
+    Raw HID Send    0x08    0xD7    0x00
+    HID Should Show    3    08 d7 00 07
+    Raw HID Send    0x08    0xD7    0x03
+    HID Should Show    3    08 d7 03 02
+    Raw HID Send    0x08    0xD7    0x09
+    HID Should Show    3    08 d7 09 02
+    Run For    1
+    Execute Command    sysbus WriteDoubleWord ${AIRCR} ${SYSRESETREQ}
+    Wait For Log Entry    HOST: configured    timeout=2    pauseEmulation=true
+    Run For    0.05
+    Raw HID Send    0x08    0xD7    0x00
+    HID Should Show    3    08 d7 00 02
+    Raw HID Send    0x08    0xD7    0x01
+    HID Should Show    3    08 d7 01 00
+
 The Last Run's Panic Message Is Readable Over Vial
     [Documentation]    Channel 0xD2 answers with the message boot-guard kept from
     ...    the previous run's panic (record at 0x20007000), 28 bytes per request.

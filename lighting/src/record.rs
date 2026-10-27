@@ -1,7 +1,7 @@
 //! The saved settings, as one record of bytes: what QMK keeps in its
 //! EEPROM (rgb_matrix's config, rgblight's, the board's confinfo with its
-//! colour indexes, the recorded channels, and two keyboard flags: QMK's
-//! no_gui and the vendor's ctrl_app_flag).
+//! colour indexes, the recorded channels, the keyboard's flags, and the
+//! sleep timeout).
 //!
 //! Layout, little-endian:
 //!     0  magic "AKL"      3  VERSION       4  seq u32
@@ -11,23 +11,40 @@
 //!    24  colours[16]
 //!    40  channels[4][90] u16
 //!   760  flags (FLAG_*)
-//!   761  CRC-32 of bytes 0..761
-//! `seq` counts saves, so of two good records the newer wins. Version 1
-//! had no flags (its CRC at 760); it still loads, with the flags clear.
+//!   761  sleep timeout (SLEEP_*, the vendor's confinfo.sleep_timeout)
+//!   762  CRC-32 of bytes 0..762
+//! `seq` counts saves, so of two good records the newer wins. Older
+//! versions still load: version 2 had no sleep timeout (its CRC at 761;
+//! read as SLEEP_DEFAULT), version 1 no flags either (CRC at 760; flags
+//! clear).
 
 use crate::board::{CHANNELS, ConfInfo, HSVS, KEYS, MODES};
 use crate::color::Hsv;
 use crate::engine::MAX_BRIGHTNESS;
 use crate::{Board, Config, effect, rgblight};
 
-pub const VERSION: u8 = 2;
+pub const VERSION: u8 = 3;
 const MAGIC: [u8; 3] = *b"AKL";
 const CHANNELS_AT: usize = 40;
 const FLAGS_AT: usize = CHANNELS_AT + CHANNELS * KEYS * 2;
-const CRC_AT: usize = FLAGS_AT + 1;
+const SLEEP_AT: usize = FLAGS_AT + 1;
+const CRC_AT: usize = SLEEP_AT + 1;
 pub const LEN: usize = CRC_AT + 4;
 /// Version 1's CRC, where version 2 has the flags.
 const V1_CRC_AT: usize = FLAGS_AT;
+/// Version 2's CRC, where version 3 has the sleep timeout.
+const V2_CRC_AT: usize = SLEEP_AT;
+
+/// The sleep timeouts (wls.h's enum mm_sleep_timeout): an index, 0 never,
+/// then 1, 3, 5, 10, 20, 30 minutes, and 7 the vendor's default, 2 minutes.
+pub const SLEEP_NEVER: u8 = 0;
+pub const SLEEP_DEFAULT: u8 = 7;
+const SLEEP_MINUTES: [u32; 8] = [0, 1, 3, 5, 10, 20, 30, 2];
+
+/// Sleep timeout `index` in ms (0: never); out of range is the default.
+pub fn sleep_ms(index: u8) -> u32 {
+    SLEEP_MINUTES.get(index as usize).copied().unwrap_or(SLEEP_MINUTES[SLEEP_DEFAULT as usize]) * 60_000
+}
 
 /// GU_TOGG: the GUI keys are off (in Windows mode).
 pub const FLAG_NO_GUI: u8 = 1 << 0;
@@ -54,6 +71,7 @@ impl Record {
     pub fn check(bytes: &[u8; LEN]) -> Option<&Record> {
         let crc_ok = match bytes[3] {
             1 => crc32(&bytes[..V1_CRC_AT]) == u32::from_le_bytes(bytes[V1_CRC_AT..][..4].try_into().unwrap()),
+            2 => crc32(&bytes[..V2_CRC_AT]) == u32::from_le_bytes(bytes[V2_CRC_AT..][..4].try_into().unwrap()),
             VERSION => crc32(&bytes[..CRC_AT]) == stored_crc(bytes),
             _ => false,
         };
@@ -63,7 +81,8 @@ impl Record {
             && bytes[12] <= MAX_BRIGHTNESS
             && (rgblight::MODE_STATIC..=rgblight::MODES).contains(&bytes[16])
             && (bytes[21] as usize) < CHANNELS
-            && bytes[24..40].iter().all(|&c| (c as usize) < HSVS.len());
+            && bytes[24..40].iter().all(|&c| (c as usize) < HSVS.len())
+            && (bytes[3] < 3 || (bytes[SLEEP_AT] as usize) < SLEEP_MINUTES.len());
         // SAFETY: Record is a repr(transparent) [u8; LEN].
         ok.then(|| unsafe { &*(bytes as *const [u8; LEN] as *const Record) })
     }
@@ -106,6 +125,11 @@ impl Record {
         if self.0[3] == 1 { 0 } else { self.0[FLAGS_AT] }
     }
 
+    /// The sleep timeout, SLEEP_* (an index for `sleep_ms`).
+    pub fn sleep(&self) -> u8 {
+        if self.0[3] < 3 { SLEEP_DEFAULT } else { self.0[SLEEP_AT] }
+    }
+
     /// Recorded colour `key` of `channel`.
     pub fn channel(&self, channel: usize, key: usize) -> u16 {
         let at = CHANNELS_AT + (channel * KEYS + key) * 2;
@@ -113,8 +137,9 @@ impl Record {
     }
 }
 
-/// `board`'s saved state and `flags` as record `seq`, into `out`.
-pub fn encode(board: &Board, flags: u8, seq: u32, out: &mut [u8; LEN]) {
+/// `board`'s saved state, `flags` and the `sleep` timeout as record `seq`,
+/// into `out`.
+pub fn encode(board: &Board, flags: u8, sleep: u8, seq: u32, out: &mut [u8; LEN]) {
     let m = &board.engine.config;
     let v = &board.vendor;
     let l = &v.rgblight.config;
@@ -129,6 +154,7 @@ pub fn encode(board: &Board, flags: u8, seq: u32, out: &mut [u8; LEN]) {
         out[CHANNELS_AT + i * 2..][..2].copy_from_slice(&c.to_le_bytes());
     }
     out[FLAGS_AT] = flags;
+    out[SLEEP_AT] = sleep;
     let crc = crc32(&out[..CRC_AT]);
     out[CRC_AT..].copy_from_slice(&crc.to_le_bytes());
 }
@@ -179,10 +205,11 @@ mod tests {
         b.key(Key::RlMod, 0, 0, true, false, 20);
         b.vendor.channels[2][7] = 0xABCD;
         let mut buf = [0; LEN];
-        encode(&b, FLAG_CTRL_APP, 7, &mut buf);
+        encode(&b, FLAG_CTRL_APP, 4, 7, &mut buf);
         let r = Record::check(&buf).unwrap();
         assert_eq!(r.seq(), 7);
         assert_eq!(r.flags(), FLAG_CTRL_APP);
+        assert_eq!(r.sleep(), 4);
         let c = Board::new(Some(r), defaults, false, 0);
         assert_eq!(c.engine.config, b.engine.config);
         assert_eq!(c.vendor.rgblight.config, b.vendor.rgblight.config);
@@ -190,11 +217,11 @@ mod tests {
         assert_eq!(c.vendor.colours, b.vendor.colours);
         assert_eq!(c.vendor.channels, b.vendor.channels);
         let mut again = [0; LEN];
-        encode(&c, r.flags(), 7, &mut again);
+        encode(&c, r.flags(), r.sleep(), 7, &mut again);
         assert_eq!(again, buf);
 
         b.key(Key::RgbVad, 0, 0, true, false, 30);
-        encode(&b, FLAG_CTRL_APP, 7, &mut again);
+        encode(&b, FLAG_CTRL_APP, 4, 7, &mut again);
         assert_ne!(stored_crc(&again), stored_crc(&buf));
 
         buf[100] ^= 1;
@@ -207,7 +234,7 @@ mod tests {
         let mut b = Board::new(None, &DEFAULTS, false, 0);
         b.key(Key::RgbVad, 0, 0, true, false, 0);
         let mut buf = [0xFF; LEN];
-        encode(&b, FLAG_NO_GUI, 3, &mut buf);
+        encode(&b, FLAG_NO_GUI, 1, 3, &mut buf);
         // As version 1 wrote it: no flags byte, the CRC in its place.
         buf[3] = 1;
         let crc = crc32(&buf[..V1_CRC_AT]);
@@ -215,7 +242,33 @@ mod tests {
         buf[V1_CRC_AT + 4] = 0xFF;
         let r = Record::check(&buf).unwrap();
         assert_eq!(r.flags(), 0);
+        assert_eq!(r.sleep(), SLEEP_DEFAULT);
         assert_eq!(Board::new(Some(r), &DEFAULTS, false, 0).engine.config, b.engine.config);
+    }
+
+    #[test]
+    fn version_2_loads() {
+        static DEFAULTS: [[u16; KEYS]; CHANNELS] = [[0; KEYS]; CHANNELS];
+        let b = Board::new(None, &DEFAULTS, false, 0);
+        let mut buf = [0xFF; LEN];
+        encode(&b, FLAG_DEFER_PRESS, 2, 3, &mut buf);
+        // As version 2 wrote it: no sleep byte, the CRC in its place.
+        buf[3] = 2;
+        let crc = crc32(&buf[..V2_CRC_AT]);
+        buf[V2_CRC_AT..][..4].copy_from_slice(&crc.to_le_bytes());
+        buf[V2_CRC_AT + 4] = 0xFF;
+        let r = Record::check(&buf).unwrap();
+        assert_eq!(r.flags(), FLAG_DEFER_PRESS);
+        assert_eq!(r.sleep(), SLEEP_DEFAULT);
+    }
+
+    #[test]
+    fn sleep_timeouts() {
+        assert_eq!(sleep_ms(SLEEP_NEVER), 0);
+        assert_eq!(sleep_ms(1), 60_000);
+        assert_eq!(sleep_ms(6), 30 * 60_000);
+        assert_eq!(sleep_ms(SLEEP_DEFAULT), 2 * 60_000);
+        assert_eq!(sleep_ms(200), 2 * 60_000);
     }
 
     #[test]
@@ -224,8 +277,8 @@ mod tests {
         let defaults = &DEFAULTS;
         let b = Board::new(None, defaults, false, 0);
         let (mut x, mut y) = ([0; LEN], [0; LEN]);
-        encode(&b, 0, u32::MAX, &mut x);
-        encode(&b, 0, 0, &mut y);
+        encode(&b, 0, 0, u32::MAX, &mut x);
+        encode(&b, 0, 0, 0, &mut y);
         let (x, y) = (Record::check(&x), Record::check(&y));
         assert_eq!(newer(x, y).unwrap().seq(), 0);
         assert_eq!(newer(y, x).unwrap().seq(), 0);
