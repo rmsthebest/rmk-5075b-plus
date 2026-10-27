@@ -6,8 +6,13 @@
 //!
 //! `Board::key` is process_record_kb (with process_record_hs) followed by
 //! QMK's process_rgb for the RGB keys; `Board::task` is a main-loop pass's
-//! rgblight_task + rgb_matrix_task, with the board's indicator hooks.
-//! Wireless (M6) and battery (M7) indicators aren't here yet.
+//! rgblight_task + rgb_matrix_task, with the board's indicator hooks, after
+//! wls.c's hs_rgb_blink_hook (the module state's effects on the lights).
+//! The connection indicator (M6) is here: the device's key blinking while
+//! the link is down, and shown for 2 s once it's up. The firmware tells the
+//! board the device (`devs_change`, `wls_key`, `wls_pair`) and the module's
+//! state (`Vendor::md_state`). The battery indicators (M7) aren't here yet,
+//! nor the hook's sleep timeouts.
 //!
 //! Where the vendor's EEPROM held something (the recorded colour channels,
 //! the colour picked for each effect, confinfo), this holds it in RAM; the
@@ -48,6 +53,52 @@ const BLINKS: usize = 16;
 const SIDE_FIRST: usize = LED_COUNT - rgblight::LED_COUNT;
 /// HS_RGB_BLINK_INDEX_USB: the key that shows USB's state.
 const LED_USB: usize = 37;
+
+/// QMK's DEVS_*.
+pub const DEVS_USB: u8 = 0;
+pub const DEVS_BT1: u8 = 1;
+pub const DEVS_BT2: u8 = 2;
+pub const DEVS_BT3: u8 = 3;
+pub const DEVS_2G4: u8 = 6;
+/// QMK's MD_STATE_* (the module's link state).
+pub const MD_STATE_NONE: u8 = 0;
+pub const MD_STATE_PAIRING: u8 = 1;
+pub const MD_STATE_CONNECTED: u8 = 2;
+pub const MD_STATE_DISCONNECTED: u8 = 3;
+
+/// A positional `{r, g, b}` initialiser of QMK's RGB, which on this board
+/// is a WS2812 G, R, B struct: the first value lands in green.
+const fn grb(first: u8, second: u8, third: u8) -> Rgb {
+    Rgb { r: second, g: first, b: third }
+}
+const WHITE: Rgb = Rgb { r: 0xFF, g: 0xFF, b: 0xFF };
+
+/// wireless_devs_change_kb's table, by DEVS_*: the device's key, its
+/// re-pairing blink colour (HS_LBACK_COLOR_*) and its reconnecting one
+/// (HS_PAIR_COLOR_*). Written as `{RGB_RED}` etc., so through `grb`: BT1
+/// blinks green and 2.4G red, though config.h names them the other way.
+const WLS_BLINKS: [(u8, Rgb, Rgb); 7] = [
+    (37, grb(0xFF, 0xFF, 0xFF), grb(0xFF, 0xFF, 0xFF)),
+    (41, grb(0xFF, 0, 0), grb(0xFF, 0, 0)),
+    (40, grb(0, 0, 0xFF), grb(0, 0, 0xFF)),
+    (39, grb(0xFF, 0xFF, 0), grb(0xFF, 0xFF, 0)),
+    (41, grb(0, 0, 0xFF), grb(0, 0, 0xFF)),
+    (42, grb(0, 0, 0xFF), grb(0, 0, 0xFF)),
+    (38, grb(0, 0xFF, 0), grb(0, 0xFF, 0)),
+];
+
+/// rgb_matrix_wls_indicator's state: one blinking key.
+#[derive(Clone, Copy)]
+struct WlsBlink {
+    /// The blink restarts with this `reset` (wls_rgb_indicator_reset).
+    reset: bool,
+    /// 0: not blinking.
+    timer: u32,
+    interval: u32,
+    times: u32,
+    index: u8,
+    rgb: Rgb,
+}
 
 /// The keycodes the board treats specially.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -185,7 +236,19 @@ pub struct Vendor {
     pub usb_active: bool,
     usb_blink_timer: u32,
     usb_blink_state: bool,
+    /// hs_devs_indicator_timer and _flag: the device shown after connecting.
     devs_timer: u32,
+    devs_flag: bool,
+    /// wireless_get_current_devs(): DEVS_*.
+    pub devs: u8,
+    /// *md_getp_state(): MD_STATE_*, as the module last reported it.
+    pub md_state: u8,
+    /// hs_pairing_flag: set by a pairing key's 3 s hold.
+    pairing: bool,
+    /// hs_linker_rgb_timer and hs_rgb_blink_hook's last_status.
+    blink_timer: u32,
+    last_status: u8,
+    wls: WlsBlink,
     /// LCtrl was held at power-up without Esc: the factory LED test.
     factory_test: bool,
     factory_timer: u32,
@@ -278,6 +341,32 @@ impl Board {
         self.vendor.recording
     }
 
+    /// wireless_devs_change(current, dev, reset), the board's part: a new
+    /// device (or a reset) starts disconnected, and its key blinks.
+    pub fn devs_change(&mut self, dev: u8, reset: bool, now: u32) {
+        self.vendor.now = now;
+        self.vendor.devs_change(dev, reset);
+    }
+
+    /// A pairing key's press (process_record_wls): to `dev`, if it isn't
+    /// already, and the hold's pairing undone.
+    pub fn wls_key(&mut self, dev: u8, now: u32) {
+        self.vendor.now = now;
+        let v = &mut self.vendor;
+        if v.devs != dev {
+            v.devs_change(dev, false);
+        }
+        v.pairing = false;
+        v.blink_timer = now;
+    }
+
+    /// A pairing key held 3 s (wls_process_long_press): `dev` paired anew.
+    pub fn wls_pair(&mut self, dev: u8, now: u32) {
+        self.vendor.now = now;
+        self.vendor.devs_change(dev, true);
+        self.vendor.pairing = true;
+    }
+
     /// The black 250 ms blink the vendor's keys confirm with
     /// (rgb_matrix_hs_indicator_set(0xFF, black, 250, 1)), at `now` ms: for
     /// HS_CT_A's 3 s hold, which the firmware times.
@@ -301,7 +390,11 @@ impl Board {
         self.vendor.now = now;
         let (e, v) = (&mut self.engine, &mut self.vendor);
 
-        // process_record_hs: recording takes every key but these.
+        // process_record_hs: a key while connected restarts the hook's timer.
+        if v.md_state == MD_STATE_CONNECTED && pressed {
+            v.blink_timer = now;
+        }
+        // Recording takes every key but these.
         let exempt = matches!(key, Key::RpPlay(_) | Key::RpEnd | Key::RgbMod | Key::Fn);
         if key == Key::Fn && !pressed && v.recording {
             if v.no_record_fg {
@@ -487,6 +580,7 @@ impl Board {
     /// True when the LEDs changed and should be sent (`engine.leds`).
     pub fn task(&mut self, now: u32) -> bool {
         self.vendor.now = now;
+        self.vendor.blink_hook();
         self.vendor.rgblight.task(now);
         self.engine.task(now, &mut self.vendor)
     }
@@ -633,32 +727,135 @@ impl Vendor {
         }
     }
 
-    /// rgb_matrix_hs_devs_indicator, USB only: blinks the USB key white
-    /// until USB is configured, then shows it for 2 s.
-    fn show_usb(&mut self, leds: &mut Leds) {
-        if !self.usb_active {
-            self.devs_timer = self.now;
-            if self.usb_blink_timer == 0 || self.now.wrapping_sub(self.usb_blink_timer) > 500 {
-                self.usb_blink_timer = self.now;
-                self.usb_blink_state = !self.usb_blink_state;
+    /// rgb_matrix_hs_devs_indicator: on USB, blinks the USB key white
+    /// until USB is configured, then shows it for 2 s; on a wireless device,
+    /// shows its key for 2 s after connecting.
+    fn show_devs(&mut self, leds: &mut Leds) {
+        if self.devs == DEVS_USB {
+            if !self.usb_active {
+                self.devs_timer = self.now;
+                if self.usb_blink_timer == 0 || self.now.wrapping_sub(self.usb_blink_timer) > 500 {
+                    self.usb_blink_timer = self.now;
+                    self.usb_blink_state = !self.usb_blink_state;
+                }
+                let c = if self.usb_blink_state { 0xFF } else { 0 };
+                leds.set(LED_USB, Rgb { r: c, g: c, b: c });
+                return;
             }
-            let c = if self.usb_blink_state { 0xFF } else { 0 };
-            leds.set(LED_USB, Rgb { r: c, g: c, b: c });
+        } else if !self.devs_flag {
             return;
         }
         self.usb_blink_timer = 0;
         self.usb_blink_state = false;
         if self.now.wrapping_sub(self.devs_timer) >= 2000 {
+            self.devs_flag = false;
             return;
         }
-        leds.set(
-            LED_USB,
-            Rgb {
-                r: 0xFF,
-                g: 0xFF,
-                b: 0xFF,
-            },
-        );
+        // HS_PAIR_COLOR_*, passed as r, g, b: the colours config.h names.
+        let (index, c) = match self.devs {
+            DEVS_BT1 => (41, Rgb { r: 0xFF, g: 0, b: 0 }),
+            DEVS_BT2 => (40, Rgb { r: 0, g: 0, b: 0xFF }),
+            DEVS_BT3 => (39, Rgb { r: 0xFF, g: 0xFF, b: 0 }),
+            DEVS_2G4 => (38, Rgb { r: 0, g: 0xFF, b: 0 }),
+            _ => (LED_USB, WHITE),
+        };
+        leds.set(index, c);
+    }
+
+    /// wireless_devs_change, the board's part.
+    fn devs_change(&mut self, dev: u8, reset: bool) {
+        let old = self.devs;
+        if self.devs != dev || reset {
+            self.md_state = MD_STATE_DISCONNECTED;
+        }
+        self.devs = dev;
+        self.devs_change_kb(old, dev, reset);
+    }
+
+    /// wireless_devs_change_kb: re-pairing blinks the device's key fast in
+    /// its LBACK colour, reconnecting slowly in its PAIR colour (both once;
+    /// the indicator restarts it while the link stays down).
+    fn devs_change_kb(&mut self, _old: u8, new: u8, reset: bool) {
+        self.wls.reset = reset;
+        if let Some(&(index, lback, pair)) = WLS_BLINKS.get(new as usize) {
+            if reset {
+                self.wls_set(index, lback, 200, 1);
+            } else {
+                self.wls_set(index, pair, 500, 1);
+            }
+        }
+    }
+
+    /// rgb_matrix_wls_indicator_set.
+    fn wls_set(&mut self, index: u8, rgb: Rgb, interval: u32, times: u32) {
+        self.wls.timer = self.now;
+        self.wls.index = index;
+        self.wls.interval = interval;
+        self.wls.times = times * 2;
+        self.wls.rgb = rgb;
+    }
+
+    /// rgb_matrix_wls_indicator_cb, at the end of a blink: blink again
+    /// while the link is down (true), unless it's USB and USB is up.
+    fn wls_blink_done(&mut self) -> bool {
+        if self.md_state != MD_STATE_CONNECTED {
+            if !(self.devs == DEVS_USB && self.usb_active) {
+                self.devs_change_kb(self.devs, self.devs, self.wls.reset);
+            }
+            return true;
+        }
+        false
+    }
+
+    /// rgb_matrix_wls_indicator.
+    fn show_wls(&mut self, leds: &mut Leds) {
+        if self.wls.timer == 0 {
+            return;
+        }
+        if self.now.wrapping_sub(self.wls.timer) >= self.wls.interval {
+            self.wls.timer = self.now;
+            self.wls.times = self.wls.times.saturating_sub(1);
+            if self.wls.times == 0 {
+                self.wls.timer = 0;
+                if !self.wls_blink_done() {
+                    return;
+                }
+            }
+        }
+        let c = if self.wls.times % 2 == 1 { self.wls.rgb } else { Rgb::OFF };
+        leds.set(self.wls.index as usize, c);
+    }
+
+    /// hs_rgb_blink_hook (wls.c), less its sleep timeouts (M7): entering
+    /// DISCONNECTED starts the device's blink, entering CONNECTED shows the
+    /// device for 2 s.
+    fn blink_hook(&mut self) {
+        if self.last_status != self.md_state {
+            self.last_status = self.md_state;
+            self.blink_timer = 0;
+        }
+        match self.md_state {
+            MD_STATE_NONE => self.blink_timer = 0,
+            MD_STATE_PAIRING => {
+                if self.blink_timer == 0 {
+                    self.blink_timer = self.now;
+                }
+            }
+            MD_STATE_DISCONNECTED => {
+                if self.blink_timer == 0 {
+                    self.blink_timer = self.now;
+                    self.devs_change_kb(self.devs, self.devs, false);
+                }
+            }
+            MD_STATE_CONNECTED => {
+                if self.blink_timer == 0 {
+                    self.blink_timer = self.now;
+                    self.devs_flag = true;
+                    self.devs_timer = self.now;
+                }
+            }
+            _ => {}
+        }
     }
 
     /// find_index: where the effect is in MODES (0 if it isn't).
@@ -800,8 +997,9 @@ impl Hooks for Vendor {
         for (i, &c) in self.rgblight.led.iter().enumerate() {
             leds.set(SIDE_FIRST + i, c);
         }
+        self.show_wls(leds);
         self.show_blinks(leds);
-        self.show_usb(leds);
+        self.show_devs(leds);
         if self.factory_test {
             if self.now.wrapping_sub(self.factory_timer) > 4000 {
                 self.factory_timer = self.now;

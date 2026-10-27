@@ -38,8 +38,13 @@ FUNCTIONS = [
     "rgb_blink_dir", "hs_reset_settings_user", "nkr_indicators_hook", "rgb_matrix_hs_indicator_set",
     "rgb_matrix_hs_set_remain_time", "rgb_matrix_hs_indicator", "hs_set_color_all",
     "rgb_matrix_hs_devs_indicator", "hs_factory_scan", "keyboard_post_init_kb", "hs_reset_settings",
-    "rgb_matrix_indicators_advanced_kb",
+    "rgb_matrix_indicators_advanced_kb", "hs_get_sleep_timeout",
+    # The connection indicator (M6).
+    "rgb_matrix_wls_indicator_set", "wireless_devs_change_kb", "rgb_matrix_wls_indicator_cb",
+    "rgb_matrix_wls_indicator",
 ]
+# wls/wls.c's: the module state's hook (its sleep timeouts are no-ops here).
+WLS_FUNCTIONS = ["hs_rgb_blink_set_timer", "hs_rgb_blink_get_timer", "hs_rgb_blink_hook"]
 # process_record_kb's cases that are about lighting; the harness's
 # process_record_kb has only these (the others are wireless, battery and
 # key remapping).
@@ -116,7 +121,23 @@ def gen(qmk):
     body = kb[kb.index("switch (keycode)"):]
     c = ['#include "quantum.h"', '#include "rgb_record.h"', '#include "rgb_rgblight.h"', "",
          "// Lifted from 5075b_plus.c by tools/rgbref/board.py.", globals_]
-    funcs = [function(src, f) for f in FUNCTIONS]
+    # The connection indicator's globals, before its functions.
+    wls_globals = src[src.index("bool wls_rgb_indicator_reset"):src.index("void rgb_matrix_wls_indicator_set")]
+    c += [wls_globals]
+    wls_src = (board / "wls/wls.c").read_text()
+    wls_h = (board / "wls/wls.h").read_text()
+    c += [l for l in wls_h.splitlines() if re.match(r"#define HS_(LBACK|SLEEP|PAIR)_TIMEOUT", l)]
+    i = wls_h.index("enum mm_sleep_timeout")
+    c += [wls_h[i:wls_h.index("};", i) + 2], "static uint32_t hs_linker_rgb_timer = 0x00;"]
+    funcs = [function(src, f) for f in FUNCTIONS] + [function(wls_src, f) for f in WLS_FUNCTIONS]
+    # rgb_matrix_indicators_advanced_kb's wireless block: the connection
+    # indicator only; the battery indicators are M7's.
+    ind = next(k for k, f in enumerate(funcs) if "rgb_matrix_indicators_advanced_kb" in f[:f.index("{")])
+    f = funcs[ind]
+    a = f.index("#ifdef WIRELESS_ENABLE")
+    b = f.index("#endif", a) + len("#endif")
+    assert "rgb_matrix_wls_indicator();" in f[a:b]
+    funcs[ind] = f[:a] + "rgb_matrix_wls_indicator(); // battery indicators: M7" + f[b:]
     c += [f[:f.index("{")].strip() + ";" for f in funcs] + funcs
     c += ["bool process_record_kb(uint16_t keycode, keyrecord_t *record) {",
           "    if (process_record_user(keycode, record) != true) return false;",
@@ -181,6 +202,9 @@ class Script:
 
     def dump(self):
         self.lines.append("dump")
+
+    def cmd(self, line):
+        self.lines.append(line)
 
 
 def scripts(rng):
@@ -274,6 +298,82 @@ def scripts(rng):
     s.lines.append("usb 1")
     s.run(2500)
     yield "usb", s
+
+    # The connection indicator. Devices: 0 USB, 1-3 BT, 6 2.4G; module
+    # states: 0 none, 1 pairing, 2 connected, 3 disconnected, 4 reject.
+    s = Script(rng)
+    s.run(100)
+    s.cmd("devs 0 0")  # start-up's select of the saved device
+    s.run(900)
+    s.cmd("wls_key 6")
+    s.run(1700)
+    s.cmd("state 2")
+    s.run(2500)
+    s.tap("KC_A")
+    s.cmd("state 3")
+    s.run(3100)
+    s.cmd("state 2")
+    s.run(600)
+    s.cmd("wls_key 0")
+    s.run(2500)
+    s.dump()
+    yield "wls_switch", s
+
+    s = Script(rng)
+    s.run(300)
+    s.cmd("devs 1 0")
+    s.run(700)
+    s.cmd("wls_pair 1")
+    s.run(450)
+    s.cmd("state 1")
+    s.run(2300)
+    s.cmd("state 2")
+    s.run(2200)
+    for dev in (2, 3, 6):
+        s.cmd(f"wls_key {dev}")
+        s.run(rng.choice([300, 1100]))
+        s.cmd("wls_pair %d" % dev)
+        s.run(900)
+        s.cmd("state 2")
+        s.run(2100)
+    s.cmd("state 4")
+    s.run(1000)
+    s.cmd("state 0")
+    s.run(1000)
+    yield "wls_pair", s
+
+    s = Script(rng)
+    s.lines.insert(0, "usb 0")
+    s.run(100)
+    s.cmd("devs 0 0")
+    s.run(1600)
+    s.cmd("wls_key 6")
+    s.run(1200)
+    s.cmd("wls_key 0")
+    s.run(1300)
+    s.cmd("usb 1")
+    s.run(2500)
+    yield "wls_usb", s
+
+    for n in range(4):
+        s = Script(rng)
+        s.run(100)
+        s.cmd("devs %d 0" % rng.choice([0, 1, 2, 3, 6]))
+        for _ in range(50):
+            r = rng.random()
+            if r < 0.25:
+                s.cmd("wls_key %d" % rng.choice([0, 1, 2, 3, 6]))
+            elif r < 0.35:
+                s.cmd("wls_pair %d" % rng.choice([1, 2, 3, 6]))
+            elif r < 0.6:
+                s.cmd("state %d" % rng.choice([0, 1, 2, 2, 3, 3, 4]))
+            elif r < 0.65:
+                s.cmd("usb %d" % rng.choice([0, 1]))
+            else:
+                s.tap(rng.choice(KEYS[:-3] + ["KC_A", "KC_A"]), gap=0)
+            s.run(rng.choice([1, 40, 250, 600, 1300, 2600]))
+        s.dump()
+        yield f"wls_random{n}", s
 
     for lctl, esc in [(1, 0), (1, 1)]:
         s = Script(rng, lctl, esc)

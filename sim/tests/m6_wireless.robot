@@ -44,6 +44,11 @@ ${A_DOWN}           a1 00 00 04 00 00 00 00 00 a5
 ${CONNECTED}        0x325B
 ${DISCONNECTED}     0x335B
 ${CAPS_ON}          0x025A
+${LED_SELECT}       0xF8
+${LED_COLOUR}       0xFC
+${LED_2G4}          38
+${RED}              0xFF0000
+${GREEN}            0x00FF00
 
 *** Keywords ***
 Start
@@ -130,6 +135,24 @@ On The Dongle
     Radio Should Get    ${SEL_DONGLE}
     Module Sends    ${CONNECTED}
     Radio Should Get    ${ALL_UP}
+
+LED
+    [Documentation]    LED ${i}'s colour in the last frame, 0xRRGGBB.
+    [Arguments]    ${i}
+    Execute Command    spim2 WriteDoubleWord ${LED_SELECT} ${i}
+    ${v}=    Execute Command    spim2 ReadDoubleWord ${LED_COLOUR}
+    RETURN    ${{ int($v.strip(), 0) }}
+
+LED Colours Over
+    [Documentation]    LED ${i}'s colours, every 50 ms for ${seconds}.
+    [Arguments]    ${i}    ${seconds}
+    @{seen}=    Create List
+    FOR    ${_}    IN RANGE    ${{ int(${seconds} / 0.05) }}
+        Run For    0.05
+        ${c}=    LED    ${i}
+        Evaluate    $seen.append($c)
+    END
+    RETURN    ${seen}
 
 Raw HID Send
     [Documentation]    One 32-byte packet on the Vial OUT endpoint, ${bytes} then zeros.
@@ -265,3 +288,27 @@ An Unanswered Frame Is Dropped After 41 Tries
     ${timeouts}=    Evaluate    int.from_bytes($b[4:6], "little")
     Should Be True    ${drops} >= 1    no retry drop counted
     Should Be True    ${timeouts} >= 41    only ${timeouts} ACK timeouts
+
+The Dongle's Key Blinks Until Connected, Then Shows Green For 2 s
+    [Documentation]    The connection indicator (LEDs 37-41) follows the radio:
+    ...    after Fn+Y, Y's LED blinks (500 ms, red: the vendor's PAIR colour
+    ...    in QMK's g r b order) for as long as the link is down; CONNECTED
+    ...    shows it green (HS_PAIR_COLOR_2G4) for 2 s, then the effect is back.
+    Boot
+    Run For    0.2
+    Fn Hold    ${DONGLE}
+    Radio Should Get    ${SEL_DONGLE}
+    ${seen}=    LED Colours Over    ${LED_2G4}    2.5
+    Should Contain    ${seen}    ${{ ${RED} }}
+    Should Contain    ${seen}    ${0}
+    Should Not Contain    ${seen}    ${{ ${GREEN} }}
+    Module Sends    ${CONNECTED}
+    Run For    0.1
+    ${c}=    LED    ${LED_2G4}
+    Should Be Equal As Integers    ${c}    ${GREEN}
+    ${seen}=    LED Colours Over    ${LED_2G4}    1.6
+    Should Not Contain    ${seen}    ${{ ${RED} }}
+    Run For    0.5
+    ${seen}=    LED Colours Over    ${LED_2G4}    0.5
+    Should Not Contain    ${seen}    ${{ ${GREEN} }}
+    Should Not Contain    ${seen}    ${{ ${RED} }}

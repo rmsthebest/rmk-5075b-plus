@@ -52,9 +52,13 @@
 //! The aux LED (B9) is high while the lighting is on (RGB_TOG) and no
 //! cable is in (A7, the cable sense, low), as 5075b_plus.c sets it.
 //!
+//! The connection indicator (LEDs 37-41) follows the radio (src/radio.rs):
+//! its device changes and the module's state go to the board before each
+//! frame.
+//!
 //! Not yet: NK_TOGG (RMK has no NKRO toggle), the factory LED test (LCtrl
-//! held at power-up), the Win-lock LED's suspend rule, and the wireless (M6)
-//! and battery (M7) indicators.
+//! held at power-up), the Win-lock LED's suspend rule, and the battery (M7)
+//! indicators.
 
 use core::cell::Cell;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -66,6 +70,8 @@ use lighting_crate::board::{CHANNELS, KEYS};
 use lighting_crate::record::{self, Record};
 use lighting_crate::engine::MAX_BRIGHTNESS;
 use lighting_crate::vialrgb;
+
+use crate::radio;
 use lighting_crate::{Board, Key};
 use rmk::event::{ActionEvent, ConnectionStatusChangeEvent, KeyboardEvent, KeyboardEventPos};
 use rmk::macros::processor;
@@ -474,6 +480,15 @@ impl Lighting {
         let now = now_ms();
         self.apply_vial(now);
         self.ct_a(now);
+        // The radio's device changes and module state (src/radio.rs).
+        while let Some(e) = radio::take_board_event() {
+            match e {
+                radio::BoardEvent::Select(dev) => self.board.devs_change(dev, false, now),
+                radio::BoardEvent::Key(dev) => self.board.wls_key(dev, now),
+                radio::BoardEvent::Pair(dev) => self.board.wls_pair(dev, now),
+            }
+        }
+        self.board.vendor.md_state = radio::module_state();
         loop {
             if self.board.task_sparse(now) {
                 self.leds.write(self.board.engine.leds.rgb.iter().map(|c| [c.r, c.g, c.b])).await;

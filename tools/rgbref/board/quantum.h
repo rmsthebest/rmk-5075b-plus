@@ -35,12 +35,27 @@ void keyboard_post_init_user(void);
 bool process_record_user(uint16_t keycode, keyrecord_t *record);
 bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max);
 
-// Wireless, which the harness doesn't model: always USB.
-enum { DEVS_USB = 0, DEVS_BT1, DEVS_BT2, DEVS_BT3, DEVS_2G4 };
-enum { MD_STATE_NONE = 0, MD_STATE_CONNECTED = 3 };
-static inline uint8_t *md_getp_state(void) { static uint8_t s = MD_STATE_NONE; return &s; }
+// Wireless: the device and the module's state are the harness's (script
+// commands "devs", "wls_key", "wls_pair", "state"); what the module is sent
+// and the sleep timeouts (M7) are no-ops.
+enum { DEVS_USB = 0, DEVS_BT1, DEVS_BT2, DEVS_BT3, DEVS_BT4, DEVS_BT5, DEVS_2G4 };
+enum { MD_STATE_NONE = 0, MD_STATE_PAIRING, MD_STATE_CONNECTED, MD_STATE_DISCONNECTED, MD_STATE_REJECT };
+extern uint8_t harness_md_state, harness_devs;
+static inline uint8_t *md_getp_state(void) { return &harness_md_state; }
 static inline uint8_t *md_getp_bat(void) { static uint8_t b = 100; return &b; }
-static inline void hs_rgb_blink_set_timer(uint32_t t) {}
+static inline uint8_t wireless_get_current_devs(void) { return harness_devs; }
+#define MD_SND_CMD_DEVCTRL_USB 0x11
+static inline void md_send_devctrl(uint8_t cmd) {}
+static inline void lpwr_set_timeout_value(uint32_t t) {}
+static inline void lpwr_set_timeout_manual(bool on) {}
+static inline void wait_ms(uint32_t ms) {}
+static inline void clear_keyboard(void) {}
+static inline void send_keyboard_report(void) {}
+static inline void led_wakeup(void) {}
+void hs_rgb_blink_set_timer(uint32_t time);
+uint32_t hs_rgb_blink_get_timer(void);
+bool hs_rgb_blink_hook(void);
+void wireless_devs_change_kb(uint8_t old_devs, uint8_t new_devs, bool reset);
 #define USB_ACTIVE 4
 extern struct usb_driver_stub { int state; } USB_DRIVER;
 

@@ -24,9 +24,13 @@
 //! The selected device and the last BT device are saved with the lighting
 //! record's flags (src/lighting.rs).
 //!
-//! Not yet: the connection LEDs (37-41), the pairing and reconnect
-//! timeouts that put the board to sleep (M7), and Vial through the dongle
-//! (the module's raw HID frames are ignored).
+//! The connection LEDs (37-41) are the lighting's (lighting_crate's
+//! board): it takes the device changes from `take_board_event` and the
+//! module's state from `module_state` before each frame.
+//!
+//! Not yet: the pairing and reconnect timeouts that put the board to sleep
+//! (M7), and Vial through the dongle (the module's raw HID frames are
+//! ignored).
 
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -91,6 +95,38 @@ static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static DEVS: AtomicU8 = AtomicU8::new(Device::Usb as u8);
 static LAST_BT: AtomicU8 = AtomicU8::new(1);
 static UART_ERRORS: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU16::new(0);
+/// The module's state as QMK's MD_STATE_* (`wireless::ModuleState` has
+/// the same order), for the lighting.
+static MODULE_STATE: AtomicU8 = AtomicU8::new(0);
+static BOARD_EVENTS: Mutex<CriticalSectionRawMutex, RefCell<heapless::Deque<BoardEvent, 4>>> =
+    Mutex::new(RefCell::new(heapless::Deque::new()));
+
+/// A device change, for the lighting's connection indicator (the board's
+/// `devs_change`, `wls_key`, `wls_pair`), as QMK's DEVS_*.
+#[derive(Clone, Copy)]
+pub enum BoardEvent {
+    /// Start-up's select of the saved device.
+    Select(u8),
+    /// A pairing key pressed.
+    Key(u8),
+    /// A pairing key held 3 s.
+    Pair(u8),
+}
+
+fn board_event(e: BoardEvent) {
+    // Four between two frames is more than a person can press; drop the rest.
+    BOARD_EVENTS.lock(|q| {
+        let _ = q.borrow_mut().push_back(e);
+    });
+}
+
+pub fn take_board_event() -> Option<BoardEvent> {
+    BOARD_EVENTS.lock(|q| q.borrow_mut().pop_front())
+}
+
+pub fn module_state() -> u8 {
+    MODULE_STATE.load(Ordering::Relaxed)
+}
 
 fn now_ms() -> u32 {
     Instant::now().as_millis() as u32
@@ -212,6 +248,7 @@ impl Radio {
             self.hold = None;
             return;
         }
+        board_event(BoardEvent::Key(dev as u8));
         let current = LINK.lock(|l| l.borrow().device());
         if current != dev {
             self.change(dev, false).await;
@@ -283,6 +320,7 @@ impl Radio {
             }
         });
         UART_ERRORS.store(self.uart.rx_errors(), Ordering::Relaxed);
+        MODULE_STATE.store(LINK.lock(|l| l.borrow().state()) as u8, Ordering::Relaxed);
 
         if self.post_init_at.is_some_and(|t| now.wrapping_sub(t) as i32 >= 0) {
             self.post_init_at = None;
@@ -293,6 +331,7 @@ impl Radio {
                 l.send_devctrl(devctrl::SLEEP_2G4_EN);
             });
             let dev = Device::from_u8(DEVS.load(Ordering::Relaxed)).unwrap_or(Device::Usb);
+            board_event(BoardEvent::Select(dev as u8));
             self.change(dev, false).await;
         }
 
@@ -300,6 +339,7 @@ impl Radio {
             && now.wrapping_sub(at) as i32 >= 0
         {
             self.hold = None;
+            board_event(BoardEvent::Pair(dev as u8));
             self.change(dev, true).await;
         }
 

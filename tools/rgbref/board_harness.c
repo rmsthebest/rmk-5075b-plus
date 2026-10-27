@@ -11,6 +11,10 @@
 //     key <name> <row> <col> <pressed> <shift>
 //     run <from_ms> <to_ms> <step_ms> rgblight_task + rgb_matrix_task each step
 //     usb <0|1>                       USB configured or not
+//     devs <dev> <reset>              wireless_devs_change(current, dev, reset)
+//     wls_key <dev>                   a pairing key's press (process_record_wls)
+//     wls_pair <dev>                  its 3 s hold firing (wls_process_long_press)
+//     state <s>                       the module reports MD_STATE_<s>
 //     dump
 // "defaults" alone prints the default recordings (keymap.c) for the Rust side.
 #include <stdio.h>
@@ -20,6 +24,8 @@
 #include "process_rgb.h"
 
 uint32_t harness_now;
+uint8_t  harness_md_state, harness_devs;
+extern bool hs_pairing_flag;
 uint8_t  fake_eeprom[FAKE_EEPROM_SIZE];
 static uint32_t fake_kb;
 struct usb_driver_stub USB_DRIVER = {USB_ACTIVE};
@@ -109,6 +115,14 @@ static const struct {
     {"MO_FBL", MO(4)}, {"KC_A", KC_A},
 };
 
+// wireless_devs_change, what isn't the module's or the transport's.
+static void devs_change(uint8_t dev, bool reset) {
+    uint8_t old = harness_devs;
+    if (harness_devs != dev || reset) harness_md_state = MD_STATE_DISCONNECTED;
+    harness_devs = dev;
+    wireless_devs_change_kb(old, dev, reset);
+}
+
 static void power_check(void) {
     static int last = -1;
     if (power != last) {
@@ -171,10 +185,23 @@ int main(int argc, char **argv) {
         } else if (sscanf(line, "run %u %u %u", &a[0], &a[1], &a[2]) == 3) {
             for (uint32_t t = a[0]; t < a[1]; t += a[2]) {
                 harness_now = t;
+                hs_rgb_blink_hook(); // housekeeping's wireless_post_task
                 rgblight_task();
                 rgb_matrix_task();
                 power_check();
             }
+        } else if (sscanf(line, "devs %u %u", &a[0], &a[1]) == 2) {
+            devs_change(a[0], a[1]);
+        } else if (sscanf(line, "wls_key %u", &a[0]) == 1) {
+            // WLS_KEYCODE_EXEC's press, then WLS_KEYCODE_WAKEUP.
+            if (harness_devs != a[0]) devs_change(a[0], false);
+            hs_pairing_flag = false;
+            hs_rgb_blink_set_timer(harness_now);
+        } else if (sscanf(line, "wls_pair %u", &a[0]) == 1) {
+            devs_change(a[0], true);
+            hs_pairing_flag = true;
+        } else if (sscanf(line, "state %u", &a[0]) == 1) {
+            harness_md_state = a[0];
         } else if (sscanf(line, "usb %u", &a[0]) == 1) {
             USB_DRIVER.state = a[0] ? USB_ACTIVE : 0;
         } else if (!strncmp(line, "dump", 4)) {

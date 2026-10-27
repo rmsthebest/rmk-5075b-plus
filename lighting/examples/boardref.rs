@@ -97,6 +97,10 @@ fn main() {
                     t += n(3);
                 }
             }
+            "devs" => b.as_mut().unwrap().devs_change(n(1) as u8, n(2) != 0, now),
+            "wls_key" => b.as_mut().unwrap().wls_key(n(1) as u8, now),
+            "wls_pair" => b.as_mut().unwrap().wls_pair(n(1) as u8, now),
+            "state" => b.as_mut().unwrap().vendor.md_state = n(1) as u8,
             "usb" => {
                 usb = n(1) != 0;
                 if let Some(b) = b.as_mut() {
