@@ -16,15 +16,23 @@
 //! for its rows to come back up through their pull-ups (QMK's
 //! MATRIX_IO_DELAY, which QMK waits after every column).
 //!
-//! Debounce: per key, a change counts once the pin has read the same for
-//! `DEBOUNCE_MS` passes in a row. Passes are one SysTick tick (1 ms) apart:
+//! Debounce: per key, in milliseconds (the time since the previous pass is
+//! added to every key whose reading differs from its state, and a reading
+//! that agrees starts it over). A release counts once the key has read up
+//! for `DEBOUNCE_MS`. A press counts at its first reading (QMK's
+//! asym_eager_defer_pk), unless `defer_press` is set, when it also waits
+//! `DEBOUNCE_MS` (QMK's default 5 ms, though QMK debounces the whole matrix
+//! at once). The setting is kept in the lighting record (src/lighting.rs) and
+//! set over Vial channel 0xD6 (src/main.rs), for a switch that chatters.
+//! Passes are one SysTick tick (1 ms) apart:
 //! each waits for the millisecond after the one it started in, which the
 //! time base wakes at that tick, however long the pass took (a fixed 1 ms
 //! wait would land on the tick after, every 2 ms; on the board a 0.5 ms
 //! wait did too while a key was down, as the pass then takes longer). After
 //! the executor was held up, the next pass comes at once, with no catching
-//! up (as a Ticker would, with back-to-back passes). Same 5 ms as QMK's default DEBOUNCE, though QMK debounces the
-//! whole matrix at once (sym_defer_g) and this does it per key.
+//! up (as a Ticker would, with back-to-back passes). Several changes found
+//! by one pass are reported one per call without scanning again, and count
+//! no time towards anything.
 //!
 //! Live diagnostics, for the bench while typing fails on the board: VIA's
 //! id_custom_get_value (0x08) on channel 0xD1 (src/main.rs) answers with the
@@ -36,6 +44,7 @@
 //! keymap position that sets the matching default layer (keymap::SWITCH_*).
 
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -47,6 +56,17 @@ use wb32_hal::gpio::{AnyPin, Input, Level, Mode, Pull};
 use crate::keymap::{COL, ROW, SWITCH_MAC, SWITCH_WIN};
 
 const DEBOUNCE_MS: u8 = 5;
+
+/// Presses wait out the debounce too (see the top of this file).
+static DEFER_PRESS: AtomicBool = AtomicBool::new(false);
+
+pub fn defer_press() -> bool {
+    DEFER_PRESS.load(Ordering::Relaxed)
+}
+
+pub fn set_defer_press(on: bool) {
+    DEFER_PRESS.store(on, Ordering::Relaxed);
+}
 const SELECT_SETTLE_US: u32 = 5;
 const RELEASE_SETTLE_US: u32 = 30;
 /// Column modes, as QMK's select_col/unselect_col (ODR stays low).
@@ -146,7 +166,11 @@ pub struct Scan {
     mac: Input,
     /// Debounced state, bit c of word r = key (r, c) down.
     state: [u16; ROW],
-    /// Passes the raw reading has differed from `state`, per key.
+    /// The last pass's reading, and when it was (ms).
+    raw: [u16; ROW],
+    last_pass: Option<u64>,
+    /// Milliseconds the reading has differed from `state`, per key
+    /// (saturating).
     count: [[u8; COL]; ROW],
     /// Switch: last reported position (None before the first report), and
     /// the release of the tap still to send.
@@ -168,6 +192,8 @@ impl Scan {
             cols,
             mac: Input::new(mac, Pull::Up),
             state: [0; ROW],
+            raw: [0; ROW],
+            last_pass: None,
             count: [[0; COL]; ROW],
             mac_mode: None,
             tap_release: None,
@@ -195,31 +221,44 @@ impl Scan {
         raw
     }
 
-    /// The next debounced change, if any, applying it to `state`.
-    fn next_change(&mut self, raw: &[u16; ROW]) -> Option<KeyboardEvent> {
+    /// The next debounced change in the last pass's reading, if any,
+    /// applying it to `state`.
+    fn next_change(&mut self) -> Option<KeyboardEvent> {
+        let eager = !defer_press();
         for r in 0..ROW {
-            let diff = raw[r] ^ self.state[r];
+            let diff = self.raw[r] ^ self.state[r];
+            if diff == 0 {
+                continue;
+            }
             for c in 0..COL {
-                if diff & (1 << c) == 0 {
+                let bit = 1 << c;
+                if diff & bit == 0 {
+                    continue;
+                }
+                let press = self.raw[r] & bit != 0;
+                if (press && eager) || self.count[r][c] >= DEBOUNCE_MS {
                     self.count[r][c] = 0;
-                } else if self.count[r][c] + 1 >= DEBOUNCE_MS {
-                    self.count[r][c] = 0;
-                    self.state[r] ^= 1 << c;
+                    self.state[r] ^= bit;
                     diag_event();
-                    return Some(KeyboardEvent::key(r as u8, c as u8, self.state[r] & (1 << c) != 0));
+                    return Some(KeyboardEvent::key(r as u8, c as u8, press));
                 }
             }
         }
         None
     }
 
-    fn count_up(&mut self, raw: &[u16; ROW]) {
+    /// Takes a pass's reading made at `now_ms`: each key that still differs
+    /// from its state adds the time since the last pass, any other starts
+    /// over.
+    fn take_reading(&mut self, raw: [u16; ROW], now_ms: u64) {
+        // The first pass counts as one tick.
+        let dt = self.last_pass.map_or(1, |t| now_ms.saturating_sub(t)).min(u8::MAX as u64) as u8;
+        self.last_pass = Some(now_ms);
+        self.raw = raw;
         for r in 0..ROW {
             let diff = raw[r] ^ self.state[r];
             for c in 0..COL {
-                if diff & (1 << c) != 0 {
-                    self.count[r][c] += 1;
-                }
+                self.count[r][c] = if diff & (1 << c) != 0 { self.count[r][c].saturating_add(dt) } else { 0 };
             }
         }
     }
@@ -236,15 +275,17 @@ impl Scan {
                 self.tap_release = Some((r, c));
                 return KeyboardEvent::key(r, c, true);
             }
-            let start = Instant::now();
-            let raw = self.read();
-            diag_pass(&raw);
-            if let Some(e) = self.next_change(&raw) {
+            if let Some(e) = self.next_change() {
                 return e;
             }
-            self.count_up(&raw);
             // The next 1 ms tick (see the top of this file).
-            Timer::at(Instant::from_millis(start.as_millis() + 1)).await;
+            if let Some(last) = self.last_pass {
+                Timer::at(Instant::from_millis(last + 1)).await;
+            }
+            let now = Instant::now().as_millis();
+            let raw = self.read();
+            diag_pass(&raw);
+            self.take_reading(raw, now);
         }
     }
 }

@@ -45,6 +45,8 @@
 //! - HS_CT_A held 3 s makes Right Ctrl send App, or back, with a black
 //!   blink; `action_hook` swaps the action.
 //!
+//! - Whether key presses wait out the debounce (src/scan.rs), set over
+//!   Vial channel 0xD6 (src/main.rs).
 //! - The radio's selected device and last BT device (src/radio.rs), as
 //!   QMK's confinfo.devs and last_btdevs. The radio changes them on a
 //!   pairing key, whose action also starts this record's save timer.
@@ -289,6 +291,9 @@ fn flags() -> u8 {
     if CTRL_APP.load(Ordering::Relaxed) {
         f |= record::FLAG_CTRL_APP;
     }
+    if crate::scan::defer_press() {
+        f |= record::FLAG_DEFER_PRESS;
+    }
     f
 }
 
@@ -296,6 +301,13 @@ fn flags() -> u8 {
 pub fn set_flags(f: u8) {
     NO_GUI.store(f & record::FLAG_NO_GUI != 0, Ordering::Relaxed);
     CTRL_APP.store(f & record::FLAG_CTRL_APP != 0, Ordering::Relaxed);
+    crate::scan::set_defer_press(f & record::FLAG_DEFER_PRESS != 0);
+}
+
+/// Saves the record (with the keyboard flags) at the next frame, as Vial's
+/// save does.
+pub fn request_save() {
+    VIAL_SAVE.store(true, Ordering::Relaxed);
 }
 
 /// RMK's action hook (see the top of this file): it may swap the action;

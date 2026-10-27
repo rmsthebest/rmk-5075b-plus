@@ -40,6 +40,9 @@ pub const FLAG_DEVS_MASK: u8 = 0x7 << FLAG_DEVS_SHIFT;
 /// before it was kept; read as 1, QMK's default).
 pub const FLAG_LAST_BT_SHIFT: u8 = 5;
 pub const FLAG_LAST_BT_MASK: u8 = 0x3 << FLAG_LAST_BT_SHIFT;
+/// Key presses wait out the debounce too (clear: they count at the first
+/// reading; the firmware's scan, not the vendor's).
+pub const FLAG_DEFER_PRESS: u8 = 1 << 7;
 
 /// A record that passed its checks: magic, version, CRC and every field
 /// in range.

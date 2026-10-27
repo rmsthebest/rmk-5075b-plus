@@ -432,6 +432,47 @@ Vial Edits Don't Hold Up The Scan
     Should Be True    ${gap} <= 50    longest gap between passes ${gap / 10} ms
     No Panic Since Start-Up
 
+A Press Counts At Once, A Release After 5 ms
+    [Documentation]    Eager press, deferred release (src/scan.rs): the report for
+    ...    a press goes out within 3 ms (it took 5-6 ms with presses debounced),
+    ...    and a 2 ms bounce while releasing doesn't release the key.
+    Boot And Enumerate
+    Key    3    1    1
+    HID Should Show    1    00 00 04 00 00 00 00 00    timeout=0.003
+    Run For    0.02
+    Key    3    1    0
+    Run For    0.002
+    Key    3    1    1
+    Run For    0.02
+    Should Not Be In Log    HOST HID 1: 00 00 00 00 00 00 00 00
+    Key    3    1    0
+    HID Should Show    1    00 00 00 00 00 00 00 00    timeout=0.01
+
+Presses Can Wait Out The Debounce, Set Over Vial
+    [Documentation]    Channel 0xD6: 2 makes presses wait the 5 ms too (for a
+    ...    chattering switch), 1 goes back; the setting is saved with the
+    ...    lighting record and survives a reset.
+    Boot And Enumerate
+    Raw HID Send    0x08    0xD6    0x00
+    HID Should Show    3    08 d6 00 00
+    Raw HID Send    0x08    0xD6    0x02
+    HID Should Show    3    08 d6 02 01
+    Key    3    1    1
+    Run For    0.003
+    # timeout=0: look at what's logged so far, without running on.
+    Should Not Be In Log    HOST HID 1: 00 00 04    timeout=0
+    HID Should Show    1    00 00 04 00 00 00 00 00    timeout=0.01
+    Key    3    1    0
+    # Saved at the next lighting frame; then a reset keeps it.
+    Run For    1
+    Execute Command    sysbus WriteDoubleWord ${AIRCR} ${SYSRESETREQ}
+    Wait For Log Entry    HOST: configured    timeout=2    pauseEmulation=true
+    Run For    0.05
+    Raw HID Send    0x08    0xD6    0x00
+    HID Should Show    3    08 d6 00 01
+    Raw HID Send    0x08    0xD6    0x01
+    HID Should Show    3    08 d6 01 00
+
 The Last Run's Panic Message Is Readable Over Vial
     [Documentation]    Channel 0xD2 answers with the message boot-guard kept from
     ...    the previous run's panic (record at 0x20007000), 28 bytes per request.
