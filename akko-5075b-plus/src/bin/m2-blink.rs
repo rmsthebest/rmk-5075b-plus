@@ -1,4 +1,4 @@
-//! M2 image: the HAL core on embassy. 96 MHz clocks, the TIM2 time base and
+//! M2 image: the HAL core on embassy. 96 MHz clocks, the SysTick time base and
 //! an EXTI wait, observable on the Caps Lock LED (C5, active low):
 //! - blinks at 1 Hz for 10 s, then resets into DFU;
 //! - pressing Esc returns to DFU at once (EXTI on row A0, column C0 held low);
@@ -10,7 +10,7 @@
 use boot_guard as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Instant, Ticker};
 use wb32_hal::exti::ExtiInput;
 use wb32_hal::gpio::{Level, Output, Pins, Pull};
 use wb32_hal::{rcc, time_driver};
@@ -35,9 +35,12 @@ async fn main(_spawner: Spawner) {
 
     let blink = async {
         let mut last = Instant::now();
+        // A Ticker, not Timer::after: the time base wakes timers on its 1 ms
+        // tick, so each Timer::after would add up to 1 ms to the period.
+        let mut ticker = Ticker::every(BLINK_HALF_PERIOD);
         for _ in 0..RUN_TIME_BLINKS {
             caps.toggle();
-            Timer::after(BLINK_HALF_PERIOD).await;
+            ticker.next().await;
             let now = Instant::now();
             assert!(now >= last, "time went backwards");
             last = now;

@@ -25,9 +25,6 @@ lzma-rs = "0.3"
 
 [features]
 always-dfu = ["boot-guard/always-dfu"]
-# Simulator only: start the time base 20 ms before its counter's half-wrap or wrap.
-sim-time-near-half = ["wb32-hal/sim-time-near-half"]
-sim-time-near-wrap = ["wb32-hal/sim-time-near-wrap"]
 
 [[bin]]
 name = "m1a-bounce"

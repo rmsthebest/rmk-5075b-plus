@@ -270,6 +270,29 @@ def keyboard_nodes():
 # VIA id_custom_get_value on the channel akko-rmk's scan answers (src/scan.rs).
 DIAG_REQUEST = bytes([0x00, 0x08, 0xD1]) + bytes(30)  # report ID 0, then 32 bytes
 DIAG_EVERY_S = 0.1
+PANIC_CHANNEL = 0xD2
+
+
+def read_panic_message(fd):
+    """The message of the panic that ended akko-rmk's previous run, '' if none,
+    None if the keyboard doesn't answer (QMK, or an older image)."""
+    msg, off, total = b"", 0, None
+    while total is None or off < total:
+        os.write(fd, bytes([0x00, 0x08, PANIC_CHANNEL, off]) + bytes(29))
+        deadline = time.monotonic() + 0.5
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([fd], [], [], left)[0]:
+                return None
+            data = os.read(fd, 64)
+            if data[:3] == bytes([0x08, PANIC_CHANNEL, off]):
+                break
+        total = data[3]
+        part = data[4:4 + min(28, total - off)]
+        if not part:
+            break
+        msg, off = msg + part, off + len(part)
+    return msg.decode(errors="replace")
 
 
 class Diag:
@@ -328,6 +351,16 @@ def do_capture(job):
         except OSError as e:
             job.say(f"can't open {label}: {e}")
     diag = Diag(job)
+    if diag_fd is not None:
+        try:
+            msg = read_panic_message(diag_fd)
+        except OSError as e:
+            msg = None
+            job.say(f"can't ask for the last panic: {e}")
+        if msg:
+            job.say(f"previous run panicked: {msg}")
+        elif msg == "":
+            job.say("no panic in the previous run")
     job.prompt = ("Slowly, one key at a time: a, s, d. Caps Lock twice. Hold Win, tap e, release Win. "
                   "Hold Fn, tap F6, release Fn. Turn the knob. Watch the Win-lock LED.")
     end = time.monotonic() + 60

@@ -113,7 +113,7 @@ HID Should Show
 Raw HID Send
     [Documentation]    One 32-byte packet on the Vial OUT endpoint, ${bytes} then zeros.
     [Arguments]    @{bytes}
-    ${padded}=    Evaluate    [int(b, 0) for b in $bytes] + [0] * (32 - len($bytes))
+    ${padded}=    Evaluate    [int(str(b), 0) for b in $bytes] + [0] * (32 - len($bytes))
     FOR    ${b}    IN    @{padded}
         Execute Command    usb WriteDoubleWord ${HOST_OUT_BYTE} ${b}
     END
@@ -324,16 +324,45 @@ A Keymap Change Through Vial Survives A Reset
 
 The Scan Reports Its Counters Over Vial
     [Documentation]    VIA id_custom_get_value on channel 0xD1 answers with the
-    ...    scan's diagnostics (src/scan.rs fill_diag): one debounced event, and
-    ...    the held key in the readings since the last query.
+    ...    scan's diagnostics (src/scan.rs fill_diag): a pass every 1 ms (on
+    ...    the board, a TIM2 time base made it one per 65.5 ms), one debounced
+    ...    event, and the held key in the readings since the last query.
     Boot And Enumerate
+    Raw HID Send    0x08    0xD1
+    ${first}=    Wait For Log Entry    HOST HID 3: 08 d1 .*    timeout=1    treatAsRegex=true    pauseEmulation=true
+    Run For    0.3
     Key    3    1    1
     Run For    0.02
     Raw HID Send    0x08    0xD1
-    Wait For Log Entry    HOST HID 3: 08 d1( [0-9a-f]{2}){12} 01 00 00 00( [0-9a-f]{2}){2} 00 00 00 02 00 00 00 00 00 00 00 00    timeout=1    treatAsRegex=true    pauseEmulation=true
+    ${second}=    Wait For Log Entry    HOST HID 3: 08 d1( [0-9a-f]{2}){12} 01 00 00 00( [0-9a-f]{2}){2} 00 00 00 02 00 00 00 00 00 00 00 00    timeout=1    treatAsRegex=true    pauseEmulation=true
+    ${a}=    Evaluate    bytes.fromhex($first.split("HOST HID 3: ")[1].strip())
+    ${b}=    Evaluate    bytes.fromhex($second.split("HOST HID 3: ")[1].strip())
+    ${passes}=    Evaluate    int.from_bytes($b[2:6], "little") - int.from_bytes($a[2:6], "little")
+    Should Be True    ${passes} >= 290    only ${passes} scan passes in 0.32 s
+    ${gap}=    Evaluate    int.from_bytes($b[18:20], "little")
+    Should Be True    ${gap} <= 25    longest gap between passes ${gap / 10} ms
     # Other channels stay unanswered.
     Raw HID Send    0x08    0x01
     HID Should Show    3    08 01 00 00 00 00
+
+The Last Run's Panic Message Is Readable Over Vial
+    [Documentation]    Channel 0xD2 answers with the message boot-guard kept from
+    ...    the previous run's panic (record at 0x20007000), 28 bytes per request.
+    Load Machine
+    Execute Command    qspi WriteDoubleWord ${FLASH_ERASE} 1
+    ${msg}=    Set Variable    akko-5075b-plus/src/scan.rs:1:1: a simulated panic
+    ${record}=    Evaluate    (lambda m: (lambda h: [0x43, 0x49, 0x4E, 0x50] + list(len(m).to_bytes(4, "little")) + list(h.to_bytes(4, "little")) + list(m))(__import__("functools").reduce(lambda h, b: ((h ^ b) * 0x01000193) & 0xFFFFFFFF, len(m).to_bytes(4, "little") + m, 0x811C9DC5)))($msg.encode())
+    FOR    ${i}    ${b}    IN ENUMERATE    @{record}
+        Execute Command    sysbus WriteByte ${{ 0x20007000 + ${i} }} ${b}
+    END
+    Start
+    Wait For Enumeration
+    ${n}=    Get Length    ${msg}
+    FOR    ${off}    IN RANGE    0    ${n}    28
+        Raw HID Send    0x08    0xD2    ${off}
+        ${part}=    Evaluate    $msg.encode()[${off}:${off} + 28].hex(" ")
+        HID Should Show    3    08 d2 ${{ "%02x" % ${off} }} ${{ "%02x" % ${n} }} ${part}
+    END
 
 The Stack Has Headroom
     [Documentation]    Stack high-water mark over first boot (default keymap

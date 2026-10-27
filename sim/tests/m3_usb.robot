@@ -148,14 +148,14 @@ Caps Lock LED Shows The Time Base Until The Host Takes Over
     Boot
     Run For    0.01
     ${on}=    LED Is On    ${GPIOC_ODR}    ${CAPS_LED}
-    Should Be True    ${on}    Caps Lock LED is off: TIM2 counter not moving
+    Should Be True    ${on}    Caps Lock LED is off: the time base isn't moving
     Run For    0.3
     Host State Should Be    2
     Host    0x0003
     Run For    0.02
     ${on}=    LED Is On    ${GPIOC_ODR}    ${CAPS_LED}
     Should Not Be True    ${on}
-    CDC Should Show    tim2: counter \\d+ -> \\d+ across 1 ms of CPU cycles
+    CDC Should Show    time: \\d+ us -> \\d+ us across 1 ms of CPU cycles
 
 Host Caps Lock Drives The Caps Lock LED
     Boot And Enumerate

@@ -13,10 +13,9 @@
 //! 30 s after boot.
 //!
 //! Time-base check (the first hardware run had embassy-time stuck): at boot,
-//! TIM2's counter is read across a 1 ms wait counted in CPU cycles. The
-//! result goes to the log, and Caps Lock is lit if the counter moved, until
+//! embassy-time's clock is read across a 1 ms wait counted in CPU cycles.
+//! The result goes to the log, and Caps Lock is lit if the clock moved, until
 //! the host sends its first LED report.
-//! `info` also dumps TIM2 and its NVIC state.
 
 #![no_std]
 #![no_main]
@@ -39,9 +38,7 @@ use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Handler};
 use wb32_hal::exti::ExtiInput;
 use wb32_hal::gpio::{Level, Output, Pins, Pull};
-use wb32_hal::pac::{Interrupt, RCC, TIM2};
 use wb32_hal::{rcc, time_driver, usb};
-use cortex_m::peripheral::NVIC;
 
 /// NVIC priorities (upper 4 bits): the time base above everything else.
 const PRIO_TIME: u8 = 0x40;
@@ -319,36 +316,15 @@ async fn main(_spawner: Spawner) {
     }
 }
 
-/// Reads TIM2's counter across a 1 ms busy wait; logs and returns whether
-/// it moved (expected: about 1000 ticks at 1 MHz).
+/// Reads embassy-time's clock across a 1 ms busy wait; logs and returns
+/// whether it moved (expected: about 1000 us; flash wait states make the
+/// wait longer on the board).
 fn check_time_base() -> bool {
-    let before = TIM2.cnt().read().0;
+    let before = Instant::now().as_micros();
     cortex_m::asm::delay(rcc::HCLK_HZ / 1000);
-    let after = TIM2.cnt().read().0;
-    log!("tim2: counter {} -> {} across 1 ms of CPU cycles", before, after);
-    log_tim2();
+    let after = Instant::now().as_micros();
+    log!("time: {} us -> {} us across 1 ms of CPU cycles", before, after);
     after != before
-}
-
-fn log_tim2() {
-    let t = TIM2;
-    log!(
-        "tim2: cr1 {:#x} dier {:#x} sr {:#x} cnt {} psc {} arr {:#x} ccr1 {:#x} ccr2 {:#x}",
-        t.cr1().read().0,
-        t.dier().read().0,
-        t.sr().read().0,
-        t.cnt().read().0,
-        t.psc().read().0,
-        t.arr().read().0,
-        t.ccr1().read().0,
-        t.ccr2().read().0
-    );
-    log!(
-        "tim2: apb1enr {:#x}, nvic enabled {} pending {}",
-        RCC.apb1enr().read().0,
-        NVIC::is_enabled(Interrupt::TIM2),
-        NVIC::is_pending(Interrupt::TIM2)
-    );
 }
 
 fn run_command(line: &[u8], type_request: &Signal<CriticalSectionRawMutex, ()>) {
@@ -361,7 +337,6 @@ fn run_command(line: &[u8], type_request: &Signal<CriticalSectionRawMutex, ()>) 
                 CONFIGURED.load(Ordering::Relaxed),
                 SUSPENDED.load(Ordering::Relaxed)
             );
-            log_tim2();
         }
         b"type" => type_request.signal(()),
         b"panic" => panic!("requested over USB"),

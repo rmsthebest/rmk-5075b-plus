@@ -1,198 +1,110 @@
-//! embassy-time driver on TIM2 (16-bit), 1 MHz tick.
+//! embassy-time driver on SysTick, 1 MHz tick.
 //!
-//! Same scheme as embassy-stm32's timer driver:
-//! - The counter runs freely over 16 bits, wrapping every 65.5 ms. TIM2 is
-//!   not 32-bit on this chip (ChibiOS's `WB32_TIM2_IS_32BITS FALSE`; on the
-//!   board ARR reads back 0xFFFFF after writing 0xFFFF_FFFF, and CCR1 0 after
-//!   0x8000_0000), so a 32-bit scheme loses time at every wrap.
-//! - `period` counts half-wraps: the update event (wrap to 0) and CC1 at
-//!   0x8000 each add one, so `now = period << 15 + (CNT with bit 15
-//!   corrected by period's parity)`. This stays right even if a half-wrap
-//!   interrupt is pending while `now()` runs.
-//! - CC2 is the alarm. It's only armed once the alarm is less than one
-//!   half-period plus margin away (`next_period` arms it then), so a CCR2
-//!   match can never come a full wrap early. Each half-wrap also fires an
-//!   overdue alarm, so a missed match costs at most 32 ms, not the alarm.
+//! SysTick interrupts once a millisecond, as ChibiOS's periodic tick in QMK
+//! (`CH_CFG_ST_TIMEDELTA 0`) does on this chip. `now()` is the millisecond
+//! count plus how far SysTick has counted down into the current one; alarms
+//! are checked on every tick, so a timer fires up to 1 ms late.
+//!
+//! The TIM2 driver this replaces armed compare alarms; on the board they
+//! only fired at the 16-bit counter's wrap (a 1 ms timer took 65.5 ms, and
+//! time went backwards), though Renode's timer matched them. QMK never uses
+//! TIM2's compare channels.
 
 use core::cell::{Cell, RefCell};
-use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 use core::task::Waker;
 
+use cortex_m::peripheral::scb::SystemHandler;
+use cortex_m::peripheral::syst::SystClkSource;
+use cortex_m::peripheral::{SCB, SYST};
+use cortex_m_rt::exception;
 use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
-use wb32_pac::{Interrupt, TIM2, interrupt, tim};
 
 use crate::rcc;
 
-const HALF: u32 = 1 << 15;
-const MAX: u32 = 0xFFFF;
+const TICKS_PER_MS: u64 = TICK_HZ / 1000;
+const _: () = assert!(TICK_HZ.is_multiple_of(1000));
+/// SysTick counts HCLK cycles, one wrap per millisecond.
+const CYCLES_PER_MS: u32 = rcc::HCLK_HZ / 1000;
+const _: () = assert!(CYCLES_PER_MS <= 1 << 24);
 
-// TIM2 runs from PCLK1; the prescaler brings it down to the tick rate.
-const _: () = assert!((rcc::PCLK1_HZ as u64).is_multiple_of(TICK_HZ));
-const PSC: u32 = (rcc::PCLK1_HZ as u64 / TICK_HZ) as u32 - 1;
-
-/// Counter value at start-up. The simulator test builds start 20 ms before
-/// the counter's half-wrap or full wrap, so the first boundary crossed is
-/// the one under test.
-#[cfg(not(any(feature = "sim-time-near-half", feature = "sim-time-near-wrap")))]
-const START: u32 = 0;
-#[cfg(feature = "sim-time-near-half")]
-const START: u32 = HALF - 20 * TICK_HZ as u32 / 1000;
-#[cfg(feature = "sim-time-near-wrap")]
-const START: u32 = MAX + 1 - 20 * TICK_HZ as u32 / 1000;
-
-fn calc_now(period: u32, counter: u32) -> u64 {
-    ((period as u64) << 15) + (counter ^ ((period & 1) << 15)) as u64
-}
-
-// repr(C) keeps `period` at offset 0: the simulator tests read it.
+// repr(C) keeps `ms` at offset 0: the simulator tests read it.
 #[repr(C)]
-struct TimDriver {
-    /// Number of half-wraps of the 16-bit counter.
-    period: AtomicU32,
+struct SysTickDriver {
+    /// Milliseconds since `init`.
+    ms: Mutex<Cell<u64>>,
     /// Next alarm time, `u64::MAX` when none.
     alarm: Mutex<Cell<u64>>,
     queue: Mutex<RefCell<Queue>>,
 }
 
-embassy_time_driver::time_driver_impl!(static DRIVER: TimDriver = TimDriver {
-    period: AtomicU32::new(START >> 15),
+embassy_time_driver::time_driver_impl!(static DRIVER: SysTickDriver = SysTickDriver {
+    ms: Mutex::new(Cell::new(0)),
     alarm: Mutex::new(Cell::new(u64::MAX)),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
 
-/// Starts TIM2 as the embassy-time base. Call after [`rcc::init`].
-/// `prio` is the TIM2 interrupt priority (upper 4 bits used).
+/// Starts SysTick as the embassy-time base. Call after [`rcc::init`].
+/// `prio` is SysTick's exception priority (upper 4 bits used).
 pub fn init(prio: u8) {
-    rcc::enable_apb1(|w| w.set_tim2en(true));
-
-    let r = TIM2;
-    r.cr1().write(|w| {
-        // Only counter overflow sets UIF, not our own UG below.
-        w.set_urs(true);
-    });
-    r.psc().write_value(tim::regs::Psc(PSC));
-    r.arr().write_value(tim::regs::Arr(MAX));
-    // Load PSC now rather than at the first wrap.
-    r.egr().write(|w| w.set_ug(true));
-    r.cnt().write_value(tim::regs::Cnt(START));
-    r.ccr1().write_value(tim::regs::Ccr1(HALF));
-    r.sr().write_value(tim::regs::Sr(0));
-    r.dier().write(|w| {
-        w.set_uie(true);
-        w.set_cc1ie(true);
-    });
-
-    unsafe {
-        let mut nvic = cortex_m::Peripherals::steal().NVIC;
-        nvic.set_priority(Interrupt::TIM2, prio);
-        cortex_m::peripheral::NVIC::unpend(Interrupt::TIM2);
-        cortex_m::peripheral::NVIC::unmask(Interrupt::TIM2);
-    }
-
-    r.cr1().modify(|w| w.set_cen(true));
+    let mut cp = unsafe { cortex_m::Peripherals::steal() };
+    unsafe { cp.SCB.set_priority(SystemHandler::SysTick, prio) };
+    let syst = &mut cp.SYST;
+    syst.set_clock_source(SystClkSource::Core);
+    syst.set_reload(CYCLES_PER_MS - 1);
+    syst.clear_current();
+    syst.enable_interrupt();
+    syst.enable_counter();
 }
 
-impl TimDriver {
-    fn on_interrupt(&self) {
-        let r = TIM2;
-        critical_section::with(|cs| {
-            let sr = r.sr().read();
-            let dier = r.dier().read();
-            // SR flags clear on writing 0; writing 1 leaves them alone, so
-            // this clears exactly the flags handled here.
-            r.sr().write_value(tim::regs::Sr(!sr.0));
+impl SysTickDriver {
+    fn now_cs(&self, cs: CriticalSection) -> u64 {
+        let mut ms = self.ms.borrow(cs).get();
+        let mut cvr = SYST::get_current();
+        // A wrap whose interrupt hasn't run yet (we're in a critical section
+        // or a higher-priority handler): count it, and read again, as the
+        // value above may be from before or after the wrap.
+        if SCB::is_pendst_pending() {
+            ms += 1;
+            cvr = SYST::get_current();
+        }
+        let into_ms = (CYCLES_PER_MS - 1 - cvr.min(CYCLES_PER_MS - 1)) as u64;
+        ms * TICKS_PER_MS + into_ms * TICKS_PER_MS / CYCLES_PER_MS as u64
+    }
 
-            if sr.uif() {
-                self.next_period(cs);
-            }
-            if sr.cc1if() {
-                self.next_period(cs);
-            }
-            // Also on a half-wrap if the alarm is overdue: a missed CC2 match
-            // would otherwise leave it pending for good, and with it every
-            // later timer (the timer queue only re-arms for earlier ones).
-            // Renode's timer never matches CCR2 = 0, an alarm right at a wrap.
-            let overdue = (sr.uif() || sr.cc1if()) && self.alarm.borrow(cs).get() <= self.now();
-            if (sr.cc2if() && dier.cc2ie()) || overdue {
-                self.trigger_alarm(cs);
+    fn on_tick(&self) {
+        critical_section::with(|cs| {
+            let ms = self.ms.borrow(cs);
+            ms.set(ms.get() + 1);
+            if self.alarm.borrow(cs).get() <= self.now_cs(cs) {
+                self.arm_next(cs);
             }
         })
     }
 
-    fn next_period(&self, cs: CriticalSection) {
-        let period = self.period.load(Ordering::Relaxed) + 1;
-        self.period.store(period, Ordering::Relaxed);
-        let t = (period as u64) << 15;
-
-        // The alarm is now within reach of CCR2 (set by `set_alarm`).
-        let at = self.alarm.borrow(cs).get();
-        if at < t + 0xC000 {
-            TIM2.dier().modify(|w| w.set_cc2ie(true));
-        }
-    }
-
-    fn trigger_alarm(&self, cs: CriticalSection) {
-        let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
-        while !self.set_alarm(cs, next) {
-            next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
-        }
-    }
-
-    /// Arms CC2 for `timestamp`. Returns false if that time has already
-    /// passed, in which case the caller must process the queue again.
-    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
-        let r = TIM2;
-        self.alarm.borrow(cs).set(timestamp);
-
-        let t = self.now();
-        if timestamp <= t {
-            r.dier().modify(|w| w.set_cc2ie(false));
-            self.alarm.borrow(cs).set(u64::MAX);
-            return false;
-        }
-
-        r.ccr2().write_value(tim::regs::Ccr2(timestamp as u32 & MAX));
-
-        // Arm now only if the match can't come a wrap early; otherwise
-        // `next_period` arms it.
-        let diff = timestamp - t;
-        r.dier().modify(|w| w.set_cc2ie(diff < 0xC000));
-
-        // The counter may have passed CCR2 while we were setting it up.
-        let t = self.now();
-        if timestamp <= t {
-            r.dier().modify(|w| w.set_cc2ie(false));
-            self.alarm.borrow(cs).set(u64::MAX);
-            return false;
-        }
-        true
+    /// Wakes every expired timer and remembers when the next one is due.
+    fn arm_next(&self, cs: CriticalSection) {
+        let next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now_cs(cs));
+        self.alarm.borrow(cs).set(next);
     }
 }
 
-impl Driver for TimDriver {
+impl Driver for SysTickDriver {
     fn now(&self) -> u64 {
-        let period = self.period.load(Ordering::Relaxed);
-        compiler_fence(Ordering::Acquire);
-        let counter = TIM2.cnt().read().0 & MAX;
-        calc_now(period, counter)
+        critical_section::with(|cs| self.now_cs(cs))
     }
 
     fn schedule_wake(&self, at: u64, waker: &Waker) {
         critical_section::with(|cs| {
-            let mut queue = self.queue.borrow(cs).borrow_mut();
-            if queue.schedule_wake(at, waker) {
-                let mut next = queue.next_expiration(self.now());
-                while !self.set_alarm(cs, next) {
-                    next = queue.next_expiration(self.now());
-                }
+            if self.queue.borrow(cs).borrow_mut().schedule_wake(at, waker) {
+                self.arm_next(cs);
             }
         })
     }
 }
 
-#[interrupt]
-fn TIM2() {
-    DRIVER.on_interrupt();
+#[exception]
+fn SysTick() {
+    DRIVER.on_tick();
 }

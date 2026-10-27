@@ -17,9 +17,11 @@
 //! MATRIX_IO_DELAY, which QMK waits after every column).
 //!
 //! Debounce: per key, a change counts once the pin has read the same for
-//! `DEBOUNCE_MS` passes in a row. Passes are at least 1 ms apart, also after
-//! the executor was held up (a Ticker would catch up with back-to-back
-//! passes). Same 5 ms as QMK's default DEBOUNCE, though QMK debounces the
+//! `DEBOUNCE_MS` passes in a row. Passes are one SysTick tick (1 ms) apart:
+//! each waits 0.5 ms, which the time base rounds up to its next tick (a
+//! 1 ms wait would land on the tick after, every 2 ms). Also after the
+//! executor was held up, as there's no catching up (as a Ticker would, with
+//! back-to-back passes). Same 5 ms as QMK's default DEBOUNCE, though QMK debounces the
 //! whole matrix at once (sym_defer_g) and this does it per key.
 //!
 //! Diagnostic, until typing is confirmed on the board: the Win-lock LED is
@@ -28,7 +30,7 @@
 //! board's keys read fine.)
 //!
 //! Live diagnostics, for the bench while typing fails on the board: VIA's
-//! id_custom_get_value (0x08) with channel `DIAG_CHANNEL` answers with the
+//! id_custom_get_value (0x08) on channel 0xD1 (src/main.rs) answers with the
 //! scan's counters (see `fill_diag` for the layout). Counters are totals
 //! since boot except the two marked "since the last query".
 //!
@@ -50,8 +52,6 @@ use crate::keymap::{COL, ROW, SWITCH_MAC, SWITCH_WIN};
 const DEBOUNCE_MS: u8 = 5;
 const SELECT_SETTLE_US: u32 = 5;
 const RELEASE_SETTLE_US: u32 = 30;
-/// VIA id_custom_get_value channel the diagnostics answer on.
-pub const DIAG_CHANNEL: u8 = 0xD1;
 /// Column modes, as QMK's select_col/unselect_col (ODR stays low).
 const SELECTED: Mode = Mode::output();
 const RELEASED: Mode = Mode::input(Pull::Up);
@@ -84,15 +84,15 @@ static DIAG: Mutex<CriticalSectionRawMutex, RefCell<Diag>> = Mutex::new(RefCell:
     last_pass: None,
 }));
 
-/// Answers a VIA id_custom_get_value request (`buf` = the 32-byte reply,
-/// pre-filled with the request: 08 <channel> ...). For `DIAG_CHANNEL`:
+/// Answers the diagnostics request (`buf` = the 32-byte reply, pre-filled
+/// with the request: 08 d1 ...):
 /// - 2..6 passes, 6..10 passes with a key down, 10..14 flips, 14..18 events
 ///   (u32 LE each), 18..20 longest gap between passes in 0.1 ms (u16 LE,
 ///   since the last query);
 /// - the OR of every reading since the last query, per row r: byte 20 + r
 ///   holds columns 0-7 (bit c), byte 26 + r columns 8-14 (bit c - 8).
 pub fn fill_diag(buf: &mut [u8]) {
-    if buf.len() < 32 || buf[1] != DIAG_CHANNEL {
+    if buf.len() < 32 {
         return;
     }
     DIAG.lock(|d| {
@@ -127,9 +127,9 @@ fn diag_pass(raw: &[u16; ROW]) {
         }
         d.flips = d.flips.wrapping_add(flips);
         d.raw = *raw;
-        if let Some(last) = d.last_pass {
-            let gap = (now - last).as_micros() as u32;
-            d.max_gap_us = d.max_gap_us.max(gap);
+        // Never panics, even if time ran backwards.
+        if let Some(gap) = d.last_pass.and_then(|last| now.checked_duration_since(last)) {
+            d.max_gap_us = d.max_gap_us.max(gap.as_micros().min(u32::MAX as u64) as u32);
         }
         d.last_pass = Some(now);
     });
@@ -253,7 +253,8 @@ impl Scan {
                 return e;
             }
             self.count_up(&raw);
-            Timer::after_millis(1).await;
+            // To the next 1 ms tick (see the top of this file).
+            Timer::after_micros(500).await;
         }
     }
 }

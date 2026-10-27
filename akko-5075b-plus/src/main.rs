@@ -12,6 +12,10 @@
 //!
 //! Ways to DFU: Fn + Right Shift + Esc (QK_BOOT), Esc held at a cold start
 //! (boot-guard), or a panic (boot-guard keeps the message for the next boot).
+//!
+//! For the bench (tools/bench.py Capture), VIA's id_custom_get_value (0x08)
+//! answers on two channels: 0xD1, the scan's diagnostics (src/scan.rs), and
+//! 0xD2, the message of the panic that ended the previous run.
 
 #![no_std]
 #![no_main]
@@ -30,6 +34,9 @@ use rmk::processor::builtin::led_indicator::KeyboardIndicatorProcessor;
 use rmk::types::led_indicator::LedIndicatorType;
 use rmk::usb::UsbTransport;
 use rmk::{KeymapData, initialize_keymap_and_storage, run_all};
+use core::cell::RefCell;
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use wb32_hal::exti::ExtiInput;
 use wb32_hal::gpio::{AnyPin, Level, Output, Pins, Pull};
 use wb32_hal::qspi::Qspi;
@@ -50,11 +57,45 @@ const STORAGE_LEN: u32 = 0x1_0000;
 /// SCK = PCLK1 / 32 = 3 MHz, as QMK.
 const SPI_DIVISOR: u16 = 32;
 
+/// id_custom_get_value channels (see the top of this file).
+const CHANNEL_SCAN: u8 = 0xD1;
+const CHANNEL_PANIC: u8 = 0xD2;
+
+/// The previous run's panic message, taken from boot-guard at start-up.
+static PANIC_MSG: Mutex<CriticalSectionRawMutex, RefCell<([u8; boot_guard::PANIC_MSG_MAX], usize)>> =
+    Mutex::new(RefCell::new(([0; boot_guard::PANIC_MSG_MAX], 0)));
+
+/// VIA id_custom_get_value: `buf` is the 32-byte reply, pre-filled with the
+/// request 08 <channel> <arg>. CHANNEL_PANIC with arg = offset answers
+/// 08 d2 <offset> <total length> and up to 28 bytes of the message.
+fn custom_get_value(buf: &mut [u8]) {
+    match buf[1] {
+        CHANNEL_SCAN => scan::fill_diag(buf),
+        CHANNEL_PANIC if buf.len() >= 32 => PANIC_MSG.lock(|m| {
+            let (msg, len) = &*m.borrow();
+            let off = (buf[2] as usize).min(*len);
+            let n = (*len - off).min(28);
+            buf[3] = *len as u8;
+            buf[4..4 + n].copy_from_slice(&msg[off..off + n]);
+            buf[4 + n..32].fill(0);
+        }),
+        _ => {}
+    }
+}
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     rcc::init();
     time_driver::init(PRIO_TIME);
     let p = Pins::take().unwrap();
+    PANIC_MSG.lock(|m| {
+        let (msg, len) = &mut *m.borrow_mut();
+        let mut buf = [0; boot_guard::PANIC_MSG_MAX];
+        if let Some(text) = boot_guard::take_panic_message(&mut buf) {
+            msg[..text.len()].copy_from_slice(text.as_bytes());
+            *len = text.len();
+        }
+    });
 
     // Board pins as 5075b_plus.c's keyboard_post_init_kb, lighting off.
     let _usb_power = Output::new(p.PB1, Level::Low);
@@ -105,7 +146,7 @@ async fn main(_spawner: Spawner) {
     let (keymap, mut storage) =
         initialize_keymap_and_storage(&mut data, flash, &rmk_config.storage_config, &mut behavior, &positional).await;
 
-    rmk::host::set_custom_get_value_hook(scan::fill_diag);
+    rmk::host::set_custom_get_value_hook(custom_get_value);
     let mut scan = scan;
     let mut knob = knob;
     let mut keyboard = Keyboard::new(&keymap);
