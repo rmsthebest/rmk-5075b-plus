@@ -130,6 +130,7 @@ pub fn fill_diag(buf: &mut [u8]) {
 }
 
 fn diag_pass(raw: &[u16; ROW]) {
+    crate::watchdog::scan_alive();
     let now = Instant::now();
     DIAG.lock(|d| {
         let mut d = d.borrow_mut();

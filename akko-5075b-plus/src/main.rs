@@ -25,10 +25,12 @@
 //! count at their first reading (the default), 2 makes them wait out the
 //! debounce too (for a chattering switch), anything else just reads it;
 //! byte 3 of the answer is 1 while presses wait. A change is saved with the
-//! lighting record.
+//! lighting record. 0xD8 with argument 0x48 ('H') hangs the firmware, to
+//! test the watchdog.
 //!
 //! Crash policy (boot-guard): a panic resets into this image; a second one
-//! before the image has run `STABLE_AFTER` goes to DFU.
+//! before the image has run `STABLE_AFTER` goes to DFU. The software
+//! watchdog (src/watchdog.rs) turns a hang into a panic.
 
 #![no_std]
 #![no_main]
@@ -39,6 +41,7 @@ mod knob;
 mod lighting;
 mod radio;
 mod scan;
+mod watchdog;
 
 use boot_guard as _;
 use embassy_executor::Spawner;
@@ -87,6 +90,8 @@ const CHANNEL_CRASH: u8 = 0xD3;
 const CHANNEL_RADIO: u8 = 0xD4;
 const CHANNEL_STACK: u8 = 0xD5;
 const CHANNEL_DEBOUNCE: u8 = 0xD6;
+const CHANNEL_HANG: u8 = 0xD8;
+const HANG_CONFIRM: u8 = b'H';
 const DEBOUNCE_EAGER: u8 = 1;
 const DEBOUNCE_DEFER: u8 = 2;
 const CRASH_CONFIRM: u8 = b'P';
@@ -183,6 +188,8 @@ fn custom_value(buf: &mut [u8]) {
             buf[4 + n..32].fill(0);
         }
         CHANNEL_CRASH if buf[2] == CRASH_CONFIRM => panic!("requested over Vial"),
+        #[allow(clippy::empty_loop)]
+        CHANNEL_HANG if buf[2] == HANG_CONFIRM => loop {},
         CHANNEL_RADIO => radio::fill_diag(buf),
         CHANNEL_DEBOUNCE => {
             let defer = match buf[2] {
@@ -391,7 +398,8 @@ async fn main(_spawner: Spawner) {
     // inlined, a join's poll frame is the sum of its children's, and it is
     // under every poll for the whole run.
     use rmk::core_traits::Runnable as _;
-    embassy_futures::join::join(
+    watchdog::start();
+    embassy_futures::join::join3(
         rmk::join_all!(
             OwnFrame(scan.run()),
             OwnFrame(knob.run()),
@@ -404,6 +412,7 @@ async fn main(_spawner: Spawner) {
             OwnFrame(radio.run()),
         ),
         stable,
+        watchdog::heartbeat(),
     )
     .await;
 }

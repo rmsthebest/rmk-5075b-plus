@@ -515,6 +515,33 @@ A Panic Resets Into The Keyboard, A Second One Enters DFU
     Run For    0.01
     PC Should Be In ROM
 
+A Hang Trips The Watchdog: A Reset, Then DFU
+    [Documentation]    The software watchdog (src/watchdog.rs): Vial channel
+    ...    0xD8 (argument 'H') hangs the executor; within 2-2.25 s TIM2's
+    ...    check panics, with the watchdog's message, and boot-guard resets.
+    ...    A second hang before the image is stable goes to DFU.
+    Boot And Enumerate
+    Raw HID Send    0x08    0xD8    0x00
+    HID Should Show    3    08 d8 00 00
+    Raw HID Send    0x08    0xD8    0x48
+    Run For    1.9
+    # Still hung: no reset yet (a reset would re-enumerate).
+    Should Not Be In Log    HOST: configured    timeout=0
+    Run For    0.5
+    Wait For Log Entry    HOST: configured    timeout=4    pauseEmulation=true
+    Run For    0.05
+    Raw HID Send    0x08    0xD2    0
+    # The message starts "akko-5075b-plus/src/watchdog.rs:".
+    Wait For Log Entry    HOST HID 3: 08 d2 00 [0-9a-f]{2} ${{ b"akko-5075b-plus/src/watchdog".hex(" ") }}    timeout=1    treatAsRegex=true    pauseEmulation=true
+    Raw HID Send    0x08    0xD2    28
+    Wait For Log Entry    HOST HID 3: 08 d2 1c [0-9a-f]{2} ${{ b".rs:".hex(" ") }}    timeout=1    treatAsRegex=true    pauseEmulation=true
+    Key    3    1    1
+    HID Should Show    1    00 00 04 00 00 00 00 00
+    Key    3    1    0
+    Raw HID Send    0x08    0xD8    0x48
+    Run For    2.5
+    PC Should Be In ROM
+
 The Stack Has Headroom
     [Documentation]    Stack high-water mark over first boot (default keymap
     ...    written to flash), typing, the knob and Vial; fails under 12 KB spare
