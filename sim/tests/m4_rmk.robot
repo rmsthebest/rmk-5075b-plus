@@ -476,7 +476,8 @@ A Panic Resets Into The Keyboard, A Second One Enters DFU
 
 The Stack Has Headroom
     [Documentation]    Stack high-water mark over first boot (default keymap
-    ...    written to flash), typing, the knob and Vial; fails under 4 KB spare.
+    ...    written to flash), typing, the knob and Vial; fails under 12 KB spare
+    ...    (16.9 KB after the 2026-10-27 headroom pass; 4.9 KB before).
     Load Machine
     Execute Command    qspi WriteDoubleWord ${FLASH_ERASE} 1
     Start
@@ -499,4 +500,4 @@ The Stack Has Headroom
     ${top}=    Symbol    _stack_start
     ${size}=    Evaluate    ${top} - 0x20000000
     Log To Console    stack: ${used} of ${size} bytes used
-    Should Be True    ${size} - ${used} >= 4096    only ${{ ${size} - ${used} }} bytes of stack spare
+    Should Be True    ${size} - ${used} >= 12288    only ${{ ${size} - ${used} }} bytes of stack spare

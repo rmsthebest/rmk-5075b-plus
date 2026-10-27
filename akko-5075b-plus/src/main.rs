@@ -122,6 +122,34 @@ unsafe fn ram2_zeroed<T>(slot: *mut MaybeUninit<T>) -> &'static mut T {
     }
 }
 
+/// The keymap in RAM and the behaviour settings it borrows (Vial edits
+/// change them): 3.4 KB that would otherwise sit in main's future.
+#[unsafe(link_section = ".ram2")]
+static mut KEYMAP_DATA: MaybeUninit<KeymapData<ROW, COL, NUM_LAYER, NUM_ENCODER>> = MaybeUninit::uninit();
+#[unsafe(link_section = ".ram2")]
+static mut BEHAVIOR: MaybeUninit<BehaviorConfig> = MaybeUninit::uninit();
+#[unsafe(link_section = ".ram2")]
+static mut POSITIONAL: MaybeUninit<PositionalConfig<ROW, COL>> = MaybeUninit::uninit();
+
+/// Builds the keymap's data and settings in their .ram2 slots; out of line,
+/// so the 3.3 KB `KeymapData` is built in a frame that's gone after
+/// start-up (see `OwnFrame`).
+#[inline(never)]
+fn keymap_parts() -> (
+    &'static mut KeymapData<ROW, COL, NUM_LAYER, NUM_ENCODER>,
+    &'static mut BehaviorConfig,
+    &'static PositionalConfig<ROW, COL>,
+) {
+    // SAFETY: called once, from main.
+    unsafe {
+        (
+            ram2(&raw mut KEYMAP_DATA, KeymapData::new_with_encoder(KEYMAP, ENCODER_MAP)),
+            ram2(&raw mut BEHAVIOR, BehaviorConfig::default()),
+            ram2(&raw mut POSITIONAL, PositionalConfig::default()),
+        )
+    }
+}
+
 /// The previous run's panic message and its length, taken from boot-guard
 /// at start-up, before `custom_get_value` is hooked in; read-only after.
 #[unsafe(link_section = ".ram2")]
@@ -286,17 +314,9 @@ async fn main(_spawner: Spawner) {
         storage_config: StorageConfig { start_addr: 0, num_sectors: 16, ..Default::default() },
     };
 
-    let mut behavior = BehaviorConfig::default();
-    let positional = PositionalConfig::<ROW, COL>::default();
-    let mut data = KeymapData::<ROW, COL, NUM_LAYER, NUM_ENCODER>::new_with_encoder(KEYMAP, ENCODER_MAP);
-    let (keymap, mut storage) = OwnFrame(initialize_keymap_and_storage(
-        &mut data,
-        flash,
-        &rmk_config.storage_config,
-        &mut behavior,
-        &positional,
-    ))
-    .await;
+    let (data, behavior, positional) = keymap_parts();
+    let (keymap, mut storage) =
+        OwnFrame(initialize_keymap_and_storage(data, flash, &rmk_config.storage_config, behavior, positional)).await;
 
     rmk::host::set_custom_value_hook(custom_value);
     let mut scan = scan;
