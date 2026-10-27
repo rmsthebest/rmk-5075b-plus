@@ -1,0 +1,7 @@
+[package]
+name = "lighting"
+version = "0.1.0"
+edition = "2024"
+description = "QMK rgb_matrix effects for the Akko 5075B Plus, bit-exact with QMK's C"
+
+[dependencies]
