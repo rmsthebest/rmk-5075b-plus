@@ -119,6 +119,13 @@ Raw HID Send
     END
     Host    ${{ 0x09 | (${VIAL_OUT_EP} << 8) }}
 
+No Panic Since Start-Up
+    [Documentation]    Vial channel 0xD2 (the previous run's panic message) is empty.
+    ...    A panic resets into the image at once, which takes boot-guard's
+    ...    record, so the record itself can't be checked after the fact.
+    Raw HID Send    0x08    0xD2    0x00
+    HID Should Show    3    08 d2 00 00
+
 Win Lock LED Should Be
     [Documentation]    PB0, active low.
     [Arguments]    ${state}
@@ -291,6 +298,28 @@ Vial's Bootloader Button Enters DFU
     Run For    0.05
     PC Should Be In ROM
 
+VIA Bulk Keymap Write Sets And Keeps Keys
+    [Documentation]    VIA's DynamicKeymapSetBuffer (0x13), as its "load layout"
+    ...    sends it: 28 bytes, 14 big-endian keycodes. RMK read 28 keycodes from
+    ...    the 32-byte report (a panic) and little-endian. GetBuffer (0x12)
+    ...    reads them back, the keys type them, and they survive a reset.
+    Boot And Enumerate
+    # Layer 0 row 0, from column 1: 14 keys of KC_B (0x0005).
+    Raw HID Send    0x13    0x00    0x02    28    @{{ [0x00, 0x05] * 14 }}
+    Run For    0.05
+    No Panic Since Start-Up
+    Raw HID Send    0x12    0x00    0x02    28
+    HID Should Show    3    12 00 02 1c${{ " 00 05" * 14 }}
+    Tap    0    1
+    HID Should Show    1    00 00 05 00 00 00 00 00
+    # Saved: give storage time, then reset without erasing the flash.
+    Run For    1
+    Execute Command    sysbus WriteDoubleWord ${AIRCR} ${SYSRESETREQ}
+    Wait For Log Entry    HOST: configured    timeout=1    pauseEmulation=true
+    Run For    0.05
+    Tap    0    14
+    HID Should Show    1    00 00 05 00 00 00 00 00
+
 Odd Host Requests Don't Crash USB
     [Documentation]    CLEAR_FEATURE(ENDPOINT_HALT) for endpoints the chip doesn't
     ...    have (musb indexed its waker arrays with the host's number and
@@ -304,15 +333,13 @@ Odd Host Requests Don't Crash USB
     # The status stage completes before the request is handled, so "ok"
     # doesn't rule out a panic after it.
     Run For    0.05
-    ${magic}=    Execute Command    sysbus ReadDoubleWord 0x20007000
-    Should Not Be Equal As Integers    ${magic.strip()}    0x504E4943    a panic was recorded
+    No Panic Since Start-Up
     Host    0x0B
     Wait For Log Entry    HOST: GET_DESCRIPTOR(device, after an aborted transfer) -> 18 bytes    timeout=1    pauseEmulation=true
     Host State Should Be    2
     Tap    3    1
     HID Should Show    1    00 00 04 00 00 00 00 00
-    ${magic}=    Execute Command    sysbus ReadDoubleWord 0x20007000
-    Should Not Be Equal As Integers    ${magic.strip()}    0x504E4943    a panic was recorded
+    No Panic Since Start-Up
 
 Esc At A Cold Start Enters DFU
     Boot

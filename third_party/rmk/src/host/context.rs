@@ -65,14 +65,14 @@ impl<'a> KeyboardContext<'a> {
             .await;
     }
 
-    /// Synchronous on purpose: Vial's bulk-write path (`DynamicKeymapSetBuffer`)
-    /// calls this in a tight loop and would otherwise serialize against flash
-    /// for the whole packet. Drops the persist message on a full channel
-    /// rather than awaiting capacity, matching pre-context Vial behavior.
+    /// Sets the key at a flat keymap index (VIA's `DynamicKeymapSetBuffer`)
+    /// and queues it for storage. (akko: this used `try_send` and dropped
+    /// the save when the flash channel was full, so most of a bulk write
+    /// never reached flash; it waits for room now.)
     ///
     /// `rows` / `cols` are passed in so callers can hoist the dimensions read
     /// out of their loop — see `keymap_dimensions()`.
-    pub fn try_set_action_flat(&self, index: usize, action: KeyAction, rows: usize, cols: usize) {
+    pub async fn set_action_flat(&self, index: usize, action: KeyAction, rows: usize, cols: usize) {
         self.keymap.set_action_by_flat_index(index, action);
         #[cfg(feature = "storage")]
         {
@@ -81,20 +81,14 @@ impl<'a> KeyboardContext<'a> {
             let layer_offset = index % layer_size;
             let row = layer_offset / cols;
             let col = layer_offset % cols;
-            if FLASH_CHANNEL
-                .try_send(FlashOperationMessage::KeymapKey {
+            FLASH_CHANNEL
+                .send(FlashOperationMessage::KeymapKey {
                     layer: layer as u8,
                     row: row as u8,
                     col: col as u8,
                     action,
                 })
-                .is_err()
-            {
-                error!(
-                    "Failed to persist keymap key at layer {} ({},{}): flash channel full",
-                    layer, row, col
-                );
-            }
+                .await;
         }
         #[cfg(not(feature = "storage"))]
         let _ = (rows, cols);

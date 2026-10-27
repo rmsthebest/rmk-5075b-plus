@@ -27,3 +27,13 @@ Akko 5075B Plus port. Changes, all marked `akko-5075b-plus`:
   Storage reinitialises (the keymap back to the default) when the hash
   changes; fixed, a new image keeps the keymap edited in Vial, as QMK's
   EEPROM does.
+
+Fixes:
+
+- `src/host/via/mod.rs`, `src/host/context.rs`: VIA's
+  `DynamicKeymapSetBuffer` (0x13) reads `size / 2` big-endian keycodes from
+  key index `offset / 2`, as `GetBuffer` writes them. It read `size`
+  little-endian keycodes from key index `offset`, past the end of the
+  32-byte report at size 28 (a panic). Each key's save now waits for room in
+  the flash channel instead of being dropped when it's full (sim:
+  `m4_rmk.robot` "VIA Bulk Keymap Write Sets And Keeps Keys").
