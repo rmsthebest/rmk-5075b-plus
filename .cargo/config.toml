@@ -3,7 +3,13 @@ target = "thumbv7m-none-eabi"
 
 [target.thumbv7m-none-eabi]
 linker = "flip-link"
-rustflags = ["-C", "link-arg=-Tlink.x"]
+rustflags = [
+    "-C", "link-arg=-Tlink.x",
+    # Panic locations name their source file; without the registry prefix
+    # those strings are ~2.7 KB shorter. (Only matches this machine's cargo
+    # home; elsewhere it does nothing.)
+    "--remap-path-prefix=/home/tony/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/=",
+]
 
 [env]
 KEYBOARD_TOML_PATH = { value = "akko-5075b-plus/rmk.toml", relative = true }

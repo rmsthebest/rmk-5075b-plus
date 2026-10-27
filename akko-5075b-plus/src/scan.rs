@@ -1,20 +1,32 @@
 //! Key matrix scan, plus the Win/Mac switch.
 //!
 //! Polarity as QMK's ROW2COL (and boot-guard's Esc check): each column in
-//! turn is driven low, the others float as pulled-up inputs, and a held key
-//! pulls its row (an input with pull-up) low through its diode. One pass per
+//! turn is driven low, the others are released, and a held key pulls its
+//! row (an input with pull-up) low through its diode. QMK switches each
+//! column between push-pull output and pulled-up input; here the columns are
+//! open-drain outputs with pull-up, which is the same on the wire (low:
+//! driven low; high: driver off, pulled up) but selects a column with one
+//! BSRR write instead of a full pin reconfiguration. One pass per
 //! millisecond, as QMK's matrix task; RMK's own matrix drives the other way
 //! and needs every input on EXTI, which this board's pins can't do (lines
 //! A6/C6 and A10/B10 clash).
 //!
+//! Settling: 5 us after selecting a column before reading the rows (QMK
+//! waits ~0.25 us), and after releasing a column that had a key down, 30 us
+//! for its rows to come back up through their pull-ups (QMK's
+//! MATRIX_IO_DELAY, which QMK waits after every column).
+//!
 //! Debounce: per key, a change counts once the pin has read the same for
-//! `DEBOUNCE_MS` passes in a row (QMK's sym_defer_pk, 5 ms).
+//! `DEBOUNCE_MS` passes in a row. Passes are at least 1 ms apart, also after
+//! the executor was held up (a Ticker would catch up with back-to-back
+//! passes). Same 5 ms as QMK's default DEBOUNCE, though QMK debounces the
+//! whole matrix at once (sym_defer_g) and this does it per key.
 //!
 //! The Win/Mac switch (C15 Win / C14 Mac, active low, pulled up) is read on
 //! the same pass. When it moves, and once at start-up, the scan taps the
 //! keymap position that sets the matching default layer (keymap::SWITCH_*).
 
-use embassy_time::{Duration, Ticker};
+use embassy_time::Timer;
 use rmk::event::KeyboardEvent;
 use rmk::macros::input_device;
 use wb32_hal::gpio::{AnyPin, Input, Level, Mode, Pull};
@@ -22,6 +34,8 @@ use wb32_hal::gpio::{AnyPin, Input, Level, Mode, Pull};
 use crate::keymap::{COL, ROW, SWITCH_MAC, SWITCH_WIN};
 
 const DEBOUNCE_MS: u8 = 5;
+const SELECT_SETTLE_US: u32 = 5;
+const RELEASE_SETTLE_US: u32 = 30;
 
 #[input_device(publish = KeyboardEvent)]
 pub struct Scan {
@@ -36,13 +50,13 @@ pub struct Scan {
     /// the release of the tap still to send.
     mac_mode: Option<bool>,
     tap_release: Option<(u8, u8)>,
-    ticker: Ticker,
 }
 
 impl Scan {
     pub fn new(rows: [AnyPin; ROW], cols: [AnyPin; COL], win: AnyPin, mac: AnyPin) -> Self {
         for c in &cols {
-            c.set_mode(Mode::input(Pull::Up));
+            c.set_level(Level::High);
+            c.set_mode(Mode { pull: Pull::Up as u8, ..Mode::output_open_drain() });
         }
         // Not read: Mac is enough to tell the two positions apart. Pulled up
         // as in QMK, so it doesn't float.
@@ -55,7 +69,6 @@ impl Scan {
             count: [[0; COL]; ROW],
             mac_mode: None,
             tap_release: None,
-            ticker: Ticker::every(Duration::from_millis(1)),
         }
     }
 
@@ -64,16 +77,18 @@ impl Scan {
         let mut raw = [0; ROW];
         for (c, col) in self.cols.iter().enumerate() {
             col.set_level(Level::Low);
-            col.set_mode(Mode::output());
-            // Let the row lines settle (QMK waits 30 us; a few us is plenty
-            // for the pull-ups against these short traces).
-            cortex_m::asm::delay(wb32_hal::rcc::HCLK_HZ / 1_000_000 * 5);
+            delay_us(SELECT_SETTLE_US);
+            let mut any = false;
             for (r, row) in self.rows.iter().enumerate() {
                 if row.is_low() {
                     raw[r] |= 1 << c;
+                    any = true;
                 }
             }
-            col.set_mode(Mode::input(Pull::Up));
+            col.set_level(Level::High);
+            if any {
+                delay_us(RELEASE_SETTLE_US);
+            }
         }
         raw
     }
@@ -123,7 +138,11 @@ impl Scan {
                 return e;
             }
             self.count_up(&raw);
-            self.ticker.next().await;
+            Timer::after_millis(1).await;
         }
     }
+}
+
+fn delay_us(us: u32) {
+    cortex_m::asm::delay(wb32_hal::rcc::HCLK_HZ / 1_000_000 * us);
 }

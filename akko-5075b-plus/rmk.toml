@@ -1,10 +1,7 @@
 # RMK's compile-time sizes (read by rmk-types' build script through
-# KEYBOARD_TOML_PATH in .cargo/config.toml). Only [rmk] and [event.*] are
-# used; the keyboard itself is set up in Rust (src/main.rs).
-
-[rmk]
-# QMK's default DEBOUNCE.
-debounce_time = 5
+# KEYBOARD_TOML_PATH in .cargo/config.toml). Only the [event.*] sizes are
+# used; the keyboard itself is set up in Rust (src/main.rs), and the
+# debounce is src/scan.rs's.
 
 # bootloader.rs subscribes to resolved actions.
 [event.action]

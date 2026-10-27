@@ -7,17 +7,21 @@
 //! feature, and otherwise polls every 20 ms, too slow for a quick turn.
 
 use embassy_futures::select::select;
-use embassy_time::Timer;
+use embassy_time::{Duration, Instant, Timer};
 use rmk::event::KeyboardEvent;
-use rmk::macros::input_device;
 use rmk::input_device::rotary_encoder::Direction;
+use rmk::macros::input_device;
 use wb32_hal::exti::ExtiInput;
 
 const LUT: [i8; 16] = [0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0];
 const RESOLUTION: i8 = 4;
 /// How long a step's "key" is held, as QMK's ENCODER_MAP_KEY_DELAY (1 ms in
 /// config.h) plus margin for the host's 1 ms poll.
-const TAP_MS: u64 = 5;
+const TAP: Duration = Duration::from_millis(5);
+/// Steps turned faster than they can be sent wait here, up to this many.
+const MAX_QUEUED: i8 = 8;
+/// Longest wait without reading the pins (see the end of the loop).
+const POLL: Duration = Duration::from_millis(5);
 
 #[input_device(publish = KeyboardEvent)]
 pub struct Knob {
@@ -27,47 +31,58 @@ pub struct Knob {
     /// The last two readings, 2 bits each (QMK's encoder_state).
     state: u8,
     pulses: i8,
-    /// A step whose release is still to be sent.
-    held: Option<Direction>,
+    /// Steps decoded but not sent yet: > 0 counter-clockwise, < 0 clockwise.
+    queued: i8,
+    /// The step being held, and when to release it.
+    held: Option<(Direction, Instant)>,
 }
 
 impl Knob {
     pub fn new(a: ExtiInput, b: ExtiInput, id: u8) -> Self {
         let state = (a.is_high() as u8) | ((b.is_high() as u8) << 1);
-        Knob { a, b, id, state, pulses: 0, held: None }
+        Knob { a, b, id, state, pulses: 0, queued: 0, held: None }
+    }
+
+    /// Follows the pins since the last call, queueing whole steps.
+    fn decode(&mut self) {
+        let now = (self.a.is_high() as u8) | ((self.b.is_high() as u8) << 1);
+        if now == self.state & 3 {
+            return;
+        }
+        self.state = (self.state << 2) | now;
+        self.pulses += LUT[(self.state & 0xF) as usize];
+        if self.pulses >= RESOLUTION {
+            self.queued = (self.queued + 1).min(MAX_QUEUED);
+        } else if self.pulses <= -RESOLUTION {
+            self.queued = (self.queued - 1).max(-MAX_QUEUED);
+        }
+        self.pulses %= RESOLUTION;
     }
 
     async fn read_keyboard_event(&mut self) -> KeyboardEvent {
-        if let Some(dir) = self.held.take() {
-            Timer::after_millis(TAP_MS).await;
-            return KeyboardEvent::rotary_encoder(self.id, dir, false);
-        }
         loop {
-            let now = (self.a.is_high() as u8) | ((self.b.is_high() as u8) << 1);
-            if now != self.state & 3 {
-                self.state = (self.state << 2) | now;
-                self.pulses += LUT[(self.state & 0xF) as usize];
-                let dir = if self.pulses >= RESOLUTION {
-                    Some(Direction::CounterClockwise)
-                } else if self.pulses <= -RESOLUTION {
-                    Some(Direction::Clockwise)
-                } else {
-                    None
-                };
-                self.pulses %= RESOLUTION;
-                if let Some(dir) = dir {
-                    self.held = Some(dir);
+            self.decode();
+            let now = Instant::now();
+            match self.held {
+                Some((dir, until)) if now >= until => {
+                    self.held = None;
+                    return KeyboardEvent::rotary_encoder(self.id, dir, false);
+                }
+                None if self.queued != 0 => {
+                    let dir = if self.queued > 0 { Direction::CounterClockwise } else { Direction::Clockwise };
+                    self.queued -= self.queued.signum();
+                    self.held = Some((dir, now + TAP));
                     return KeyboardEvent::rotary_encoder(self.id, dir, true);
                 }
-                continue;
+                _ => {}
             }
             // An edge between the read above and arming EXTI would only be
             // seen at the next one; the timeout catches it.
-            select(
-                select(self.a.wait_for_any_edge(), self.b.wait_for_any_edge()),
-                Timer::after_millis(5),
-            )
-            .await;
+            let wake = match self.held {
+                Some((_, until)) => until.min(now + POLL),
+                None => now + POLL,
+            };
+            select(select(self.a.wait_for_any_edge(), self.b.wait_for_any_edge()), Timer::at(wake)).await;
         }
     }
 }

@@ -55,13 +55,17 @@ if request.IsInit:
     def out_level(port, pin):
         return (regs[port][0x14] >> pin) & 1
 
+    def open_drain(port, pin):
+        return (regs[port][0x04] >> pin) & 1
+
     def drives_low(port, pin):
         return mode(port, pin) == 1 and out_level(port, pin) == 0
 
     def pin_level(port, pin):
         if (port, pin) in driven:
             return driven[(port, pin)]
-        if mode(port, pin) == 1:
+        # An open-drain output set high doesn't drive: it reads as its pull.
+        if mode(port, pin) == 1 and not (open_drain(port, pin) and out_level(port, pin)):
             return out_level(port, pin)
         # ROW2COL: a held key pulls its row low when its column is driven low.
         if (port, pin) in ROWS:

@@ -16,6 +16,7 @@ cargo build --release --bin m1b-stub
 cargo build --release --bin m1a-bounce --features always-dfu
 cargo build --release --bin m2-blink
 cargo build --release --bin m3-usb
+cargo build --release --bin akko-rmk
 # m2-blink again with the time base started just before its counter's
 # half-wrap and full wrap.
 for b in half wrap; do

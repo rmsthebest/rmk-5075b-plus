@@ -48,6 +48,9 @@
 #   0x04                 suspend the bus;  0x05  resume it
 #   0x06                 bus reset and enumerate again
 #   0x07 / 0x08          unplug the cable / plug it back in (immediate)
+#   0x09 | ep << 8       send the bytes queued at 0xF0C as one packet on
+#                        interrupt OUT endpoint ep (raw HID, e.g. Vial)
+# 0xF0C write: queue one byte (value & 0xFF) for command 0x09.
 # 0xF04 reads back the host state: 0 detached, 1 enumerating, 2 configured,
 # 3 suspended, 4 failed. 0xF08 reads the host's step count (100 us each).
 
@@ -370,6 +373,7 @@ if request.IsInit:
     h.state = 0                      # see 0xF04
     h.addr = 0
     h.cmds = []
+    h.out_bytes = []                 # queued by 0xF0C, sent by command 0x09
     h.cdc_text = []
     h.ifaces = []                    # [number, class, subclass, protocol, [(ep_addr, attrs, maxp, interval)]]
     h.task = None                    # running control-transfer generator
@@ -567,6 +571,7 @@ if request.IsInit:
         return None
 
     def run_command(cmd):
+        cmd, data = cmd if isinstance(cmd, tuple) else (cmd, None)
         op, arg = cmd & 0xFF, (cmd >> 8) & 0xFF
         if op == 0x01:
             num = cdc_comm_iface()
@@ -610,6 +615,11 @@ if request.IsInit:
             h.state = 2
         elif op == 0x06:
             for x in enumerate_device(): yield
+        elif op == 0x09:
+            if not any(e[0] == arg for i in h.ifaces for e in i[4]):
+                err("no EP%d OUT" % arg); return
+            for x in retry(lambda: tok_out(h.addr, arg, data), "EP%d OUT" % arg): yield
+            log("EP%d OUT %s" % (arg, hexs(data)))
 
     def poll_endpoints():
         frame_start = h.tick % TICKS_PER_MS == 0
@@ -714,6 +724,10 @@ if not request.IsInit:
             v = int(request.Value)
             if v in (0x07, 0x08):
                 h.plugged = v == 0x08
+            elif v & 0xFF == 0x09:
+                # The packet is the bytes queued so far, not at send time.
+                h.cmds.append((v, h.out_bytes))
+                h.out_bytes = []
             else:
                 h.cmds.append(v)
         else:
@@ -724,6 +738,9 @@ if not request.IsInit:
     elif off == 0xF08:
         if request.IsRead:
             request.Value = h.tick
+    elif off == 0xF0C:
+        if request.IsWrite:
+            h.out_bytes.append(int(request.Value) & 0xFF)
     elif off < 0x400:
         if request.IsRead:
             request.Value = reg_read(off)
