@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keyboard Workbench</title>
+<style>
+:root {
+  --bg: #f6f6f4; --card: #ffffff; --fg: #1d1d1b; --muted: #6b6b66; --line: #deded8;
+  --accent: #2f5fd0; --ok: #1f7a3a; --warn: #a15c00; --bad: #b3261e; --log: #f0f0ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --card: #1f1f1d; --fg: #ececea; --muted: #9a9a94; --line: #34342f;
+    --accent: #7ea2ff; --ok: #5cc27a; --warn: #e0a24a; --bad: #ff7b72; --log: #121211;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 24px 16px; }
+h1 { font-size: 20px; margin: 0 0 16px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.big { font-size: 18px; font-weight: 600; margin-top: 2px; }
+.small { color: var(--muted); font-size: 13px; word-break: break-all; }
+.pill { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; background: var(--muted); }
+.mode-qmk .pill { background: var(--accent); } .mode-rmk .pill { background: var(--ok); }
+.mode-dfu .pill { background: var(--warn); }
+.buttons { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+button { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--card); color: var(--fg); cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
+.prompt { display: none; background: var(--warn); color: #fff; border-radius: 10px; padding: 14px 16px;
+  font-size: 17px; font-weight: 600; margin-bottom: 12px; }
+.status { margin: 8px 0; font-weight: 600; }
+.st-ok { color: var(--ok); } .st-failed { color: var(--bad); } .st-cancelled { color: var(--warn); }
+pre { background: var(--log); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  height: 46vh; overflow: auto; font: 12.5px/1.4 ui-monospace, monospace; white-space: pre-wrap; margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Keyboard Workbench</h1>
+  <div class="grid">
+    <div class="card" id="kbd"><div class="label">Keyboard</div>
+      <div class="big"><span class="pill"></span><span id="kbd-text">…</span></div>
+      <div class="small" id="kbd-detail"></div></div>
+    <div class="card"><div class="label">Tested RMK image</div>
+      <div class="big" id="img-text">…</div><div class="small" id="img-detail"></div></div>
+  </div>
+  <div class="buttons">
+    <button data-act="test">Run sim tests</button>
+    <button data-act="flash-rmk" data-confirm>Flash RMK</button>
+    <button data-act="flash-qmk" data-confirm>Flash QMK back</button>
+    <button data-act="reset">Leave DFU</button>
+    <button id="cancel">Cancel</button>
+  </div>
+  <div class="prompt" id="prompt"></div>
+  <div class="status" id="status"></div>
+  <pre id="log"></pre>
+</main>
+<script>
+const token = new URLSearchParams(location.search).get("t");
+const $ = id => document.getElementById(id);
+let since = 0, lastJob = null, armed = null, busy = false;
+
+async function post(path) {
+  await fetch("/api/" + path, { method: "POST", headers: { "X-Token": token } });
+  poll();
+}
+
+document.querySelectorAll("button[data-act]").forEach(b => {
+  b.dataset.text = b.textContent;
+  b.onclick = () => {
+    if (b.hasAttribute("data-confirm") && armed !== b) {
+      disarm(); armed = b; b.classList.add("danger"); b.textContent = "Click again to flash";
+      setTimeout(() => { if (armed === b) disarm(); }, 4000);
+      return;
+    }
+    disarm(); post(b.dataset.act);
+  };
+});
+function disarm() {
+  if (armed) { armed.classList.remove("danger"); armed.textContent = armed.dataset.text; armed = null; }
+}
+$("cancel").onclick = () => post("cancel");
+
+function render(s) {
+  const k = s.keyboard;
+  $("kbd").className = "card mode-" + k.mode;
+  $("kbd-text").textContent = { qmk: "QMK: ", rmk: "RMK: ", dfu: "", none: "" }[k.mode] + k.text;
+  $("kbd-detail").textContent = k.detail || "";
+
+  const f = s.image.frozen;
+  if (!f) { $("img-text").textContent = "None yet"; $("img-detail").textContent = "Run the sim tests to make one."; }
+  else {
+    $("img-text").textContent = f.ok ? `${f.sha256.slice(0, 12)} · ${f.tests} tests passed` : "Changed since tested!";
+    $("img-detail").textContent = `${f.git} · ${f.size} bytes · ${f.time}` +
+      (s.image.stale ? " · newer build exists, not yet tested" : "");
+  }
+
+  const j = s.job, running = j.status === "running";
+  document.querySelectorAll("button[data-act]").forEach(b => {
+    const a = b.dataset.act;
+    b.disabled = running
+      || (a === "flash-rmk" && !(f && f.ok))
+      || (a === "flash-qmk" && !s.qmk.present)
+      || (a === "reset" && k.mode !== "dfu");
+  });
+  $("cancel").disabled = !running || !j.cancellable;
+  $("prompt").style.display = j.prompt ? "block" : "none";
+  $("prompt").textContent = j.prompt || "";
+  $("status").className = "status st-" + j.status;
+  $("status").textContent = j.name ? `${j.name}: ${j.status}` : "";
+
+  if (j.name !== lastJob || j.len < since) { $("log").textContent = ""; since = 0; lastJob = j.name; }
+  if (j.log.length) {
+    const el = $("log"), atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+    el.textContent += j.log.join("\n") + "\n";
+    if (atEnd) el.scrollTop = el.scrollHeight;
+  }
+  since = j.len;
+}
+
+async function poll() {
+  if (busy) return;
+  busy = true;
+  try {
+    const r = await fetch(`/api/state?since=${since}`, { headers: { "X-Token": token } });
+    if (r.ok) render(await r.json());
+  } catch (e) { $("status").textContent = "Workbench not running (start tools/bench.py)"; }
+  busy = false;
+}
+setInterval(poll, 500); poll();
+</script>
+</body>
+</html>
