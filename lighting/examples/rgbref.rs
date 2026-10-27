@@ -6,7 +6,13 @@ use std::io::{BufRead, Write};
 use lighting::{Config, Engine, Hsv, NoHooks};
 
 fn main() {
-    let mut e = Engine::new(Config { enable: false, mode: 0, hsv: Hsv::default(), speed: 0, flags: 0 });
+    let mut e = Engine::new(Config {
+        enable: false,
+        mode: 0,
+        hsv: Hsv::default(),
+        speed: 0,
+        flags: 0,
+    });
     let out = std::io::stdout();
     let mut out = std::io::BufWriter::new(out.lock());
     let mut print = |now: u32, e: &Engine| {
@@ -47,7 +53,11 @@ fn main() {
                 e.config = Config {
                     enable: a[0] & 3 != 0,
                     mode: (a[1] & 63) as u8,
-                    hsv: Hsv { h: a[2] as u8, s: a[3] as u8, v: a[4] as u8 },
+                    hsv: Hsv {
+                        h: a[2] as u8,
+                        s: a[3] as u8,
+                        v: a[4] as u8,
+                    },
                     speed: a[5] as u8,
                     flags: a[6] as u8,
                 }

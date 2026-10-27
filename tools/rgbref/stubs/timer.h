@@ -6,3 +6,5 @@ static inline uint16_t timer_read(void) { return (uint16_t)harness_now; }
 static inline uint32_t timer_read32(void) { return harness_now; }
 static inline uint16_t timer_elapsed(uint16_t t) { return (uint16_t)((uint16_t)harness_now - t); }
 static inline uint32_t timer_elapsed32(uint32_t t) { return harness_now - t; }
+#define timer_expired(current, future) ((uint16_t)(current - future) < UINT16_MAX / 2)
+#define timer_expired32(current, future) ((uint32_t)(current - future) < UINT32_MAX / 2)

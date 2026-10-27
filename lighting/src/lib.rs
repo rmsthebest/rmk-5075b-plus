@@ -9,12 +9,15 @@
 
 #![no_std]
 
+pub mod board;
 pub mod color;
 mod effects;
 pub mod engine;
 pub mod layout;
 pub mod math;
+pub mod rgblight;
 
+pub use board::{Board, Key, Outcome, Saved};
 pub use color::{Hsv, Rgb, hsv_to_rgb};
-pub use engine::{Config, Engine, Hooks, Leds, NoHooks};
 pub use effects::effect;
+pub use engine::{Config, Engine, Hooks, Leds, NoHooks};

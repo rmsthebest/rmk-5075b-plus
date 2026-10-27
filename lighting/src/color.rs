@@ -22,7 +22,11 @@ impl Rgb {
 pub fn hsv_to_rgb(hsv: Hsv) -> Rgb {
     let v8 = hsv.v;
     if hsv.s == 0 {
-        return Rgb { r: v8, g: v8, b: v8 };
+        return Rgb {
+            r: v8,
+            g: v8,
+            b: v8,
+        };
     }
     let (h, s, v) = (hsv.h as i32, hsv.s as i32, hsv.v as i32);
     let region = (h * 6 / 255) as u8;

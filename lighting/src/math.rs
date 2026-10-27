@@ -84,7 +84,11 @@ pub fn atan2_8(dy: i16, dx: i16) -> u8 {
     } else {
         (96 - (32 * (dx + abs_y) / (abs_y - dx))) as i8
     };
-    if dy < 0 { a.wrapping_neg() as u8 } else { a as u8 }
+    if dy < 0 {
+        a.wrapping_neg() as u8
+    } else {
+        a as u8
+    }
 }
 
 /// lib8tion's 16-bit LCG (`rand16seed`, seeded 1337).

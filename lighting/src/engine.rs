@@ -44,7 +44,11 @@ impl Default for Config {
         Config {
             enable: true,
             mode: effect::CYCLE_LEFT_RIGHT,
-            hsv: Hsv { h: 0, s: 255, v: 84 },
+            hsv: Hsv {
+                h: 0,
+                s: 255,
+                v: 84,
+            },
             speed: 153,
             flags: LED_FLAG_ALL,
         }
@@ -78,9 +82,10 @@ pub trait Hooks {
     /// rgb_matrix_indicators_kb: once a frame, after the last chunk renders.
     fn indicators(&mut self, _leds: &mut Leds) {}
     /// rgb_matrix_indicators_advanced_kb: after every chunk, with its LEDs.
-    fn indicators_advanced(&mut self, _leds: &mut Leds, _min: u8, _max: u8) {}
+    /// The board may change the config here (EE_CLR's reset does).
+    fn indicators_advanced(&mut self, _config: &mut Config, _leds: &mut Leds, _min: u8, _max: u8) {}
     /// The board's own effect (`effect::RGBR_PLAY`) for LEDs min..max.
-    fn custom_effect(&mut self, _leds: &mut Leds, _min: u8, _max: u8) {}
+    fn custom_effect(&mut self, _config: &Config, _leds: &mut Leds, _min: u8, _max: u8) {}
 }
 
 pub struct NoHooks;
@@ -98,7 +103,13 @@ pub struct HitTracker {
 
 impl HitTracker {
     const fn new() -> Self {
-        HitTracker { count: 0, x: [0; HITS], y: [0; HITS], index: [0; HITS], tick: [u16::MAX; HITS] }
+        HitTracker {
+            count: 0,
+            x: [0; HITS],
+            y: [0; HITS],
+            index: [0; HITS],
+            tick: [u16::MAX; HITS],
+        }
     }
 }
 
@@ -157,7 +168,10 @@ impl Engine {
     pub fn new(config: Config) -> Self {
         Engine {
             config,
-            leds: Leds { rgb: [Rgb::OFF; LED_COUNT], dirty: false },
+            leds: Leds {
+                rgb: [Rgb::OFF; LED_COUNT],
+                dirty: false,
+            },
             suspended: false,
             timer: 0,
             timer_buffer: 0,
@@ -165,7 +179,11 @@ impl Engine {
             hits: HitTracker::new(),
             hit_buffer: HitTracker::new(),
             state: TaskState::Syncing,
-            params: Params { iter: 0, flags: LED_FLAG_ALL, init: false },
+            params: Params {
+                iter: 0,
+                flags: LED_FLAG_ALL,
+                init: false,
+            },
             last_effect: u8::MAX,
             last_enable: u8::MAX,
             rand: Rand::default(),
@@ -190,7 +208,11 @@ impl Engine {
     pub fn task(&mut self, now: u32, hooks: &mut impl Hooks) -> bool {
         self.now = now;
         self.task_timers();
-        let effect = if self.suspended || !self.config.enable { effect::NONE } else { self.config.mode };
+        let effect = if self.suspended || !self.config.enable {
+            effect::NONE
+        } else {
+            self.config.mode
+        };
         match self.state {
             TaskState::Starting => self.task_start(),
             TaskState::Rendering => {
@@ -200,7 +222,7 @@ impl Engine {
                         hooks.indicators(&mut self.leds);
                     }
                     let (min, max) = limits(self.params.iter.wrapping_sub(1));
-                    hooks.indicators_advanced(&mut self.leds, min, max);
+                    hooks.indicators_advanced(&mut self.config, &mut self.leds, min, max);
                 }
             }
             TaskState::Flushing => return self.task_flush(effect),
@@ -315,7 +337,11 @@ impl Engine {
         if !self.config.enable {
             return;
         }
-        self.config.hsv = Hsv { h, s, v: v.min(MAX_BRIGHTNESS) };
+        self.config.hsv = Hsv {
+            h,
+            s,
+            v: v.min(MAX_BRIGHTNESS),
+        };
     }
 
     pub fn increase_hue(&mut self) {
@@ -386,7 +412,8 @@ impl Engine {
     }
 
     fn task_render(&mut self, effect: u8, hooks: &mut impl Hooks) {
-        self.params.init = effect != self.last_effect || self.config.enable as u8 != self.last_enable;
+        self.params.init =
+            effect != self.last_effect || self.config.enable as u8 != self.last_enable;
         if self.params.flags != self.config.flags {
             self.params.flags = self.config.flags;
             self.leds.set_all(Rgb::OFF);

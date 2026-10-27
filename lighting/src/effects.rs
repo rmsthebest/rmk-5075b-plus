@@ -125,7 +125,8 @@ impl Engine {
                 hsv
             }),
             RAINBOW_MOVING_CHEVRON => self.runner_i(|_, mut hsv, i, time| {
-                hsv.h = (hsv.h as i32 + abs8((py(i) - CY) as i8) as i32 + (px(i) - time as i32)) as u8;
+                hsv.h =
+                    (hsv.h as i32 + abs8((py(i) - CY) as i8) as i32 + (px(i) - time as i32)) as u8;
                 hsv
             }),
             CYCLE_OUT_IN => self.runner_dx_dy_dist(|_, mut hsv, _, _, dist, time| {
@@ -158,7 +159,9 @@ impl Engine {
                 hsv
             }),
             RAINBOW_PINWHEELS => self.runner_sin_cos_i(|_, mut hsv, sin, cos, i, _| {
-                let d = ((py(i) - CY) * 3 * cos as i32 + (56 - abs8((px(i) - CX) as i8) as i32) * 3 * sin as i32) / 128;
+                let d = ((py(i) - CY) * 3 * cos as i32
+                    + (56 - abs8((px(i) - CX) as i8) as i32) * 3 * sin as i32)
+                    / 128;
                 hsv.h = (hsv.h as i32 + d) as u8;
                 hsv
             }),
@@ -171,7 +174,9 @@ impl Engine {
                 hsv
             }),
             HUE_WAVE => self.runner_i(|_, mut hsv, i, time| {
-                hsv.h = hsv.h.wrapping_add(scale8(abs8((px(i) - time as i32) as i8) as u8, 24));
+                hsv.h = hsv
+                    .h
+                    .wrapping_add(scale8(abs8((px(i) - time as i32) as i8) as u8, 24));
                 hsv
             }),
             PIXEL_RAIN => self.pixel_rain(),
@@ -199,7 +204,7 @@ impl Engine {
             SOLID_MULTISPLASH => self.runner_splash(0, solid_splash),
             RGBR_PLAY => {
                 let (min, max) = limits(self.params.iter);
-                hooks.custom_effect(&mut self.leds, min, max);
+                hooks.custom_effect(&self.config, &mut self.leds, min, max);
                 more_after(max)
             }
             _ => false,
@@ -343,8 +348,10 @@ impl Engine {
             if !self.has_flags(i as usize) {
                 continue;
             }
-            let modifier = crate::layout::FLAGS[i as usize] & LED_FLAG_MODIFIER == LED_FLAG_MODIFIER;
-            self.leds.set(i as usize, if modifier { rgb2 } else { rgb1 });
+            let modifier =
+                crate::layout::FLAGS[i as usize] & LED_FLAG_MODIFIER == LED_FLAG_MODIFIER;
+            self.leds
+                .set(i as usize, if modifier { rgb2 } else { rgb1 });
         }
         more_after(max)
     }
@@ -381,7 +388,10 @@ impl Engine {
         let (min, max) = limits(self.params.iter);
         let mut hsv = self.config.hsv;
         let time = scale16by8(self.timer16(), self.config.speed / 8);
-        hsv.v = scale8((abs8((sin8(time as u8) as i32 - 128) as i8) as i32 * 2) as u8, hsv.v);
+        hsv.v = scale8(
+            (abs8((sin8(time as u8) as i32 - 128) as i8) as i32 * 2) as u8,
+            hsv.v,
+        );
         let rgb = hsv_to_rgb(hsv);
         for i in min..max {
             if self.has_flags(i as usize) {
@@ -418,7 +428,11 @@ impl Engine {
             delta_h += 256;
         }
         let r = (self.rand.random8() & 0x03) as i32;
-        let hsv = Hsv { h: (h + delta_h * r) as u8, s: self.config.hsv.s, v: self.config.hsv.v };
+        let hsv = Hsv {
+            h: (h + delta_h * r) as u8,
+            s: self.config.hsv.s,
+            v: self.config.hsv.v,
+        };
         self.set_hsv(i, hsv);
     }
 
@@ -443,7 +457,14 @@ impl Engine {
         }
         let h = self.rand.random8();
         let s = self.rand.random8_min_max(127, 255);
-        self.set_hsv(i, Hsv { h, s, v: self.config.hsv.v });
+        self.set_hsv(
+            i,
+            Hsv {
+                h,
+                s,
+                v: self.config.hsv.v,
+            },
+        );
     }
 
     fn jellybean_raindrops(&mut self) -> bool {
@@ -468,7 +489,11 @@ impl Engine {
         } else {
             let h = self.rand.random8();
             let s = self.rand.random8_min_max(127, 255);
-            Hsv { h, s, v: self.config.hsv.v }
+            Hsv {
+                h,
+                s,
+                v: self.config.hsv.v,
+            }
         }
     }
 
@@ -504,7 +529,8 @@ impl Engine {
         let (min, max) = limits(self.params.iter);
         for i in min..max {
             if self.has_flags(i as usize) {
-                self.leds.set(i as usize, self.st.pixel_flow_led[i as usize]);
+                self.leds
+                    .set(i as usize, self.st.pixel_flow_led[i as usize]);
             }
         }
         if !more_after(max) {
@@ -533,15 +559,27 @@ impl Engine {
             // QMK writes `(RGB){rgb.r, rgb.g, rgb.b}` into an RGB whose
             // fields are g, r, b on this GRB board: red and green swap.
             let c = hsv_to_rgb(self.config.hsv);
-            let rgb = Rgb { r: c.g, g: c.r, b: c.b };
+            let rgb = Rgb {
+                r: c.g,
+                g: c.r,
+                b: c.b,
+            };
             for h in 0..MATRIX_ROWS {
                 for l in 0..MID_COL - 1 {
-                    let c = if self.st.fractal_led[h][l] { rgb } else { Rgb::OFF };
+                    let c = if self.st.fractal_led[h][l] {
+                        rgb
+                    } else {
+                        Rgb::OFF
+                    };
                     self.fractal_set(h, l, c);
                     self.fractal_set(h, MATRIX_COLS - 1 - l, c);
                     self.st.fractal_led[h][l] = self.st.fractal_led[h][l + 1];
                 }
-                let c = if self.st.fractal_led[h][MID_COL - 1] { rgb } else { Rgb::OFF };
+                let c = if self.st.fractal_led[h][MID_COL - 1] {
+                    rgb
+                } else {
+                    Rgb::OFF
+                };
                 self.fractal_set(h, MID_COL - 1, c);
                 self.fractal_set(h, MATRIX_COLS - MID_COL, c);
                 self.st.fractal_led[h][MID_COL - 1] = self.rand.random8() & 3 == 0;
@@ -588,7 +626,8 @@ impl Engine {
         }
         if self.params.iter == 0 {
             let now16 = self.now as u16;
-            self.st.heatmap_decrease = now16.wrapping_sub(self.st.heatmap_decrease_timer) >= HEATMAP_DECREASE_DELAY_MS;
+            self.st.heatmap_decrease =
+                now16.wrapping_sub(self.st.heatmap_decrease_timer) >= HEATMAP_DECREASE_DELAY_MS;
             if self.st.heatmap_decrease {
                 self.st.heatmap_decrease_timer = now16;
             }
@@ -608,7 +647,10 @@ impl Engine {
                     let hsv = Hsv {
                         h: (170 - qsub8(val, 85) as i32) as u8,
                         s: self.config.hsv.s,
-                        v: scale8(((qadd8(170, val) as i32 - 170) * 3) as u8, self.config.hsv.v),
+                        v: scale8(
+                            ((qadd8(170, val) as i32 - 170) * 3) as u8,
+                            self.config.hsv.v,
+                        ),
                     };
                     self.set_hsv(i, hsv);
                     if self.st.heatmap_decrease {
@@ -645,9 +687,14 @@ impl Engine {
         self.st.rain_decay = self.st.rain_decay.wrapping_add(1);
         for col in 0..MATRIX_COLS {
             for row in 0..MATRIX_ROWS {
-                if row == 0 && self.st.rain_drop == 0 && self.crand() < RAND_MAX / DIGITAL_RAIN_DROPS {
+                if row == 0
+                    && self.st.rain_drop == 0
+                    && self.crand() < RAND_MAX / DIGITAL_RAIN_DROPS
+                {
                     self.frame_buffer[row][col] = max_intensity;
-                } else if self.frame_buffer[row][col] > 0 && self.frame_buffer[row][col] < max_intensity {
+                } else if self.frame_buffer[row][col] > 0
+                    && self.frame_buffer[row][col] < max_intensity
+                {
                     if self.st.rain_decay == decay_ticks {
                         self.frame_buffer[row][col] -= 1;
                     }
@@ -657,11 +704,28 @@ impl Engine {
                     let fb = self.frame_buffer[row][col] as i32;
                     let pgi = pure_green_intensity as i32;
                     if fb > pgi {
-                        let boost = div(max_brightness_boost as i32 * (fb - pgi), max_intensity as i32 - pgi) as u8;
-                        self.leds.set(led as usize, Rgb { r: boost, g: max_intensity, b: boost });
+                        let boost = div(
+                            max_brightness_boost as i32 * (fb - pgi),
+                            max_intensity as i32 - pgi,
+                        ) as u8;
+                        self.leds.set(
+                            led as usize,
+                            Rgb {
+                                r: boost,
+                                g: max_intensity,
+                                b: boost,
+                            },
+                        );
                     } else {
                         let green = div(max_intensity as i32 * fb, pgi) as u8;
-                        self.leds.set(led as usize, Rgb { r: 0, g: green, b: 0 });
+                        self.leds.set(
+                            led as usize,
+                            Rgb {
+                                r: 0,
+                                g: green,
+                                b: 0,
+                            },
+                        );
                     }
                 }
             }
@@ -701,22 +765,34 @@ fn band_val(_: &Engine, mut hsv: Hsv, i: u8, time: u8) -> Hsv {
 }
 
 fn band_pinwheel_sat(_: &Engine, mut hsv: Hsv, dx: i16, dy: i16, time: u8) -> Hsv {
-    hsv.s = scale8((hsv.s as i32 - time as i32 - atan2_8(dy, dx) as i32 * 3) as u8, hsv.s);
+    hsv.s = scale8(
+        (hsv.s as i32 - time as i32 - atan2_8(dy, dx) as i32 * 3) as u8,
+        hsv.s,
+    );
     hsv
 }
 
 fn band_pinwheel_val(_: &Engine, mut hsv: Hsv, dx: i16, dy: i16, time: u8) -> Hsv {
-    hsv.v = scale8((hsv.v as i32 - time as i32 - atan2_8(dy, dx) as i32 * 3) as u8, hsv.v);
+    hsv.v = scale8(
+        (hsv.v as i32 - time as i32 - atan2_8(dy, dx) as i32 * 3) as u8,
+        hsv.v,
+    );
     hsv
 }
 
 fn band_spiral_sat(_: &Engine, mut hsv: Hsv, dx: i16, dy: i16, dist: u8, time: u8) -> Hsv {
-    hsv.s = scale8((hsv.s as i32 + dist as i32 - time as i32 - atan2_8(dy, dx) as i32) as u8, hsv.s);
+    hsv.s = scale8(
+        (hsv.s as i32 + dist as i32 - time as i32 - atan2_8(dy, dx) as i32) as u8,
+        hsv.s,
+    );
     hsv
 }
 
 fn band_spiral_val(_: &Engine, mut hsv: Hsv, dx: i16, dy: i16, dist: u8, time: u8) -> Hsv {
-    hsv.v = scale8((hsv.v as i32 + dist as i32 - time as i32 - atan2_8(dy, dx) as i32) as u8, hsv.v);
+    hsv.v = scale8(
+        (hsv.v as i32 + dist as i32 - time as i32 - atan2_8(dy, dx) as i32) as u8,
+        hsv.v,
+    );
     hsv
 }
 
@@ -733,8 +809,16 @@ fn reactive_cross(_: &Engine, mut hsv: Hsv, dx: i16, dy: i16, dist: u8, tick: u1
     let mut effect = (tick as i32 + dist as i32) as u16;
     let dx = if dx < 0 { (dx as i32 * -1) as i16 } else { dx };
     let dy = if dy < 0 { (dy as i32 * -1) as i16 } else { dy };
-    let dx = if dx as i32 * 16 > 255 { 255 } else { (dx as i32 * 16) as i16 };
-    let dy = if dy as i32 * 16 > 255 { 255 } else { (dy as i32 * 16) as i16 };
+    let dx = if dx as i32 * 16 > 255 {
+        255
+    } else {
+        (dx as i32 * 16) as i16
+    };
+    let dy = if dy as i32 * 16 > 255 {
+        255
+    } else {
+        (dy as i32 * 16) as i16
+    };
     effect = (effect as i32 + if dx > dy { dy } else { dx } as i32) as u16;
     if effect > 255 {
         effect = 255;
