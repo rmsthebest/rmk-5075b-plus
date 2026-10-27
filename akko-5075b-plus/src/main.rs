@@ -2,8 +2,9 @@
 //!
 //! Keys (src/scan.rs), the knob (src/knob.rs), the keymap from the QMK VIA
 //! build (src/keymap.rs, generated), Vial, and RMK's storage on the external
-//! SPI flash. Lighting (M5), wireless (M6) and battery/sleep (M7) come later;
-//! until then their keys are User(n) and do nothing.
+//! SPI flash, and the RGB lighting (src/lighting.rs). Wireless (M6) and
+//! battery/sleep (M7) come later; until then their keys are User(n) and do
+//! nothing.
 //!
 //! Storage lives at SPI flash 0x10000-0x1FFFF. QMK's wear-levelled EEPROM is
 //! in the first 64 KB block (it erases with the 64 KB block command), so this
@@ -27,6 +28,7 @@
 mod bootloader;
 mod keymap;
 mod knob;
+mod lighting;
 mod scan;
 
 use boot_guard as _;
@@ -38,14 +40,13 @@ use rmk::processor::builtin::led_indicator::KeyboardIndicatorProcessor;
 use rmk::types::led_indicator::LedIndicatorType;
 use rmk::usb::UsbTransport;
 use rmk::{KeymapData, initialize_keymap_and_storage, run_all};
-use core::cell::RefCell;
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use core::mem::MaybeUninit;
 use embassy_time::{Duration, Timer};
 use wb32_hal::exti::ExtiInput;
 use wb32_hal::gpio::{AnyPin, Level, Output, Pins, Pull};
 use wb32_hal::qspi::Qspi;
 use wb32_hal::spi_nor::SpiNor;
+use wb32_hal::ws2812::{self, Ws2812};
 use wb32_hal::{rcc, time_driver, usb};
 
 use crate::keymap::{COL, ENCODER_MAP, KEYMAP, NUM_ENCODER, NUM_LAYER, ROW};
@@ -55,6 +56,8 @@ include!(concat!(env!("OUT_DIR"), "/vial_generated.rs"));
 const PRIO_TIME: u8 = 0x40;
 const PRIO_USB: u8 = 0x60;
 const PRIO_EXTI: u8 = 0x80;
+/// The LED chain's SPI interrupt: 9, as QMK.
+const PRIO_LEDS: u8 = 0x90;
 
 /// RMK's storage window on the SPI flash, after QMK's 64 KB block.
 const STORAGE_START: u32 = 0x1_0000;
@@ -72,9 +75,26 @@ const CRASH_CONFIRM: u8 = b'P';
 /// again rather than going to DFU.
 const STABLE_AFTER: Duration = Duration::from_secs(60);
 
-/// The previous run's panic message, taken from boot-guard at start-up.
-static PANIC_MSG: Mutex<CriticalSectionRawMutex, RefCell<([u8; boot_guard::PANIC_MSG_MAX], usize)>> =
-    Mutex::new(RefCell::new(([0; boot_guard::PANIC_MSG_MAX], 0)));
+/// The LED chain's encoded frame, and the lighting state.
+const LED_FRAME_LEN: usize = ws2812::frame_len(lighting_crate::layout::LED_COUNT);
+#[unsafe(link_section = ".ram2")]
+static mut LED_FRAME: MaybeUninit<[u8; LED_FRAME_LEN]> = MaybeUninit::uninit();
+#[unsafe(link_section = ".ram2")]
+static mut LIGHTING: MaybeUninit<lighting_crate::Engine> = MaybeUninit::uninit();
+
+/// Puts `value` in a .ram2 static (memory.x's RAM2, above the magic word),
+/// out of .bss and the main task, which share RAM with the stack.
+///
+/// # Safety
+/// Once per slot.
+unsafe fn ram2<T>(slot: *mut MaybeUninit<T>, value: T) -> &'static mut T {
+    unsafe { (*slot).write(value) }
+}
+
+/// The previous run's panic message and its length, taken from boot-guard
+/// at start-up, before `custom_get_value` is hooked in; read-only after.
+#[unsafe(link_section = ".ram2")]
+static mut PANIC_MSG: MaybeUninit<([u8; boot_guard::PANIC_MSG_MAX], usize)> = MaybeUninit::uninit();
 
 /// VIA id_custom_get_value: `buf` is the 32-byte reply, pre-filled with the
 /// request 08 <channel> <arg>. CHANNEL_PANIC with arg = offset answers
@@ -82,14 +102,15 @@ static PANIC_MSG: Mutex<CriticalSectionRawMutex, RefCell<([u8; boot_guard::PANIC
 fn custom_get_value(buf: &mut [u8]) {
     match buf[1] {
         CHANNEL_SCAN => scan::fill_diag(buf),
-        CHANNEL_PANIC if buf.len() >= 32 => PANIC_MSG.lock(|m| {
-            let (msg, len) = &*m.borrow();
+        CHANNEL_PANIC if buf.len() >= 32 => {
+            // SAFETY: written in main before this hook is installed.
+            let (msg, len) = unsafe { (*&raw const PANIC_MSG).assume_init_ref() };
             let off = (buf[2] as usize).min(*len);
             let n = (*len - off).min(28);
             buf[3] = *len as u8;
             buf[4..4 + n].copy_from_slice(&msg[off..off + n]);
             buf[4 + n..32].fill(0);
-        }),
+        }
         CHANNEL_CRASH if buf[2] == CRASH_CONFIRM => panic!("requested over Vial"),
         _ => {}
     }
@@ -100,18 +121,21 @@ async fn main(_spawner: Spawner) {
     rcc::init();
     time_driver::init(PRIO_TIME);
     let p = Pins::take().unwrap();
-    PANIC_MSG.lock(|m| {
-        let (msg, len) = &mut *m.borrow_mut();
+    {
+        let mut msg = [0; boot_guard::PANIC_MSG_MAX];
         let mut buf = [0; boot_guard::PANIC_MSG_MAX];
-        if let Some(text) = boot_guard::take_panic_message(&mut buf) {
+        let len = boot_guard::take_panic_message(&mut buf).map_or(0, |text| {
             msg[..text.len()].copy_from_slice(text.as_bytes());
-            *len = text.len();
-        }
-    });
+            text.len()
+        });
+        // SAFETY: main runs once, before anything reads it.
+        unsafe { ram2(&raw mut PANIC_MSG, (msg, len)) };
+    }
 
-    // Board pins as 5075b_plus.c's keyboard_post_init_kb, lighting off.
+    // Board pins as 5075b_plus.c's keyboard_post_init_kb; src/lighting.rs
+    // switches the LED supply.
     let _usb_power = Output::new(p.PB1, Level::Low);
-    let _led_power = Output::new(p.PA8, Level::Low);
+    let led_power = Output::new(p.PA8, Level::Low);
     let _led_boost = Output::new(p.PA9, Level::High);
     let _aux_led = Output::new(p.PB9, Level::Low);
     let caps_led = Output::new(p.PC5, Level::High);
@@ -167,10 +191,18 @@ async fn main(_spawner: Spawner) {
         .with_host_service(&host_service);
     let mut caps = KeyboardIndicatorProcessor::new(caps_led, true, LedIndicatorType::CapsLock);
     let mut boot = bootloader::Bootloader::new();
+    // SAFETY: main runs once.
+    let (frame, engine) = unsafe {
+        (
+            ram2(&raw mut LED_FRAME, [0; LED_FRAME_LEN]),
+            ram2(&raw mut LIGHTING, lighting_crate::Engine::new(lighting_crate::Config::default())),
+        )
+    };
+    let mut lights = lighting::Lighting::new(engine, Ws2812::new(p.PB15, frame, PRIO_LEDS), led_power);
 
     let stable = async {
         Timer::after(STABLE_AFTER).await;
         boot_guard::mark_stable();
     };
-    embassy_futures::join::join(run_all!(scan, knob, keyboard, storage, usb, caps, boot), stable).await;
+    embassy_futures::join::join(run_all!(scan, knob, keyboard, storage, usb, caps, boot, lights), stable).await;
 }

@@ -8,7 +8,9 @@ BOOT0), so every image is checked before it goes near the keyboard:
     Thumb addresses in flash, HardFault and DefaultHandler are boot-guard's
   - Reset calls boot-guard's __pre_init first
   - the boot-guard code matches a reviewed fingerprint (tools/boot-guard.lock)
-  - .data/.bss/stack stay clear of the magic word, image fits in flash
+  - .data/.bss/stack stay clear of the magic word, image fits in flash;
+    the one RAM section above it is .ram2, a NOLOAD section inside RAM2,
+    clear of the magic word and boot-guard's records
 
 Usage: precheck.py <elf> <bin> [--accept-stub]
   --accept-stub  record the current boot-guard fingerprint as reviewed.
@@ -25,6 +27,9 @@ from pathlib import Path
 FLASH = (0x0800_0000, 256 * 1024)  # WB32FQ95xC
 RAM = (0x2000_0000, 28 * 1024)
 MAGIC_ADDR = 0x2000_6FFC
+# memory.x's RAM2: the SRAM past boot-guard's panic record (0x2000_7000) and
+# crash counter (0x2000_7100), to the end of the chip's 36K. NOLOAD buffers only.
+RAM2 = (0x2000_7400, 0x2000_9000)
 GUARD_SYMBOLS = [
     "__pre_init",
     "__boot_guard_enter_rom",
@@ -150,8 +155,18 @@ def main():
         parts = line.split()
         if len(parts) == 3 and parts[2].startswith("0x2"):
             start, size = int(parts[2], 16), int(parts[1], 16)
+            if parts[0] == ".ram2":
+                check(RAM2[0] <= start and start + size <= RAM2[1],
+                      f".ram2 at {start:#010x}+{size:#x} is outside {RAM2[0]:#010x}..{RAM2[1]:#010x}")
+                continue
             check(start + size <= MAGIC_ADDR,
                   f"section {parts[0]} ends at {start + size:#010x}, past the magic word")
+    # .ram2 must be NOLOAD: nothing in the image may be copied there.
+    for line in run("rust-objdump", "-h", elf).splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[1] == ".ram2":
+            check("DATA" not in line and "LOAD" not in line.split(parts[4], 1)[1],
+                  f".ram2 is not NOLOAD: {line.strip()}")
 
     # The boot-guard code must be byte-for-byte what was reviewed.
     pre = run("rust-objdump", "-d", "--no-show-raw-insn",

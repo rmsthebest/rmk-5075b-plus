@@ -21,6 +21,25 @@ fn main() {
         let line = line.unwrap();
         let mut w = line.split_whitespace();
         let cmd = w.next().unwrap_or("");
+        if cmd == "op" {
+            match w.next().unwrap() {
+                "toggle" => e.toggle(),
+                "enable" => e.enable(),
+                "disable" => e.disable(),
+                "step" => e.step(),
+                "step_reverse" => e.step_reverse(),
+                "increase_hue" => e.increase_hue(),
+                "decrease_hue" => e.decrease_hue(),
+                "increase_sat" => e.increase_sat(),
+                "decrease_sat" => e.decrease_sat(),
+                "increase_val" => e.increase_val(),
+                "decrease_val" => e.decrease_val(),
+                "increase_speed" => e.increase_speed(),
+                "decrease_speed" => e.decrease_speed(),
+                op => panic!("bad op: {op}"),
+            }
+            continue;
+        }
         let a: Vec<u32> = w.map(|x| x.parse().unwrap()).collect();
         match cmd {
             "cfg" => {
@@ -44,6 +63,9 @@ fn main() {
                     t += a[2];
                 }
             }
+            "mode" => e.set_mode(a[0] as u8),
+            "hsv" => e.sethsv(a[0] as u8, a[1] as u8, a[2] as u8),
+            "speed" => e.set_speed(a[0] as u8),
             "suspend" => {
                 if e.set_suspended(a[0] != 0, &mut NoHooks) {
                     print(now, &e);

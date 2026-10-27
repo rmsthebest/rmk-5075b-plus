@@ -59,10 +59,9 @@ pub mod effect {
     pub const SOLID_MULTISPLASH: u8 = 44;
     /// The board's recorded-colour playback (rgb_matrix_user.inc).
     pub const RGBR_PLAY: u8 = 45;
+    /// RGB_MATRIX_EFFECT_MAX.
+    pub const COUNT: u8 = 46;
 }
-
-/// RGB_MATRIX_EFFECT_MAX.
-pub const EFFECT_COUNT: u8 = 46;
 
 /// pixel_fractal's MID_COL.
 pub(crate) const MID_COL: usize = MATRIX_COLS / 2;

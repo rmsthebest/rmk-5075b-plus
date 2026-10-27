@@ -3,6 +3,6 @@
 # used; the keyboard itself is set up in Rust (src/main.rs), and the
 # debounce is src/scan.rs's.
 
-# bootloader.rs subscribes to resolved actions.
+# bootloader.rs and lighting.rs subscribe to resolved actions.
 [event.action]
-subs = 1
+subs = 2

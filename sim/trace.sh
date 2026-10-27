@@ -30,5 +30,5 @@ grep -E "LOCKED|non existing" "$log" | sed -E 's/^\[[0-9:.]+\] //' >&2 || true
 # Renode folds repeats as "... (N)"; keep them, they're part of the sequence.
 # The SPI flash model's commands come out as "FLASH <command> ..." lines, in
 # order with the writes (each is logged when its chip select goes high).
-grep -E "\] [a-z]+: MMIO W |\] qspi: flash: " "$log" \
+grep -E "\] [a-z0-9]+: MMIO W |\] qspi: flash: " "$log" \
     | sed -E -e 's/^.*MMIO W //' -e 's/^.*\] qspi: flash: /FLASH /' | grep -E "$filter" || true

@@ -9,12 +9,19 @@
 use crate::color::{Hsv, Rgb};
 use crate::effects::{self, effect};
 use crate::layout::{LED_COUNT, MATRIX_CO, MATRIX_COLS, MATRIX_ROWS, NO_LED, POINTS};
-use crate::math::{Rand, qadd8};
+use crate::math::{Rand, qadd8, qsub8};
 
 /// RGB_MATRIX_LED_PROCESS_LIMIT: LEDs rendered per task call.
 pub const PROCESS_LIMIT: u8 = ((LED_COUNT + 4) / 5) as u8;
 /// RGB_MATRIX_LED_FLUSH_LIMIT: ms from one frame's start to the next.
 pub const FLUSH_LIMIT: u32 = 16;
+/// The board's steps (keyboard.json val_steps / speed_steps; QMK's
+/// defaults for hue and saturation) and RGB_MATRIX_MAXIMUM_BRIGHTNESS.
+pub const HUE_STEP: u8 = 8;
+pub const SAT_STEP: u8 = 16;
+pub const VAL_STEP: u8 = 21;
+pub const SPD_STEP: u8 = 51;
+pub const MAX_BRIGHTNESS: u8 = 84;
 /// LED_HITS_TO_REMEMBER.
 pub const HITS: usize = 8;
 pub const LED_FLAG_ALL: u8 = 0xFF;
@@ -249,6 +256,112 @@ impl Engine {
         }
         self.suspended = state;
         flushed
+    }
+
+    // ---- rgb_matrix.c's setters (the *_noeeprom ones; saving is the caller's) ----
+
+    /// True when the next `task` call starts a new frame: a frame is due,
+    /// or a setter restarted the task (QMK sets STARTING).
+    pub fn frame_due(&self, now: u32) -> bool {
+        match self.state {
+            TaskState::Syncing => now.wrapping_sub(self.timer) >= FLUSH_LIMIT,
+            _ => true,
+        }
+    }
+
+    /// When the current frame's 16 ms are up.
+    pub fn next_frame(&self) -> u32 {
+        self.timer.wrapping_add(FLUSH_LIMIT)
+    }
+
+    pub fn toggle(&mut self) {
+        self.config.enable = !self.config.enable;
+        self.state = TaskState::Starting;
+    }
+
+    pub fn enable(&mut self) {
+        if !self.config.enable {
+            self.state = TaskState::Starting;
+        }
+        self.config.enable = true;
+    }
+
+    pub fn disable(&mut self) {
+        if self.config.enable {
+            self.state = TaskState::Starting;
+        }
+        self.config.enable = false;
+    }
+
+    pub fn set_mode(&mut self, mode: u8) {
+        if !self.config.enable {
+            return;
+        }
+        self.config.mode = mode.clamp(1, effect::COUNT - 1);
+        self.state = TaskState::Starting;
+    }
+
+    pub fn step(&mut self) {
+        let mode = self.config.mode.wrapping_add(1);
+        self.set_mode(if mode < effect::COUNT { mode } else { 1 });
+    }
+
+    pub fn step_reverse(&mut self) {
+        let mode = self.config.mode.wrapping_sub(1);
+        self.set_mode(if mode < 1 { effect::COUNT - 1 } else { mode });
+    }
+
+    pub fn sethsv(&mut self, h: u8, s: u8, v: u8) {
+        if !self.config.enable {
+            return;
+        }
+        self.config.hsv = Hsv { h, s, v: v.min(MAX_BRIGHTNESS) };
+    }
+
+    pub fn increase_hue(&mut self) {
+        let c = self.config.hsv;
+        self.sethsv(c.h.wrapping_add(HUE_STEP), c.s, c.v);
+    }
+
+    pub fn decrease_hue(&mut self) {
+        let c = self.config.hsv;
+        self.sethsv(c.h.wrapping_sub(HUE_STEP), c.s, c.v);
+    }
+
+    pub fn increase_sat(&mut self) {
+        let c = self.config.hsv;
+        self.sethsv(c.h, qadd8(c.s, SAT_STEP), c.v);
+    }
+
+    pub fn decrease_sat(&mut self) {
+        let c = self.config.hsv;
+        self.sethsv(c.h, qsub8(c.s, SAT_STEP), c.v);
+    }
+
+    pub fn increase_val(&mut self) {
+        let c = self.config.hsv;
+        self.sethsv(c.h, c.s, qadd8(c.v, VAL_STEP));
+    }
+
+    pub fn decrease_val(&mut self) {
+        let c = self.config.hsv;
+        self.sethsv(c.h, c.s, qsub8(c.v, VAL_STEP));
+    }
+
+    pub fn set_speed(&mut self, speed: u8) {
+        self.config.speed = speed;
+    }
+
+    pub fn increase_speed(&mut self) {
+        self.config.speed = qadd8(self.config.speed, SPD_STEP);
+    }
+
+    pub fn decrease_speed(&mut self) {
+        self.config.speed = qsub8(self.config.speed, SPD_STEP);
+    }
+
+    pub fn set_flags(&mut self, flags: u8) {
+        self.config.flags = flags;
     }
 
     fn task_timers(&mut self) {

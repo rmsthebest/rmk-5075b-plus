@@ -23,7 +23,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 OUT = ROOT / "target" / "rgbref"
-EFFECTS = range(1, 45)  # 45 (RGBR_PLAY) is the board's own, tested with it
+EFFECTS = range(1, 46)  # 45, RGBR_PLAY, renders nothing in both here
+OPS = ["toggle", "enable", "disable", "step", "step_reverse", "increase_hue", "decrease_hue",
+       "increase_sat", "decrease_sat", "increase_val", "decrease_val", "increase_speed", "decrease_speed"]
 ROWS, COLS = 6, 15
 
 
@@ -40,7 +42,10 @@ def gen_config(qmk_board):
          # The board's config.h
          "#define RGB_MATRIX_FRAMEBUFFER_EFFECTS",
          "#define RGB_MATRIX_KEYPRESSES",
-         "#define RGB_TRIGGER_ON_KEYDOWN"]
+         "#define RGB_TRIGGER_ON_KEYDOWN",
+         # The board's own effect, RGBR_PLAY (harness.c stubs its renderer)
+         "#define RGB_MATRIX_CUSTOM_USER", "#define ENABLE_RGB_MATRIX_RGBR_PLAY",
+         f"#define RGB_MATRIX_VAL_STEP {rgb['val_steps']}", f"#define RGB_MATRIX_SPD_STEP {rgb['speed_steps']}"]
     h += [f"#define ENABLE_RGB_MATRIX_{name.upper()}" for name, on in rgb["animations"].items() if on]
     (OUT / "config.h").write_text("\n".join(h) + "\n")
 
@@ -62,7 +67,7 @@ def build(qmk):
     q = qmk / "quantum"
     cmd = ["gcc", "-std=gnu11", "-O1", "-funsigned-char", "-fno-strict-aliasing", "-w",
            "-include", str(OUT / "config.h"), "-include", str(q / "rgb_matrix/post_config.h"),
-           "-I", str(HERE / "stubs"), "-I", str(q / "rgb_matrix"), "-I", str(q / "rgb_matrix/animations"),
+           "-I", str(HERE / "stubs"), "-I", str(qmk / "keyboards/akko/5075b_plus"), "-I", str(q / "rgb_matrix"), "-I", str(q / "rgb_matrix/animations"),
            "-I", str(q / "rgb_matrix/animations/runners"), "-I", str(q), "-I", str(qmk),
            "-o", str(OUT / "qmk-rgb"),
            str(HERE / "harness.c"), str(OUT / "led_config.c"), str(q / "rgb_matrix/rgb_matrix.c"),
@@ -117,6 +122,28 @@ def scripts(effect, rng):
     # Effect change in and out (init frames, statics that live on), enable
     # and flags toggles, suspend.
     other = rng.choice([e for e in EFFECTS if e != effect])
+    # Setters. Digital rain (32) divides by zero at val 0 or 1, a crash on
+    # the host, so "ops" keeps val at 2 or more and "ops_val" keeps away
+    # from effect 32.
+    for name, choices in [("ops", [o for o in OPS if o != "decrease_val"] + ["mode", "hsv", "speed"]),
+                          ("ops_val", [o for o in OPS if o not in ("step", "step_reverse")] + ["hsv", "speed"])]:
+        if name == "ops_val" and effect == 32:
+            continue
+        ops = [default, "run 0 200 1"]
+        t = 200
+        for _ in range(60):
+            op = rng.choice(choices)
+            if op == "mode":
+                ops.append(f"mode {rng.choice([m for m in range(50) if m != 32])}")
+            elif op == "hsv":
+                ops.append(f"hsv {rng.randrange(256)} {rng.randrange(256)} {rng.randrange(2, 256)}")
+            elif op == "speed":
+                ops.append(f"speed {rng.randrange(256)}")
+            else:
+                ops.append(f"op {op}")
+            ops.append(f"run {t} {t + rng.randint(1, 60)} 1")
+            t = int(ops[-1].split()[2])
+        yield name, ops
     yield "switch", [default, "run 0 500 1", cfg(mode=other), "run 500 900 1", default] + typing(rng, 900, 1800) + [
         cfg(enable=0, mode=effect), "run 1800 2000 1", default, "run 2000 2300 1",
         cfg(mode=effect, flags=2), "run 2300 2500 1", cfg(mode=effect, flags=4), "run 2500 2700 1",

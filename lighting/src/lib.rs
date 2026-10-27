@@ -17,4 +17,4 @@ pub mod math;
 
 pub use color::{Hsv, Rgb, hsv_to_rgb};
 pub use engine::{Config, Engine, Hooks, Leds, NoHooks};
-pub use effects::{EFFECT_COUNT, effect};
+pub use effects::effect;
