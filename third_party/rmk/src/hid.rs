@@ -2,6 +2,7 @@
 use core::future::Future;
 use core::sync::atomic::Ordering;
 
+use embassy_sync::signal::Signal;
 use embassy_usb::class::hid::ReadError;
 use embassy_usb::driver::EndpointError;
 use rmk_types::connection::ConnectionType;
@@ -102,6 +103,8 @@ pub enum CompositeReportType {
     Mouse = 0x02,
     Media = 0x03,
     System = 0x04,
+    /// akko-5075b-plus: USB only.
+    Battery = 0x05,
 }
 
 /// Plover HID stenography report.
@@ -214,6 +217,19 @@ mod steno_tests {
                 #[item_settings(data,array,absolute,not_null)] system_usage_id=input;
             };
         };
+    },
+    // akko-5075b-plus: the battery (BatteryReport): Generic Device Controls'
+    // Battery Strength, 0-100%, and Battery System's Charging. Linux shows
+    // it as a power supply (upower).
+    (collection = APPLICATION, usage_page = 0x06, usage = 0x20) = {
+        (report_id = 0x05,) = {
+            (usage = 0x20, logical_min = 0, logical_max = 100) = {
+                #[item_settings(data,variable,absolute)] battery_strength=input;
+            };
+            (usage_page = 0x85, usage = 0x44, logical_min = 0, logical_max = 1) = {
+                #[item_settings(data,variable,absolute)] charging=input;
+            };
+        };
     }
 )]
 #[derive(Default, Serialize)]
@@ -225,6 +241,38 @@ pub struct CompositeReport {
     pub(crate) pan: i8,   // Scroll left (negative) or right (positive) this many units
     pub(crate) media_usage_id: u16,
     pub(crate) system_usage_id: u8,
+    pub(crate) battery_strength: u8,
+    pub(crate) charging: u8,
+}
+
+/// akko-5075b-plus: the battery report (report id 0x05 of `CompositeReport`,
+/// USB only): the level, 0-100%, and whether it's charging.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BatteryReport {
+    pub level: u8,
+    pub charging: bool,
+}
+
+impl AsInputReport for BatteryReport {
+    fn serialize(&self, buffer: &mut [u8]) -> Result<usize, usbd_hid::descriptor::BufferOverflow> {
+        if buffer.len() < 2 {
+            return Err(usbd_hid::descriptor::BufferOverflow);
+        }
+        buffer[0] = self.level.min(100);
+        buffer[1] = self.charging as u8;
+        Ok(2)
+    }
+}
+
+/// akko-5075b-plus: the latest battery report for USB's writer, which sends
+/// it while configured and not suspended (it never wakes the host).
+pub(crate) static BATTERY: Signal<crate::RawMutex, BatteryReport> = Signal::new();
+
+/// akko-5075b-plus: reports the battery to the USB host. Send it when the
+/// level or charging changes, and again on each USB configuration (a report
+/// while unconfigured or suspended is dropped).
+pub fn set_battery(report: BatteryReport) {
+    BATTERY.signal(report);
 }
 
 /// The BLE report map: everything in one HID service, distinguished by report id.
@@ -392,8 +440,6 @@ pub trait HidReaderTrait {
     fn read_report(&mut self) -> impl Future<Output = Result<Self::ReportType, HidError>>;
 }
 
-/// Drain LED indicator OUT reports from `reader` and republish them as
-/// [`LedIndicatorEvent`]s whenever `kind` is the active output transport.
 /// akko-5075b-plus: the host's lock LEDs from somewhere other than a
 /// transport's LED reader (the board's radio module).
 pub fn set_host_leds(led_indicator: LedIndicator) {
@@ -401,6 +447,8 @@ pub fn set_host_leds(led_indicator: LedIndicator) {
     publish_event(LedIndicatorEvent::new(led_indicator));
 }
 
+/// Drain LED indicator OUT reports from `reader` and republish them as
+/// [`LedIndicatorEvent`]s whenever `kind` is the active output transport.
 pub(crate) async fn run_led_reader<R: HidReaderTrait<ReportType = LedIndicator>>(
     reader: &mut R,
     kind: ConnectionType,

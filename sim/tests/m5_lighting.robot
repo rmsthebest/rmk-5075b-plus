@@ -749,3 +749,19 @@ On USB The Lights Go Off 7 s After The Host Suspends
     Run For    0.3
     LED Power Should Be    ${True}
     No LED Errors
+
+On USB The Battery Is Reported To The Host
+    [Documentation]    M7e: report 0x05 on the composite interface (RMK's
+    ...    hid.rs BatteryReport): the level the module reports, 0-100, and
+    ...    charging (the cable in, A7 high, and not full, A15 low). Sent a
+    ...    second after USB is configured, then on each change.
+    Boot To Lighting
+    Set Battery    57
+    Wait For Log Entry    HOST HID 2: 05 39 0[01]    timeout=1    treatAsRegex=true    pauseEmulation=true
+    Drive Pin A    7    1
+    Drive Pin A    15    0
+    HID Should Show    2    05 39 01    timeout=2
+    Set Battery    58
+    HID Should Show    2    05 3a 01    timeout=1
+    Drive Pin A    15    2
+    HID Should Show    2    05 3a 00    timeout=2

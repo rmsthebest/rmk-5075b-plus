@@ -18,7 +18,7 @@ use crate::core_traits::Runnable;
 #[cfg(feature = "steno")]
 use crate::hid::StenoReport;
 use crate::hid::{
-    CompositeReport, CompositeReportType, HidError, HidWriterTrait, KeyboardReport, Report, run_led_reader,
+    BATTERY, CompositeReport, CompositeReportType, HidError, HidWriterTrait, KeyboardReport, Report, run_led_reader,
 };
 use crate::light::UsbLedReader;
 use crate::state::{current_usb_state, set_usb_state};
@@ -69,7 +69,24 @@ pub(crate) struct UsbKeyboardWriter<'a, 'd, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> UsbKeyboardWriter<'_, 'd, D> {
     pub(crate) async fn run_writer(&mut self) -> ! {
         loop {
-            let report = USB_REPORT_CHANNEL.receive().await;
+            // akko-5075b-plus: the battery report, only while configured
+            // (it mustn't wake the host), and dropped after 20 ms if the
+            // host isn't reading the endpoint, as steno's: it mustn't hold
+            // up the keys.
+            let report = match select(USB_REPORT_CHANNEL.receive(), BATTERY.wait()).await {
+                Either::First(report) => report,
+                Either::Second(battery) => {
+                    if current_usb_state() == UsbState::Configured {
+                        let write = self.write_composite(CompositeReportType::Battery, &battery);
+                        if let Ok(Err(e)) =
+                            embassy_time::with_timeout(embassy_time::Duration::from_millis(20), write).await
+                        {
+                            error!("Failed to send battery report: {:?}", e);
+                        }
+                    }
+                    continue;
+                }
+            };
 
             // EndpointError::Disabled never fires on non-OTG STM32/GD32
             // peripherals during suspend, so signal wakeup proactively when a

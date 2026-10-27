@@ -22,6 +22,14 @@ Akko 5075B Plus port. Changes, all marked `akko-5075b-plus`:
   report when the reports move to the radio.
 - `src/hid.rs`: `set_host_leds` sets the host's lock LEDs from outside a
   transport's LED reader (the radio module reports the host's LEDs).
+- `src/hid.rs`, `src/usb/mod.rs`: a battery report on USB, report id 0x05
+  of the composite interface (`CompositeReport`'s descriptor gains an
+  application collection: Generic Device Controls' Battery Strength 0-100
+  and Battery System's Charging; Linux shows it as a power supply).
+  `set_battery` hands USB's writer the latest `BatteryReport`; the writer
+  sends it only while configured (it must not wake a suspended host) and
+  drops it after 20 ms if the host isn't reading, as steno's reports, so it
+  can't hold up the keys. The BLE report map is unchanged.
 - `build.rs`: `RMK_BUILD_HASH` in the environment (set in .cargo/config.toml)
   replaces the storage build hash, which was the commit and the build time.
   Storage reinitialises (the keymap back to the default) when the hash

@@ -180,6 +180,14 @@ fn now_ms() -> u32 {
 
 /// The battery for the lighting: the module's level (%), the cable is in,
 /// the battery is full.
+/// The module has reported the battery level (until then `battery()`'s
+/// level is the link's 100).
+static BATTERY_KNOWN: AtomicBool = AtomicBool::new(false);
+
+pub fn battery_known() -> bool {
+    BATTERY_KNOWN.load(Ordering::Relaxed)
+}
+
 pub fn battery() -> (u8, bool, bool) {
     let c = CHARGE.load(Ordering::Relaxed);
     let level = LINK.lock(|l| l.borrow().battery());
@@ -373,8 +381,10 @@ impl Radio {
             }
             while let Some(b) = uart.read() {
                 // Raw HID and the rest: nothing for us yet.
-                if let Some(Event::HostState { resume }) = l.receive(b, now, &mut tx) {
-                    crate::power::host_state(resume);
+                match l.receive(b, now, &mut tx) {
+                    Some(Event::HostState { resume }) => crate::power::host_state(resume),
+                    Some(Event::Battery(_)) => BATTERY_KNOWN.store(true, Ordering::Relaxed),
+                    _ => {}
                 }
             }
         });

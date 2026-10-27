@@ -30,6 +30,11 @@
 //! resumes. A flat battery's request (`Vendor::shutdown_requested`) goes to
 //! `power::flat_battery`.
 //!
+//! The USB host gets the battery level and charge state too (M7e, RMK's
+//! `hid::set_battery`; Linux shows a power supply): a second after USB is
+//! configured, once the module has reported a level, and on each change
+//! (`report_battery`).
+//!
 //! Saving: what QMK keeps in its EEPROM (`lighting_crate::record`) goes to
 //! its own two sectors of the SPI flash, after RMK's window, written in
 //! turn: each save erases the older one, so a power cut mid-write leaves
@@ -92,6 +97,7 @@ use rmk::macros::processor;
 use rmk::processor::DeadlineProcessor;
 use rmk::types::action::{Action, KeyboardAction, LightAction};
 use rmk::types::keycode::{HidKeyCode, KeyCode};
+use rmk::hid::BatteryReport;
 use rmk::types::connection::UsbState;
 use rmk::types::modifier::ModifierCombination;
 use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
@@ -263,6 +269,11 @@ const USER_GU_TOGG: u8 = 0x80 | 0x0B;
 const LAYER_MBL: u8 = 2;
 /// HS_CT_A's hold.
 const CT_A_HOLD: u32 = 3000;
+/// How long after USB is configured the battery report waits: the host's
+/// HID driver binds after the configuration, and a report it doesn't read
+/// is dropped (RMK's 20 ms cap).
+const BATTERY_REPORT_DELAY_MS: u32 = 1_000;
+
 /// USB_POWER_DOWN_DELAY: the host suspended this long turns the lights off.
 const USB_LIGHTS_OFF_MS: u32 = 7000;
 /// The Fn layers, whose MO keys recording lets through.
@@ -383,6 +394,11 @@ pub struct Lighting {
     ct_a_since: Option<u32>,
     /// When USB was suspended, while it is.
     usb_suspended_at: Option<u32>,
+    /// When USB was configured, while it is: the battery report waits
+    /// BATTERY_REPORT_DELAY_MS for the host's driver.
+    usb_configured_at: Option<u32>,
+    /// The battery report the host has (`report_battery`).
+    battery_sent: Option<BatteryReport>,
 }
 
 impl Lighting {
@@ -409,6 +425,8 @@ impl Lighting {
             boost,
             ct_a_since: None,
             usb_suspended_at: None,
+            usb_configured_at: None,
+            battery_sent: None,
         };
         l.update_power();
         l
@@ -533,6 +551,31 @@ impl Lighting {
             UsbState::Suspended => self.usb_suspended_at.or(Some(now_ms())),
             _ => None,
         };
+        // Suspended keeps the host's copy; anything else but configured
+        // loses it.
+        match e.0.usb {
+            UsbState::Configured => self.usb_configured_at = self.usb_configured_at.or(Some(now_ms())),
+            UsbState::Suspended => {}
+            _ => (self.usb_configured_at, self.battery_sent) = (None, None),
+        }
+    }
+
+    /// The battery report to the USB host (M7e): once the module has told
+    /// the level, BATTERY_REPORT_DELAY_MS after USB is configured, and on
+    /// each change. RMK drops it while suspended; it's sent again then.
+    fn report_battery(&mut self, now: u32) {
+        let Some(at) = self.usb_configured_at else { return };
+        if now.wrapping_sub(at) < BATTERY_REPORT_DELAY_MS || !radio::battery_known() {
+            return;
+        }
+        let v = &self.board.vendor;
+        let report = BatteryReport { level: v.bat, charging: v.charging && !v.full };
+        if self.usb_suspended_at.is_some() {
+            self.battery_sent = None;
+        } else if self.battery_sent != Some(report) {
+            rmk::hid::set_battery(report);
+            self.battery_sent = Some(report);
+        }
     }
 
     /// Runs one whole frame: rgb_matrix_task() until the frame is sent (or
@@ -575,6 +618,7 @@ impl Lighting {
         if core::mem::take(&mut self.board.vendor.shutdown_requested) {
             power::flat_battery();
         }
+        self.report_battery(now);
         // EE_CLR's reset happens in a frame.
         self.sync().await;
     }
