@@ -105,6 +105,7 @@ async fn main(_spawner: Spawner) {
     let (keymap, mut storage) =
         initialize_keymap_and_storage(&mut data, flash, &rmk_config.storage_config, &mut behavior, &positional).await;
 
+    rmk::host::set_custom_get_value_hook(scan::fill_diag);
     let mut scan = scan;
     let mut knob = knob;
     let mut keyboard = Keyboard::new(&keymap);

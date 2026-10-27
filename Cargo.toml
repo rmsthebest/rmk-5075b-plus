@@ -13,3 +13,7 @@ panic = "abort"
 [profile.dev]
 opt-level = "s"
 panic = "abort"
+
+# Vendored rmk 0.9.0 with our hooks (third_party/rmk/README-akko.md).
+[patch.crates-io]
+rmk = { path = "third_party/rmk" }

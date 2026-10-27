@@ -267,37 +267,95 @@ def keyboard_nodes():
     return nodes
 
 
+# VIA id_custom_get_value on the channel akko-rmk's scan answers (src/scan.rs).
+DIAG_REQUEST = bytes([0x00, 0x08, 0xD1]) + bytes(30)  # report ID 0, then 32 bytes
+DIAG_EVERY_S = 0.1
+
+
+class Diag:
+    """Decodes the scan's diagnostics; logs keys seen and, every 2 s, the counters."""
+
+    def __init__(self, job):
+        self.job, self.prev, self.last_summary = job, None, 0.0
+
+    def reply(self, ts, data):
+        passes, down, flips, events = struct.unpack_from("<IIII", data, 2)
+        gap_ms = struct.unpack_from("<H", data, 18)[0] / 10
+        seen = [(r, c) for r in range(6) for c in range(15)
+                if (data[20 + r] | data[26 + r] << 8) >> c & 1]
+        now = float(ts)
+        rate = ""
+        if self.prev:
+            p_passes, p_down, p_flips, p_events, p_t = self.prev
+            dt = now - p_t
+            if dt > 0:
+                rate = f"{(passes - p_passes) / dt:.0f} passes/s"
+            new = (down - p_down, flips - p_flips, events - p_events)
+        else:
+            new = (0, 0, 0)
+        if seen or new[1] or new[2]:
+            self.job.say(f"{ts} scan: read down {seen}; +{new[0]} passes with a key down, "
+                         f"+{new[1]} flips, +{new[2]} events; gap {gap_ms} ms; {rate}")
+        elif now - self.last_summary >= 2:
+            self.job.say(f"{ts} scan: {passes} passes ({rate}), {down} with a key down, {flips} flips, "
+                         f"{events} events; longest gap {gap_ms} ms")
+            self.last_summary = now
+        self.prev = (passes, down, flips, events, now)
+
+
 def do_capture(job):
     """Logs what the kernel receives from the keyboard (hidraw) and makes of it (evdev)."""
     nodes = keyboard_nodes()
     if not nodes:
         raise RuntimeError("the keyboard isn't connected")
+    raw_hid = set()  # Vial/VIA raw HID (usage page 0xFF60): asked for scan diagnostics
     for h in sorted(Path("/sys/class/hidraw").iterdir()):
         if any(path == f"/dev/{h.name}" for _, path, _ in nodes):
             rd = (h.resolve() / "device/report_descriptor").read_bytes()
             job.say(f"{h.name} report descriptor ({len(rd)} B): {rd.hex(' ')}")
+            if rd.startswith(b"\x06\x60\xff"):
+                raw_hid.add(f"/dev/{h.name}")
     fds = {}
+    diag_fd = None
     for label, path, kind in nodes:
         try:
-            fds[os.open(path, os.O_RDONLY | os.O_NONBLOCK)] = (label, kind)
-            job.say(f"listening: {label}")
+            if path in raw_hid:
+                fd = diag_fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+            else:
+                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            fds[fd] = (label, kind)
+            job.say(f"listening: {label}" + (" (scan diagnostics)" if fd == diag_fd else ""))
         except OSError as e:
             job.say(f"can't open {label}: {e}")
+    diag = Diag(job)
     job.prompt = ("Slowly, one key at a time: a, s, d. Caps Lock twice. Hold Win, tap e, release Win. "
                   "Hold Fn, tap F6, release Fn. Turn the knob. Watch the Win-lock LED.")
     end = time.monotonic() + 60
     t0 = time.monotonic()
+    next_ask = t0
     try:
         while time.monotonic() < end:
             if job.cancel.is_set():
                 raise Cancelled
+            if diag_fd is not None and time.monotonic() >= next_ask:
+                next_ask += DIAG_EVERY_S
+                try:
+                    os.write(diag_fd, DIAG_REQUEST)
+                except OSError as e:
+                    job.say(f"scan diagnostics: can't ask: {e}")
+                    diag_fd = None
             ready, _, _ = select.select(list(fds), [], [], 0.2)
             for fd in ready:
                 label, kind = fds[fd]
                 data = os.read(fd, 4096)
                 ts = f"{time.monotonic() - t0:6.3f}"
                 if kind == "hidraw":
-                    job.say(f"{ts} {label}: {data.hex(' ')}")
+                    if fd == diag_fd and data[:2] == DIAG_REQUEST[1:3]:
+                        diag.reply(ts, data)
+                    elif fd == diag_fd and data[:1] == b"\xff":
+                        pass  # QMK: id_unhandled
+                    else:
+                        job.say(f"{ts} {label}: {data.hex(' ')}")
                     continue
                 for off in range(0, len(data) - 23, 24):
                     _, _, typ, code, val = struct.unpack_from("qqHHi", data, off)

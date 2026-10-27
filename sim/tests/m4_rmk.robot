@@ -322,6 +322,19 @@ A Keymap Change Through Vial Survives A Reset
     Key    3    1    1
     HID Should Show    1    00 00 05 00 00 00 00 00
 
+The Scan Reports Its Counters Over Vial
+    [Documentation]    VIA id_custom_get_value on channel 0xD1 answers with the
+    ...    scan's diagnostics (src/scan.rs fill_diag): one debounced event, and
+    ...    the held key in the readings since the last query.
+    Boot And Enumerate
+    Key    3    1    1
+    Run For    0.02
+    Raw HID Send    0x08    0xD1
+    Wait For Log Entry    HOST HID 3: 08 d1( [0-9a-f]{2}){12} 01 00 00 00( [0-9a-f]{2}){2} 00 00 00 02 00 00 00 00 00 00 00 00    timeout=1    treatAsRegex=true    pauseEmulation=true
+    # Other channels stay unanswered.
+    Raw HID Send    0x08    0x01
+    HID Should Show    3    08 01 00 00 00 00
+
 The Stack Has Headroom
     [Documentation]    Stack high-water mark over first boot (default keymap
     ...    written to flash), typing, the knob and Vial; fails under 4 KB spare.
