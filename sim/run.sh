@@ -50,5 +50,7 @@ jobs=${SIM_JOBS:-$(( cpus / 2 < 16 ? (cpus / 2 > 0 ? cpus / 2 : 1) : 16 ))}
 
 # renode-test writes its reports, logs and failure snapshots to the current directory.
 out=target/sim-results
-rm -rf "$out" && mkdir -p "$out" && cd "$out"
+# logs/ and snapshots/ up front: renode-keywords.robot creates them per test
+# (check, then create), and two shards starting together can race.
+rm -rf "$out" && mkdir -p "$out/logs" "$out/snapshots" && cd "$out"
 PATH=$VENV/bin:$PATH "$RENODE/renode-test" -j "$jobs" "${suites[@]}"
