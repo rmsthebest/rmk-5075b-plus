@@ -33,6 +33,13 @@ const V1_CRC_AT: usize = FLAGS_AT;
 pub const FLAG_NO_GUI: u8 = 1 << 0;
 /// HS_CT_A: Right Ctrl sends App.
 pub const FLAG_CTRL_APP: u8 = 1 << 1;
+/// confinfo.devs: the selected device, QMK's DEVS_* (0 USB, 1-5 BT, 6 2.4G).
+pub const FLAG_DEVS_SHIFT: u8 = 2;
+pub const FLAG_DEVS_MASK: u8 = 0x7 << FLAG_DEVS_SHIFT;
+/// confinfo.last_btdevs: the BT device last used, 1-3 (0 in records from
+/// before it was kept; read as 1, QMK's default).
+pub const FLAG_LAST_BT_SHIFT: u8 = 5;
+pub const FLAG_LAST_BT_MASK: u8 = 0x3 << FLAG_LAST_BT_SHIFT;
 
 /// A record that passed its checks: magic, version, CRC and every field
 /// in range.

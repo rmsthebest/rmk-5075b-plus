@@ -2,9 +2,9 @@
 //!
 //! Keys (src/scan.rs), the knob (src/knob.rs), the keymap from the QMK VIA
 //! build (src/keymap.rs, generated), Vial, and RMK's storage on the external
-//! SPI flash, and the RGB lighting (src/lighting.rs). Wireless (M6) and
-//! battery/sleep (M7) come later; until then their keys are User(n) and do
-//! nothing.
+//! SPI flash, the RGB lighting (src/lighting.rs), and the radio module
+//! for Bluetooth and the 2.4G dongle (src/radio.rs, M6). Battery and sleep
+//! (M7) come later; until then their keys are User(n) and do nothing.
 //!
 //! Storage lives at SPI flash 0x10000-0x1FFFF, and the lighting's at
 //! 0x20000-0x21FFF (src/lighting.rs). QMK's wear-levelled EEPROM is in the
@@ -16,10 +16,11 @@
 //! (boot-guard), or a panic (boot-guard keeps the message for the next boot).
 //!
 //! For the bench (tools/bench.py Capture), VIA's id_custom_get_value (0x08)
-//! answers on three channels besides Vial's lighting: 0xD1, the scan's
+//! answers on four channels besides Vial's lighting: 0xD1, the scan's
 //! diagnostics (src/scan.rs); 0xD2, the message of the panic that ended the
-//! previous run; and 0xD3 with argument 0x50 ('P'), a deliberate panic, to
-//! test the crash policy.
+//! previous run; 0xD3 with argument 0x50 ('P'), a deliberate panic, to
+//! test the crash policy; and 0xD4, the radio link's counters
+//! (src/radio.rs).
 //!
 //! Crash policy (boot-guard): a panic resets into this image; a second one
 //! before the image has run `STABLE_AFTER` goes to DFU.
@@ -31,6 +32,7 @@ mod bootloader;
 mod keymap;
 mod knob;
 mod lighting;
+mod radio;
 mod scan;
 
 use boot_guard as _;
@@ -51,6 +53,7 @@ use wb32_hal::exti::ExtiInput;
 use wb32_hal::gpio::{AnyPin, Input, Level, Output, Pins, Pull};
 use wb32_hal::qspi::Qspi;
 use wb32_hal::spi_nor::{SharedNor, SpiNor};
+use wb32_hal::uart::Uart3;
 use wb32_hal::ws2812::{self, Ws2812};
 use wb32_hal::{rcc, time_driver, usb};
 
@@ -63,6 +66,8 @@ const PRIO_USB: u8 = 0x60;
 const PRIO_EXTI: u8 = 0x80;
 /// The LED chain's SPI interrupt: 9, as QMK.
 const PRIO_LEDS: u8 = 0x90;
+/// The radio module's UART: 8, as QMK (WB32_SERIAL_UART3_PRIORITY).
+const PRIO_UART: u8 = 0x80;
 
 /// RMK's storage window on the SPI flash, after QMK's 64 KB block.
 const STORAGE_START: u32 = 0x1_0000;
@@ -74,6 +79,7 @@ const SPI_DIVISOR: u16 = 32;
 const CHANNEL_SCAN: u8 = 0xD1;
 const CHANNEL_PANIC: u8 = 0xD2;
 const CHANNEL_CRASH: u8 = 0xD3;
+const CHANNEL_RADIO: u8 = 0xD4;
 const CRASH_CONFIRM: u8 = b'P';
 const VIA_GET_VALUE: u8 = 0x08;
 
@@ -140,6 +146,7 @@ fn custom_value(buf: &mut [u8]) {
             buf[4 + n..32].fill(0);
         }
         CHANNEL_CRASH if buf[2] == CRASH_CONFIRM => panic!("requested over Vial"),
+        CHANNEL_RADIO => radio::fill_diag(buf),
         _ => {}
     }
 }
@@ -183,7 +190,8 @@ async fn main(_spawner: Spawner) {
 
     // Board pins as 5075b_plus.c's keyboard_post_init_kb; src/lighting.rs
     // switches the LED supply.
-    let _usb_power = Output::new(p.PB1, Level::Low);
+    // USB's D+ pull-up, on (low); src/radio.rs turns it off in wireless mode.
+    let usb_power = Output::new(p.PB1, Level::Low);
     let led_power = Output::new(p.PA8, Level::Low);
     let _led_boost = Output::new(p.PA9, Level::High);
     let aux_led = Output::new(p.PB9, Level::Low);
@@ -271,7 +279,9 @@ async fn main(_spawner: Spawner) {
     };
     // Not configured until RMK says so.
     board.vendor.usb_active = false;
-    lighting::set_flags(store.record().map_or(0, |r| r.flags()));
+    let flags = store.record().map_or(0, |r| r.flags());
+    lighting::set_flags(flags);
+    radio::set_saved_flags(flags);
     let mut lights = lighting::Lighting::new(
         board,
         store,
@@ -282,6 +292,7 @@ async fn main(_spawner: Spawner) {
         cable,
     );
     rmk::keyboard::set_action_hook(lighting::action_hook);
+    let mut radio = radio::Radio::new(Uart3::new(p.PC10, p.PC11, radio::BAUD, PRIO_UART), usb_power);
     // Vial's "bootloader" button: DFU, as QK_BOOT (src/bootloader.rs).
     rmk::boot::set_bootloader_hook(boot_guard::request_bootloader);
 
@@ -289,5 +300,5 @@ async fn main(_spawner: Spawner) {
         Timer::after(STABLE_AFTER).await;
         boot_guard::mark_stable();
     };
-    embassy_futures::join::join(run_all!(scan, knob, keyboard, storage, usb, caps, boot, lights), stable).await;
+    embassy_futures::join::join(run_all!(scan, knob, keyboard, storage, usb, caps, boot, lights, radio), stable).await;
 }

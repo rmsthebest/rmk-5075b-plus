@@ -8,5 +8,6 @@ pub mod qspi;
 pub mod rcc;
 pub mod spi_nor;
 pub mod time_driver;
+pub mod uart;
 pub mod ws2812;
 pub mod usb;

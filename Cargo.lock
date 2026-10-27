@@ -39,6 +39,7 @@ dependencies = [
  "serde_json",
  "wb32-hal",
  "wb32-pac",
+ "wireless",
 ]
 
 [[package]]

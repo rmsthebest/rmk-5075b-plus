@@ -9,6 +9,7 @@ cortex-m-rt = "0.7.5"
 boot-guard = { path = "../boot-guard", features = ["panic-dfu"] }
 wb32-hal = { path = "../wb32-hal" }
 lighting_crate = { package = "lighting", path = "../lighting" }
+wireless = { path = "../wireless" }
 wb32-pac = { path = "../wb32-pac", features = ["rt"] }
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
 embassy-time = "0.5.1"

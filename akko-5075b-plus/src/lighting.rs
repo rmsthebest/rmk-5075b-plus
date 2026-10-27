@@ -45,6 +45,10 @@
 //! - HS_CT_A held 3 s makes Right Ctrl send App, or back, with a black
 //!   blink; `action_hook` swaps the action.
 //!
+//! - The radio's selected device and last BT device (src/radio.rs), as
+//!   QMK's confinfo.devs and last_btdevs. The radio changes them on a
+//!   pairing key, whose action also starts this record's save timer.
+//!
 //! The aux LED (B9) is high while the lighting is on (RGB_TOG) and no
 //! cable is in (A7, the cable sense, low), as 5075b_plus.c sets it.
 //!
@@ -270,9 +274,9 @@ fn board_key(a: &Action) -> Key {
     }
 }
 
-/// The saved keyboard flags (`record::FLAG_*`).
+/// The saved keyboard flags (`record::FLAG_*`), the radio's device among them.
 fn flags() -> u8 {
-    let mut f = 0;
+    let mut f = crate::radio::saved_flags();
     if NO_GUI.load(Ordering::Relaxed) {
         f |= record::FLAG_NO_GUI;
     }

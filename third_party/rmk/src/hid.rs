@@ -394,6 +394,13 @@ pub trait HidReaderTrait {
 
 /// Drain LED indicator OUT reports from `reader` and republish them as
 /// [`LedIndicatorEvent`]s whenever `kind` is the active output transport.
+/// akko-5075b-plus: the host's lock LEDs from somewhere other than a
+/// transport's LED reader (the board's radio module).
+pub fn set_host_leds(led_indicator: LedIndicator) {
+    LOCK_LED_STATES.store(led_indicator.into_bits(), Ordering::Relaxed);
+    publish_event(LedIndicatorEvent::new(led_indicator));
+}
+
 pub(crate) async fn run_led_reader<R: HidReaderTrait<ReportType = LedIndicator>>(
     reader: &mut R,
     kind: ConnectionType,

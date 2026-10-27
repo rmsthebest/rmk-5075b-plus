@@ -49,8 +49,40 @@ fn active_report_channel() -> Option<(ConnectionType, &'static ReportChannel)> {
     report_channel(transport).map(|ch| (transport, ch))
 }
 
+// akko-5075b-plus: a hook that can take reports before any transport (the
+// board's radio module, which RMK doesn't know).
+static REPORT_HOOK: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Sets a function that sees every report before it is routed; returning
+/// true means it took the report, and no transport gets it.
+pub fn set_report_hook(f: fn(&Report) -> bool) {
+    REPORT_HOOK.store(f as usize, core::sync::atomic::Ordering::Relaxed);
+}
+
+fn report_hook(report: &Report) -> bool {
+    match REPORT_HOOK.load(core::sync::atomic::Ordering::Relaxed) {
+        0 => false,
+        // Only ever stored from such a fn above.
+        f => {
+            let f = unsafe { core::mem::transmute::<usize, fn(&Report) -> bool>(f) };
+            f(report)
+        }
+    }
+}
+
+/// akko-5075b-plus: drops the reports queued for USB and leaves an all-up
+/// keyboard report, so the USB host releases every key when the board hands
+/// its reports to something else (see `set_report_hook`).
+#[cfg(not(feature = "_no_usb"))]
+pub fn release_usb_reports() {
+    clear_and_release_report_channel(ConnectionType::Usb);
+}
+
 /// Reports generated while no transport is selected are dropped on the floor.
 pub(crate) async fn send_hid_report(mut report: Report) {
+    if report_hook(&report) {
+        return;
+    }
     let Some((transport, ch)) = active_report_channel() else {
         return;
     };
@@ -72,6 +104,9 @@ pub(crate) async fn send_hid_report(mut report: Report) {
 /// transport is selected. Use for producers where back-pressure would block
 /// the matrix scan (e.g. steno chord output).
 pub(crate) fn try_send_hid_report(report: Report) {
+    if report_hook(&report) {
+        return;
+    }
     if let Some((_, ch)) = active_report_channel() {
         let _ = ch.try_send(report);
     }
