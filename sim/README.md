@@ -6,8 +6,13 @@ changes can be checked without flashing the keyboard.
 ```fish
 sim/run.sh                                  # build images, run every suite
 sim/run.sh sim/tests/boot_guard.robot       # one suite
+SIM_MATCH='vial|knob' sim/run.sh            # only tests whose name matches (regex)
+SIM_JOBS=4 sim/run.sh                       # Renode instances at once (default: half the CPUs, max 16)
 sim/trace.sh <image.elf|.bin> [secs] [re]   # ordered register writes, for diffing
 ```
+
+Each test runs as its own suite (`sim/shard.py` writes them to `target/sim-shards`), and
+`renode-test -j` runs them in parallel; the run takes about as long as its slowest test.
 
 Reports: `target/sim-results/report.html`, with a per-test Renode log in `target/sim-results/logs/`.
 
