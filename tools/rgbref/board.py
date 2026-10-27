@@ -5,14 +5,20 @@ vendor's C.
     python3 -I tools/rgbref/board.py [--qmk DIR] [--seed S] [--case NAME ...]
 
 Builds the board's own lighting code into target/rgbref/qmk-board: the key,
-blink and indicator functions of 5075b_plus.c (lifted out by name; the rest
-of that file is wireless and battery code the harness doesn't model),
+blink, indicator and battery functions of 5075b_plus.c (lifted out by name;
+the rest of that file is wireless code the harness doesn't model),
 rgb_record/ and keymaps/via/keymap.c's default recordings, on top of QMK's
 rgb_matrix.c, rgblight.c and process_rgb.c. The Rust side is
 lighting/examples/boardref.rs. Both run the same scripts (format in
 board_harness.c): boots, the RGB keys, side lights, recording, EE_CLR,
-USB and the factory LED test, and random key sequences. Every flushed
-frame, power pin change and state dump must match.
+USB and the factory LED test, the connection and battery indicators, and
+random key sequences. Every flushed frame, power pin change, sleep request
+and state dump must match.
+
+The Rust changes a few of the vendor's battery behaviours on purpose (see
+lighting/src/board.rs); `FIXES` makes the same changes to the C. The Rust's
+lights-off battery flash has no C counterpart, so the Rust side runs
+without it.
 """
 
 import argparse
@@ -42,17 +48,46 @@ FUNCTIONS = [
     # The connection indicator (M6).
     "rgb_matrix_wls_indicator_set", "wireless_devs_change_kb", "rgb_matrix_wls_indicator_cb",
     "rgb_matrix_wls_indicator",
+    # The battery indicators (M7).
+    "rgb_matrix_hs_bat_set", "rgb_matrix_hs_bat", "bat_indicators",
 ]
+# The vendor's battery quirks the Rust fixes, as text changes to the C:
+# (file, old, new).
+FIXES = [
+    # The low-battery blink is red: {0xFF, 0, 0} is green in the g r b struct.
+    ("5075b_plus.c", "rgb_matrix_hs_bat_set(HS_MATRIX_BLINK_INDEX_BAT, (RGB){0xFF, 0x00, 0x00}, 250, 1);",
+     "rgb_matrix_hs_bat_set(HS_MATRIX_BLINK_INDEX_BAT, (RGB){0x00, 0xFF, 0x00}, 250, 1);"),
+    # The indicators show while recording colours.
+    ("5075b_plus.c", "if (enable_bat_indicators && !inqbat_flag && !rgbrec_is_started()) {",
+     "if (enable_bat_indicators && !inqbat_flag) {"),
+    # Fn+Space works on USB too.
+    ("5075b_plus.c", "rk_bat_req_flag = (confinfo.devs != DEVS_USB) && record->event.pressed;",
+     "rk_bat_req_flag = record->event.pressed;"),
+    # 30-49% is yellow.
+    ("rgb_record/rgb_record.c", "rgb_matrix_set_color(mi_index[i], IM_BAT_REQ_LEVEL2_COLOR);",
+     "rgb_matrix_set_color(mi_index[i], RGB_MATRIX_BAT_VAL, RGB_MATRIX_BAT_VAL, 0x00);"),
+]
+
+
+def fixed(board, name):
+    """A board source file with FIXES applied."""
+    text = (board / name).read_text()
+    for f, old, new in FIXES:
+        if f == name:
+            assert text.count(old) == 1, old
+            text = text.replace(old, new)
+    return text
+
 # wls/wls.c's: the module state's hook (its sleep timeouts are no-ops here).
 WLS_FUNCTIONS = ["hs_rgb_blink_set_timer", "hs_rgb_blink_get_timer", "hs_rgb_blink_hook"]
 # process_record_kb's cases that are about lighting; the harness's
 # process_record_kb has only these (the others are wireless, battery and
 # key remapping).
-CASES = ["KC_ENCW", "NK_TOGG", "RL_MOD", "EE_CLR", "RGB_SPI", "RGB_SPD", "RGB_VAI", "RGB_VAD", "RGB_SAI",
+CASES = ["HS_BATQ", "KC_ENCW", "NK_TOGG", "RL_MOD", "EE_CLR", "RGB_SPI", "RGB_SPD", "RGB_VAI", "RGB_VAD", "RGB_SAI",
          "RGB_SAD", "RP_P0", "RP_P1", "RP_P2", "RP_END", "RGB_MOD", "RGB_HUI", "RGB_TOG"]
 KEYS = ["RGB_TOG", "RGB_MOD", "RGB_RMOD", "RGB_HUI", "RGB_HUD", "RGB_SAI", "RGB_SAD", "RGB_VAI", "RGB_VAD",
         "RGB_SPI", "RGB_SPD", "RL_MOD", "RP_P0", "RP_P1", "RP_P2", "RP_END", "NK_TOGG", "EE_CLR", "KC_ENCW",
-        "MO_FL", "MO_FBL", "KC_A"]
+        "HS_BATQ", "MO_FL", "MO_FBL", "KC_A"]
 
 
 def braced(src, i):
@@ -114,7 +149,8 @@ def gen(qmk):
     h += [f"#define LAYOUT_iso({args}) {{" + ", ".join("{" + ", ".join(row) + "}" for row in grid) + "}"]
     (OUT / "board_keycodes.h").write_text("\n".join(h) + "\n")
 
-    src = (board / "5075b_plus.c").read_text()
+    src = fixed(board, "5075b_plus.c")
+    (OUT / "rgb_record.c").write_text(fixed(board, "rgb_record/rgb_record.c"))
     globals_ = src[src.index("typedef union {"):src.index("static uint32_t hs_factory_timer;")]
     globals_ += "static uint32_t hs_factory_timer;\n"
     kb = function(src, "process_record_kb")
@@ -130,14 +166,13 @@ def gen(qmk):
     i = wls_h.index("enum mm_sleep_timeout")
     c += [wls_h[i:wls_h.index("};", i) + 2], "static uint32_t hs_linker_rgb_timer = 0x00;"]
     funcs = [function(src, f) for f in FUNCTIONS] + [function(wls_src, f) for f in WLS_FUNCTIONS]
-    # rgb_matrix_indicators_advanced_kb's wireless block: the connection
-    # indicator only; the battery indicators are M7's.
+    # rgb_matrix_indicators_advanced_kb's wireless block (the connection
+    # and battery indicators) is in: WIRELESS_ENABLE isn't defined here.
     ind = next(k for k, f in enumerate(funcs) if "rgb_matrix_indicators_advanced_kb" in f[:f.index("{")])
     f = funcs[ind]
     a = f.index("#ifdef WIRELESS_ENABLE")
-    b = f.index("#endif", a) + len("#endif")
-    assert "rgb_matrix_wls_indicator();" in f[a:b]
-    funcs[ind] = f[:a] + "rgb_matrix_wls_indicator(); // battery indicators: M7" + f[b:]
+    b = f.index("#endif", a)
+    funcs[ind] = f[:a] + f[a + len("#ifdef WIRELESS_ENABLE"):b] + f[b + len("#endif"):]
     c += [f[:f.index("{")].strip() + ";" for f in funcs] + funcs
     c += ["bool process_record_kb(uint16_t keycode, keyrecord_t *record) {",
           "    if (process_record_user(keycode, record) != true) return false;",
@@ -164,7 +199,7 @@ def build(qmk):
            str(HERE / "board_harness.c"), str(OUT / "board_gen.c"), str(run.OUT / "led_config.c"),
            str(q / "rgb_matrix/rgb_matrix.c"), str(q / "color.c"), str(qmk / "lib/lib8tion/lib8tion.c"),
            str(q / "rgblight/rgblight.c"), str(q / "process_keycode/process_rgb.c"),
-           str(board / "rgb_record/rgb_record.c"), str(board / "rgb_record/rgb_effect.c"),
+           str(OUT / "rgb_record.c"), str(board / "rgb_record/rgb_effect.c"),
            str(board / "rgb_record/rgb_rgblight.c")]
     subprocess.run(cmd, check=True)
     subprocess.run(["cargo", "build", "-q", "-p", "lighting", "--example", "boardref",
@@ -176,7 +211,7 @@ def build(qmk):
 # letter's.
 POS = {"RGB_TOG": (3, 9), "RGB_MOD": (0, 13), "RGB_VAI": (4, 13), "RGB_VAD": (5, 13), "RGB_SAI": (5, 12),
        "RGB_SAD": (5, 14), "RGB_SPI": (1, 12), "RGB_SPD": (1, 11), "RL_MOD": (5, 0), "NK_TOGG": (4, 6),
-       "EE_CLR": (1, 0), "KC_ENCW": (3, 5), "MO_FL": (5, 10), "MO_FBL": (4, 12)}
+       "EE_CLR": (1, 0), "KC_ENCW": (3, 5), "HS_BATQ": (5, 6), "MO_FL": (5, 10), "MO_FBL": (4, 12)}
 
 
 class Script:
@@ -369,11 +404,77 @@ def scripts(rng):
                 s.cmd("state %d" % rng.choice([0, 1, 2, 2, 3, 3, 4]))
             elif r < 0.65:
                 s.cmd("usb %d" % rng.choice([0, 1]))
+            elif r < 0.7:
+                s.cmd("bat %d %d %d" % (rng.choice([100, 55, 35, 15, 8]), rng.random() < 0.3, rng.random() < 0.3))
             else:
                 s.tap(rng.choice(KEYS[:-3] + ["KC_A", "KC_A"]), gap=0)
             s.run(rng.choice([1, 40, 250, 600, 1300, 2600]))
         s.dump()
         yield f"wls_random{n}", s
+
+    # The battery. "bat <percent> <cable> <full>".
+    s = Script(rng)
+    s.run(500)
+    for level in [100, 95, 49, 50, 30, 29, 10, 9, 1, 0]:
+        s.cmd(f"bat {level} 0 0")
+        s.key("HS_BATQ", 1)
+        s.run(300)
+        s.key("HS_BATQ", 0)
+        s.run(200)
+    s.cmd("devs 6 0")  # wireless too
+    s.cmd("bat 42 0 0")
+    s.tap("HS_BATQ", hold=400)
+    s.tap("RGB_TOG", gap=500)  # with the lighting off, the bar still shows
+    s.tap("HS_BATQ", hold=600, gap=500)
+    s.tap("RGB_TOG", gap=500)
+    s.dump()
+    yield "bat_query", s
+
+    s = Script(rng)
+    s.run(500)
+    s.cmd("bat 60 1 0")  # charging: LED 0 red
+    s.run(1000)
+    s.tap("KC_ENCW", gap=500)  # hidden
+    s.tap("KC_ENCW", gap=500)
+    s.cmd("bat 100 1 1")  # full
+    s.run(800)
+    s.cmd("bat 15 0 0")  # unplugged, low: LED 0 blinks
+    s.run(2100)
+    s.tap("KC_ENCW", gap=700)
+    s.tap("KC_ENCW", gap=700)
+    s.tap("NK_TOGG", gap=1000)  # a whole-board blink over it
+    s.tap("RP_P1", gap=500)  # playback, then recording: still blinks
+    s.tap("RP_END", gap=1200)
+    s.tap("KC_A", gap=600)
+    s.tap("RP_END", gap=600)
+    for _ in range(12):
+        s.tap("RGB_VAD", gap=80)  # down to 0: no blink
+    s.run(800)
+    s.tap("RGB_VAI", gap=900)
+    s.cmd("bat 16 0 0")
+    s.run(700)
+    s.cmd("bat 12 1 0")
+    s.run(700)
+    s.dump()
+    yield "bat_leds", s
+
+    s = Script(rng)
+    s.run(500)
+    s.cmd("bat 0 0 0")
+    s.run(30000)
+    s.cmd("bat 3 0 0")  # the timer keeps running above 0%
+    s.run(10000)
+    s.cmd("bat 0 0 0")
+    s.run(25000)  # sleeps
+    s.cmd("bat 0 1 0")  # the cable resets it
+    s.run(500)
+    s.cmd("bat 0 0 0")
+    s.run(40000)
+    s.key("EE_CLR", 1)  # the reset pauses the indicators for 2 s
+    s.run(3200)
+    s.key("EE_CLR", 0)
+    s.run(25000)
+    yield "bat_stop", s
 
     for lctl, esc in [(1, 0), (1, 1)]:
         s = Script(rng, lctl, esc)

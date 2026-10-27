@@ -11,8 +11,21 @@
 //! The connection indicator (M6) is here: the device's key blinking while
 //! the link is down, and shown for 2 s once it's up. The firmware tells the
 //! board the device (`devs_change`, `wls_key`, `wls_pair`) and the module's
-//! state (`Vendor::md_state`). The battery indicators (M7) aren't here yet,
-//! nor the hook's sleep timeouts.
+//! state (`Vendor::md_state`). The hook's sleep timeouts aren't here (M7b).
+//!
+//! The battery (M7): the firmware sets `Vendor::bat`, `charging` and
+//! `full`. As the vendor's: LED 0 is red while charging; at 15% or less it
+//! blinks; Fn+Space (HS_BATQ) shows the level on LEDs 16-25; at 0% for 60 s
+//! `shutdown_requested` asks the firmware to sleep. Changed from the
+//! vendor's, which tools/rgbref/board.py applies to the C it compares with:
+//! - the low-battery blink is red (the vendor's `(RGB){0xFF, 0, 0}` is
+//!   green in this board's g r b struct);
+//! - the indicators also show while recording colours;
+//! - Fn+Space works on USB too;
+//! - 30-49% shows yellow (the vendor's LEVEL2 colour is LEVEL1's green).
+//! New: with the lights off (`power` false) a low battery flashes LED 0 red
+//! for 150 ms every 5 s, the chain powered just for it (`led_power`), and
+//! the 0% timer runs whether the lights are on or not.
 //!
 //! Where the vendor's EEPROM held something (the recorded colour channels,
 //! the colour picked for each effect, confinfo), this holds it in RAM; the
@@ -53,6 +66,25 @@ const BLINKS: usize = 16;
 const SIDE_FIRST: usize = LED_COUNT - rgblight::LED_COUNT;
 /// HS_RGB_BLINK_INDEX_USB: the key that shows USB's state.
 const LED_USB: usize = 37;
+/// HS_MATRIX_BLINK_INDEX_BAT: the battery's LED.
+const LED_BAT: usize = 0;
+/// RGB_MATRIX_BAT_INDEX_MAP: Fn+Space's bar, a LED per 10%.
+const BAT_BAR: [u8; 10] = [16, 17, 18, 19, 20, 21, 22, 23, 24, 25];
+/// BATTERY_CAPACITY_LOW and _STOP.
+const BAT_LOW: u8 = 15;
+const BAT_STOP: u8 = 0;
+/// How long the battery may sit at BAT_STOP before the keyboard sleeps.
+const BAT_STOP_MS: u32 = 60_000;
+/// RGB_MATRIX_BAT_VAL: the bar's brightness.
+const BAT_VAL: u8 = 150;
+/// The lights-off low-battery flash: every FLASH_EVERY ms the chain is
+/// powered, LED 0 lit FLASH_ON..FLASH_OFF ms in (the WS2812s get a frame to
+/// wake up first), and the chain off again at FLASH_END.
+const FLASH_EVERY: u32 = 5000;
+const FLASH_ON: u32 = 20;
+const FLASH_OFF: u32 = 170;
+const FLASH_END: u32 = 190;
+const RED: Rgb = Rgb { r: 0xFF, g: 0, b: 0 };
 
 /// QMK's DEVS_*.
 pub const DEVS_USB: u8 = 0;
@@ -123,8 +155,10 @@ pub enum Key {
     NkTogg,
     /// EE_CLR: held 3 s, resets the settings.
     EeClr,
-    /// KC_ENCW: flips `led_status` (the battery display's mode, M7).
+    /// KC_ENCW: flips `led_status`, which hides the battery LED.
     Encw,
+    /// HS_BATQ (Fn+Space): shows the battery level while held.
+    BatQ,
     /// MO(_FL) / MO(_MFL): the Fn key.
     Fn,
     /// Any other MO(layer).
@@ -228,8 +262,34 @@ pub struct Vendor {
     side_index: u8,
     blinks: [Blink; BLINKS],
     ee_clr_timer: u32,
-    /// KC_ENCW's flag.
+    /// KC_ENCW's flag: no battery LED.
     pub led_status: bool,
+    /// The battery %, as the module reports it (md_getp_bat).
+    pub bat: u8,
+    /// The cable is in (HS_BAT_CABLE_PIN, A7) and the battery is full
+    /// (BAT_FULL_PIN, A15).
+    pub charging: bool,
+    pub full: bool,
+    /// rk_bat_req_flag: Fn+Space held.
+    bat_req: bool,
+    /// hs_rgb_bat: the low-battery blink (HS_RGB_BAT_COUNT is 1).
+    bat_blink: Blink,
+    /// enable_bat_indicators and bat_indicator_cnt: off for 2 s after
+    /// EE_CLR's reset.
+    bat_enabled: bool,
+    bat_cnt: u32,
+    /// battery_process_time: when the battery reached BAT_STOP.
+    bat_stop_timer: u32,
+    /// The battery sat at BAT_STOP for a minute (the vendor's lower_sleep):
+    /// the firmware should sleep, and clear this.
+    pub shutdown_requested: bool,
+    /// The lights-off flash: when its cycle started (0: not flashing), and
+    /// whether it has the chain powered.
+    flash_since: u32,
+    flash_power: bool,
+    /// The lights-off flash is allowed (the reference harness turns it off:
+    /// the vendor's C has none).
+    pub bat_flash: bool,
     /// LED_POWER_EN_PIN (A8), as the vendor's code last set it.
     pub power: bool,
     /// USB is configured (USB_DRIVER.state == USB_ACTIVE).
@@ -302,6 +362,10 @@ impl Board {
         v.default_channels = Some(default_channels);
         v.channels = *default_channels;
         v.usb_active = true;
+        v.bat = 100;
+        v.bat_enabled = true;
+        v.bat_cnt = 1;
+        v.bat_flash = true;
         v.factory_test = factory_test;
         v.now = now;
         v.rgblight.init(saved.map(Record::rgblight), now);
@@ -414,6 +478,19 @@ impl Board {
             Key::Encw => {
                 if pressed {
                     v.led_status = !v.led_status;
+                }
+                return Outcome::Handled;
+            }
+            Key::BatQ => {
+                // With the lighting off, the matrix runs just for the bar.
+                v.bat_req = pressed;
+                if !v.conf.rgb_enable {
+                    v.power = pressed;
+                    if pressed {
+                        e.enable();
+                    } else {
+                        e.disable();
+                    }
                 }
                 return Outcome::Handled;
             }
@@ -582,7 +659,47 @@ impl Board {
         self.vendor.now = now;
         self.vendor.blink_hook();
         self.vendor.rgblight.task(now);
-        self.engine.task(now, &mut self.vendor)
+        let mut changed = self.engine.task(now, &mut self.vendor);
+        // With no effect running the indicators don't, so the 0% timer
+        // runs here.
+        if self.engine.suspended || !self.engine.config.enable {
+            self.vendor.bat_stop();
+        }
+        changed |= self.lights_off_flash();
+        changed
+    }
+
+    /// The LED chain's supply (A8): on for the lighting, or for the
+    /// lights-off battery flash.
+    pub fn led_power(&self) -> bool {
+        self.vendor.power || self.vendor.flash_power
+    }
+
+    /// The lights-off low-battery flash; true when it changed the LEDs.
+    fn lights_off_flash(&mut self) -> bool {
+        let v = &mut self.vendor;
+        let low = !v.charging && v.bat <= BAT_LOW && !v.led_status && v.bat_enabled;
+        if !(v.bat_flash && low && !v.power && !self.engine.suspended) {
+            v.flash_since = 0;
+            v.flash_power = false;
+            return false;
+        }
+        if v.flash_since == 0 {
+            v.flash_since = v.now | 1;
+        }
+        let t = v.now.wrapping_sub(v.flash_since) % FLASH_EVERY;
+        v.flash_power = t < FLASH_END;
+        let leds = &mut self.engine.leds;
+        let pending = core::mem::replace(&mut leds.dirty, false);
+        if (FLASH_ON..FLASH_OFF).contains(&t) {
+            leds.set_all(Rgb::OFF);
+            leds.set(LED_BAT, RED);
+        } else {
+            leds.set(LED_BAT, Rgb::OFF);
+        }
+        let changed = leds.dirty;
+        leds.dirty |= pending;
+        changed
     }
 
     /// As `task`, after running every side-light step due by `now`: for
@@ -620,6 +737,7 @@ impl Vendor {
 
     /// hs_reset_settings, lighting part (EE_CLR held 3 s).
     fn reset_settings(&mut self, cfg: &mut Config) {
+        self.bat_enabled = false;
         *cfg = Config::default();
         // rgblight_init again; the animations' state lives on, as the C's
         // statics do.
@@ -858,6 +976,88 @@ impl Vendor {
         }
     }
 
+    // ---- the battery (5075b_plus.c's bat_indicators, rgb_record.c's query) ----
+
+    /// rgb_matrix_hs_bat_set, for the one slot.
+    fn bat_blink_set(&mut self, rgb: Rgb, interval: u16, times: u8) {
+        if !self.bat_blink.active {
+            self.bat_blink = Blink {
+                active: true,
+                timer: self.now,
+                interval,
+                times: times * 2,
+                index: LED_BAT as u8,
+                rgb,
+            };
+        }
+    }
+
+    /// rgb_matrix_hs_bat.
+    fn show_bat_blink(&mut self, leds: &mut Leds) {
+        let b = &mut self.bat_blink;
+        if !b.active {
+            return;
+        }
+        if self.now.wrapping_sub(b.timer) >= b.interval as u32 {
+            b.timer = self.now;
+            b.times = b.times.saturating_sub(1);
+            if b.times == 0 {
+                b.active = false;
+                b.timer = 0;
+            }
+        }
+        let c = if b.times % 2 == 1 { b.rgb } else { Rgb::OFF };
+        leds.set(b.index as usize, c);
+    }
+
+    /// bat_indicators, less its 0% timer (`bat_stop`).
+    fn bat_indicators(&mut self, cfg: &Config, leds: &mut Leds) {
+        let show = !self.led_status && cfg.hsv.v != 0;
+        if self.charging && !self.full && show {
+            leds.set(LED_BAT, RED);
+        } else if !self.charging && self.bat <= BAT_LOW && show {
+            self.bat_blink_set(RED, 250, 1);
+        } else {
+            leds.set(LED_BAT, Rgb::OFF);
+        }
+        self.bat_stop();
+    }
+
+    /// bat_indicators' 0% timer: a minute at BAT_STOP asks for sleep.
+    fn bat_stop(&mut self) {
+        if self.charging || self.bat > BAT_LOW {
+            self.bat_stop_timer = 0;
+        } else if self.bat <= BAT_STOP {
+            if self.bat_stop_timer == 0 {
+                self.bat_stop_timer = self.now;
+            }
+            if self.bat_stop_timer != 0 && self.now.wrapping_sub(self.bat_stop_timer) > BAT_STOP_MS {
+                self.bat_stop_timer = 0;
+                self.shutdown_requested = true;
+            }
+        }
+    }
+
+    /// query: while Fn+Space is held, the keys go dark but for a bar of
+    /// the level, a LED per 10% (at least one).
+    fn query(&self, leds: &mut Leds) {
+        if !self.bat_req {
+            return;
+        }
+        for i in 0..SIDE_FIRST {
+            leds.set(i, Rgb::OFF);
+        }
+        let c = match self.bat {
+            50.. => Rgb { r: 0, g: BAT_VAL, b: 0 },
+            30.. => Rgb { r: BAT_VAL, g: BAT_VAL, b: 0 },
+            _ => Rgb { r: BAT_VAL, g: 0, b: 0 },
+        };
+        for (i, &led) in BAT_BAR.iter().enumerate() {
+            let lit = i < (self.bat / 10) as usize || i < 1;
+            leds.set(led as usize, if lit { c } else { Rgb::OFF });
+        }
+    }
+
     /// find_index: where the effect is in MODES (0 if it isn't).
     fn mode_index(mode: u8) -> usize {
         MODES.iter().position(|&m| m == mode).unwrap_or(0)
@@ -998,8 +1198,17 @@ impl Hooks for Vendor {
             leds.set(SIDE_FIRST + i, c);
         }
         self.show_wls(leds);
+        if self.bat_enabled {
+            self.show_bat_blink(leds);
+            self.bat_indicators(cfg, leds);
+            self.bat_cnt = self.now;
+        } else if self.now.wrapping_sub(self.bat_cnt) > 2000 {
+            self.bat_enabled = true;
+            self.bat_cnt = self.now;
+        }
         self.show_blinks(leds);
         self.show_devs(leds);
+        self.query(leds);
         if self.factory_test {
             if self.now.wrapping_sub(self.factory_timer) > 4000 {
                 self.factory_timer = self.now;
@@ -1049,5 +1258,98 @@ impl Hooks for Vendor {
             };
             leds.set(i as usize, hsv_to_rgb(hsv));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+    use std::vec::Vec;
+
+    use super::*;
+
+    static CHANNELS_0: [[u16; KEYS]; CHANNELS] = [[0; KEYS]; CHANNELS];
+
+    /// A board with the lighting turned off (RGB_TOG), at 1000 ms.
+    fn dark_board() -> Board {
+        let mut b = Board::new(None, &CHANNELS_0, false, 0);
+        b.key(Key::RgbTog, 3, 9, true, false, 1000);
+        b.key(Key::RgbTog, 3, 9, false, false, 1030);
+        assert!(!b.led_power());
+        b
+    }
+
+    /// Runs frames every 16 ms over [from, to); per frame: (ms, chain
+    /// powered, LED 0 lit, any other LED lit).
+    fn frames(b: &mut Board, from: u32, to: u32) -> Vec<(u32, bool, bool, bool)> {
+        (from..to)
+            .step_by(16)
+            .map(|t| {
+                b.task_sparse(t);
+                let leds = &b.engine.leds.rgb;
+                (t, b.led_power(), leds[LED_BAT] != Rgb::OFF, leds[1..].iter().any(|&c| c != Rgb::OFF))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn lights_off_low_battery_flashes() {
+        let mut b = dark_board();
+        frames(&mut b, 1040, 2000);
+        b.vendor.bat = 12;
+        let f = frames(&mut b, 2000, 12_000);
+        let lit: Vec<_> = f.iter().filter(|x| x.2).collect();
+        // Two flashes of about 150 ms, the chain powered before and after.
+        assert!(lit.iter().all(|x| x.1 && !x.3));
+        assert!((16..=22).contains(&lit.len()), "{} lit frames", lit.len());
+        let powered = f.iter().filter(|x| x.1).count();
+        assert!(powered > lit.len() && powered <= 2 * 13, "{powered} powered frames");
+        for w in f.windows(2) {
+            // LED 0 lights only with the chain already on, and goes dark
+            // before the chain goes off.
+            if w[1].2 && !w[0].2 {
+                assert!(w[0].1);
+            }
+            if w[0].2 && !w[1].2 {
+                assert!(w[1].1);
+            }
+        }
+    }
+
+    #[test]
+    fn no_flash_when_charging_hidden_or_fine() {
+        for (bat, charging, hidden) in [(12, true, false), (12, false, true), (40, false, false)] {
+            let mut b = dark_board();
+            b.vendor.bat = bat;
+            b.vendor.charging = charging;
+            b.vendor.led_status = hidden;
+            assert!(frames(&mut b, 1040, 12_000).iter().all(|x| !x.1 && !x.2));
+        }
+    }
+
+    #[test]
+    fn flat_battery_sleeps_with_the_lights_off() {
+        let mut b = dark_board();
+        b.vendor.bat = 0;
+        frames(&mut b, 1040, 61_000);
+        assert!(!b.vendor.shutdown_requested);
+        frames(&mut b, 61_000, 62_200);
+        assert!(b.vendor.shutdown_requested);
+    }
+
+    #[test]
+    fn query_with_the_lights_off_powers_the_chain() {
+        let mut b = dark_board();
+        b.vendor.bat = 35;
+        b.key(Key::BatQ, 5, 6, true, false, 1100);
+        assert!(b.led_power());
+        let f = frames(&mut b, 1100, 1400);
+        assert!(f.last().unwrap().3);
+        let leds = &b.engine.leds.rgb;
+        let yellow = Rgb { r: BAT_VAL, g: BAT_VAL, b: 0 };
+        assert_eq!(&leds[16..19], &[yellow; 3]);
+        assert_eq!(leds[19], Rgb::OFF);
+        b.key(Key::BatQ, 5, 6, false, false, 1400);
+        assert!(!b.led_power());
     }
 }

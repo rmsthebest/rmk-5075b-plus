@@ -5,6 +5,7 @@
 // (lighting/examples/boardref.rs) does:
 //     <ms> <hex r g b per LED>        each frame the driver flushes
 //     P <ms> <0|1>                    the LED power pin (A8) changing
+//     S <ms>                          a sleep for the flat battery
 //     D ...                           the state, for "dump"
 // The script, one command a line:
 //     boot <lctl> <esc>               power-up with an erased EEPROM, keys held
@@ -15,6 +16,7 @@
 //     wls_key <dev>                   a pairing key's press (process_record_wls)
 //     wls_pair <dev>                  its 3 s hold firing (wls_process_long_press)
 //     state <s>                       the module reports MD_STATE_<s>
+//     bat <percent> <cable> <full>    the battery level, A7 and A15
 //     dump
 // "defaults" alone prints the default recordings (keymap.c) for the Rust side.
 #include <stdio.h>
@@ -24,8 +26,8 @@
 #include "process_rgb.h"
 
 uint32_t harness_now;
-uint8_t  harness_md_state, harness_devs;
-extern bool hs_pairing_flag;
+uint8_t  harness_md_state, harness_devs, harness_bat = 100;
+extern bool hs_pairing_flag, charging_state, bat_full_flag;
 uint8_t  fake_eeprom[FAKE_EEPROM_SIZE];
 static uint32_t fake_kb;
 struct usb_driver_stub USB_DRIVER = {USB_ACTIVE};
@@ -64,6 +66,7 @@ void eeconfig_init(void) {
     eeconfig_init_user_datablock();
 }
 
+void harness_sleep(void) { printf("S %u\n", harness_now); }
 void gpio_write_pin_high(int pin) { if (pin == LED_POWER_EN_PIN) power = 1; }
 void gpio_write_pin_low(int pin) { if (pin == LED_POWER_EN_PIN) power = 0; }
 bool matrix_is_on(uint8_t row, uint8_t col) { return (row == 5 && col == 0 && held_lctl) || (row == 0 && col == 0 && held_esc); }
@@ -111,7 +114,7 @@ static const struct {
     {"RGB_TOG", RGB_TOG}, {"RGB_MOD", RGB_MOD}, {"RGB_RMOD", RGB_RMOD}, {"RGB_HUI", RGB_HUI}, {"RGB_HUD", RGB_HUD},
     {"RGB_SAI", RGB_SAI}, {"RGB_SAD", RGB_SAD}, {"RGB_VAI", RGB_VAI}, {"RGB_VAD", RGB_VAD}, {"RGB_SPI", RGB_SPI},
     {"RGB_SPD", RGB_SPD}, {"RL_MOD", RL_MOD}, {"RP_P0", RP_P0}, {"RP_P1", RP_P1}, {"RP_P2", RP_P2},
-    {"RP_END", RP_END}, {"NK_TOGG", NK_TOGG}, {"EE_CLR", EE_CLR}, {"KC_ENCW", KC_ENCW}, {"MO_FL", MO(1)},
+    {"RP_END", RP_END}, {"NK_TOGG", NK_TOGG}, {"EE_CLR", EE_CLR}, {"KC_ENCW", KC_ENCW}, {"HS_BATQ", HS_BATQ}, {"MO_FL", MO(1)},
     {"MO_FBL", MO(4)}, {"KC_A", KC_A},
 };
 
@@ -202,6 +205,10 @@ int main(int argc, char **argv) {
             hs_pairing_flag = true;
         } else if (sscanf(line, "state %u", &a[0]) == 1) {
             harness_md_state = a[0];
+        } else if (sscanf(line, "bat %u %u %u", &a[0], &a[1], &a[2]) == 3) {
+            harness_bat    = a[0];
+            charging_state = a[1];
+            bat_full_flag  = a[2];
         } else if (sscanf(line, "usb %u", &a[0]) == 1) {
             USB_DRIVER.state = a[0] ? USB_ACTIVE : 0;
         } else if (!strncmp(line, "dump", 4)) {

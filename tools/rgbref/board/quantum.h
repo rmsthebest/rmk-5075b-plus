@@ -36,18 +36,20 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record);
 bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max);
 
 // Wireless: the device and the module's state are the harness's (script
-// commands "devs", "wls_key", "wls_pair", "state"); what the module is sent
-// and the sleep timeouts (M7) are no-ops.
+// commands "devs", "wls_key", "wls_pair", "state"), and so is the battery
+// ("bat"); what the module is sent and the sleep timeouts are no-ops, but
+// for the manual sleep, which the harness prints.
 enum { DEVS_USB = 0, DEVS_BT1, DEVS_BT2, DEVS_BT3, DEVS_BT4, DEVS_BT5, DEVS_2G4 };
 enum { MD_STATE_NONE = 0, MD_STATE_PAIRING, MD_STATE_CONNECTED, MD_STATE_DISCONNECTED, MD_STATE_REJECT };
-extern uint8_t harness_md_state, harness_devs;
+extern uint8_t harness_md_state, harness_devs, harness_bat;
+void harness_sleep(void);
 static inline uint8_t *md_getp_state(void) { return &harness_md_state; }
-static inline uint8_t *md_getp_bat(void) { static uint8_t b = 100; return &b; }
+static inline uint8_t *md_getp_bat(void) { return &harness_bat; }
 static inline uint8_t wireless_get_current_devs(void) { return harness_devs; }
 #define MD_SND_CMD_DEVCTRL_USB 0x11
 static inline void md_send_devctrl(uint8_t cmd) {}
 static inline void lpwr_set_timeout_value(uint32_t t) {}
-static inline void lpwr_set_timeout_manual(bool on) {}
+static inline void lpwr_set_timeout_manual(bool on) { if (on) harness_sleep(); }
 static inline void wait_ms(uint32_t ms) {}
 static inline void clear_keyboard(void) {}
 static inline void send_keyboard_report(void) {}

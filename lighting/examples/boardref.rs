@@ -1,6 +1,7 @@
 //! The Rust side of tools/rgbref/board.py: runs the board harness script
 //! (see tools/rgbref/board_harness.c) on `Board` and prints the same way.
 //! The first line carries the default recordings: `defaults <360 numbers>`.
+//! The lights-off battery flash is off: the vendor's C has none.
 
 use std::io::{BufRead, Write};
 
@@ -28,6 +29,7 @@ fn key(name: &str) -> Key {
         "NK_TOGG" => Key::NkTogg,
         "EE_CLR" => Key::EeClr,
         "KC_ENCW" => Key::Encw,
+        "HS_BATQ" => Key::BatQ,
         "MO_FL" => Key::Fn,
         "MO_FBL" => Key::Momentary,
         "KC_A" => Key::Other,
@@ -53,6 +55,7 @@ fn main() {
 
     let mut b: Option<Board> = None;
     let mut usb = true;
+    let mut bat = (100, false, false);
     let mut now = 0;
     let mut power: Option<bool> = None;
     macro_rules! power_check {
@@ -71,6 +74,8 @@ fn main() {
             "boot" => {
                 let mut nb = Board::new(None, defaults, n(1) != 0 && n(2) == 0, now);
                 nb.vendor.usb_active = usb;
+                nb.vendor.bat_flash = false;
+                (nb.vendor.bat, nb.vendor.charging, nb.vendor.full) = bat;
                 power_check!(nb);
                 b = Some(nb);
             }
@@ -94,6 +99,10 @@ fn main() {
                         writeln!(out).unwrap();
                     }
                     power_check!(b);
+                    if b.vendor.shutdown_requested {
+                        b.vendor.shutdown_requested = false;
+                        writeln!(out, "S {t}").unwrap();
+                    }
                     t += n(3);
                 }
             }
@@ -101,6 +110,12 @@ fn main() {
             "wls_key" => b.as_mut().unwrap().wls_key(n(1) as u8, now),
             "wls_pair" => b.as_mut().unwrap().wls_pair(n(1) as u8, now),
             "state" => b.as_mut().unwrap().vendor.md_state = n(1) as u8,
+            "bat" => {
+                bat = (n(1) as u8, n(2) != 0, n(3) != 0);
+                if let Some(b) = b.as_mut() {
+                    (b.vendor.bat, b.vendor.charging, b.vendor.full) = bat;
+                }
+            }
             "usb" => {
                 usb = n(1) != 0;
                 if let Some(b) = b.as_mut() {

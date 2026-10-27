@@ -50,6 +50,8 @@ ${RGB_VAD}          5 13
 ${RGB_SAI}          5 12
 ${RGB_SAD}          5 14
 ${RL_MOD}           5 0
+${HS_BATQ}          5 6
+${RADIO_FLAGS}      0xE8
 ${EE_CLR}           1 0
 ${HOST_CMD}         0xF00
 ${HOST_OUT_BYTE}    0xF0C
@@ -178,6 +180,33 @@ LED Power Should Be
     ${odr}=    Execute Command    sysbus ReadDoubleWord ${GPIOA_ODR}
     ${is_on}=    Evaluate    bool(int($odr.strip(), 0) & ${LED_POWER})
     Should Be Equal    ${is_on}    ${on}
+
+Set Battery
+    [Documentation]    The radio module's battery level, then past its next
+    ...    inquiry (every 3 s) and a frame.
+    [Arguments]    ${percent}
+    Execute Command    uart3 WriteDoubleWord ${RADIO_FLAGS} ${{ ${percent} << 8 }}
+    Run For    3.1
+
+Drive Pin A
+    [Documentation]    ${level}: 0 low, 1 high, 2 released.
+    [Arguments]    ${pin}    ${level}
+    Execute Command    sysbus WriteDoubleWord ${GPIO_DRIVE} ${{ (${level} << 16) | ${pin} }}
+
+LED 0 Over
+    [Documentation]    LED 0's colours and the LED power, every 20 ms for
+    ...    ${seconds}: a list of (colour, power on, other LEDs lit).
+    [Arguments]    ${seconds}
+    @{seen}=    Create List
+    FOR    ${i}    IN RANGE    ${{ int(${seconds} * 50) }}
+        Run For    0.02
+        ${colours}=    LED Colours
+        ${odr}=    Execute Command    sysbus ReadDoubleWord ${GPIOA_ODR}
+        ${on}=    Evaluate    bool(int($odr.strip(), 0) & ${LED_POWER})
+        ${others}=    Evaluate    any($colours[1:84])
+        Append To List    ${seen}    ${{ ($colours[0], $on, $others) }}
+    END
+    RETURN    ${seen}
 
 Append To List
     [Arguments]    ${list}    ${item}
@@ -617,4 +646,89 @@ The Aux LED Shows Lighting On Without A Cable
     Pin B Should Be    ${AUX_LED}    ${True}
     Fn Tap And Wait    ${RGB_TOG}
     Pin B Should Be    ${AUX_LED}    ${False}
+    No LED Errors
+
+LED 0 Shows The Battery: Blinking When Low, Red While Charging
+    [Documentation]    LED 0 (no key over it) is dark at a good level; at 15%
+    ...    or less it blinks red, 250 ms on and off; with the cable in (A7
+    ...    high) and the charger pulling A15 low it's red, and dark again
+    ...    once A15 goes high (full). Fn+G hides it.
+    Boot To Lighting
+    ${seen}=    LED 0 Over    0.6
+    Should Be True    all(c == 0 for c, _, _ in $seen)
+    Set Battery    12
+    ${seen}=    LED 0 Over    1.2
+    ${colours}=    Evaluate    sorted(set(c for c, _, _ in $seen))
+    Should Be Equal    ${colours}    ${{ [0, 0xFF0000] }}
+    Drive Pin A    15    0
+    Drive Pin A    7    1
+    Run For    0.1
+    ${seen}=    LED 0 Over    0.6
+    Should Be True    all(c == 0xFF0000 for c, _, _ in $seen)
+    Fn Tap    3 5
+    ${seen}=    LED 0 Over    0.6
+    Should Be True    all(c == 0 for c, _, _ in $seen)
+    Fn Tap    3 5
+    Drive Pin A    15    2
+    Run For    0.1
+    ${seen}=    LED 0 Over    0.6
+    Should Be True    all(c == 0 for c, _, _ in $seen)
+    Drive Pin A    7    2
+    No LED Errors
+
+Fn Space Shows The Battery Level
+    [Documentation]    While Fn+Space is held the keys go dark but for a bar on
+    ...    LEDs 16-25 (the number row), a LED per 10%: green from 50%,
+    ...    yellow from 30%, red below. On USB too, and with the lighting off,
+    ...    which powers the LEDs just for it.
+    Boot To Lighting
+    FOR    ${percent}    ${lit}    ${colour}    IN    42    4    0x969600    80    8    0x009600    7    1    0x960000
+        Set Battery    ${percent}
+        Key    5    10    1
+        Run For    0.03
+        Key    5    6    1
+        Run For    0.1
+        ${colours}=    LED Colours
+        Key    5    6    0
+        Run For    0.03
+        Key    5    10    0
+        Run For    0.1
+        ${want}=    Evaluate    [${colour}] * ${lit} + [0] * (10 - ${lit})
+        Should Be Equal    ${colours[16:26]}    ${want}
+        Should Be True    not any($colours[1:16]) and not any($colours[26:84])
+    END
+    # (Above 15%, or the low-battery flash would power the LEDs too.)
+    Set Battery    35
+    Fn Tap And Wait    ${RGB_TOG}
+    LED Power Should Be    ${False}
+    Key    5    10    1
+    Run For    0.03
+    Key    5    6    1
+    Run For    0.1
+    LED Power Should Be    ${True}
+    ${colours}=    LED Colours
+    Should Be Equal    ${colours[16:26]}    ${{ [0x969600] * 3 + [0] * 7 }}
+    Key    5    6    0
+    Run For    0.03
+    Key    5    10    0
+    Run For    0.1
+    LED Power Should Be    ${False}
+    No LED Errors
+
+With The Lights Off A Low Battery Flashes LED 0
+    [Documentation]    The lighting off (Fn+L), LED power is off; at 15% or
+    ...    less, every 5 s the LEDs are powered for about 190 ms, LED 0
+    ...    red for about 150 ms of it, nothing else lit.
+    Boot To Lighting
+    Fn Tap And Wait    ${RGB_TOG}
+    Set Battery    10
+    ${seen}=    LED 0 Over    10.5
+    ${red}=    Evaluate    [i for i, (c, on, o) in enumerate($seen) if c == 0xFF0000]
+    ${powered}=    Evaluate    sum(1 for c, on, o in $seen if on)
+    ${bad}=    Evaluate    [i for i in $red if not $seen[i][1] or $seen[i][2]]
+    Should Be Empty    ${bad}    red without power, or with other LEDs lit
+    # Two flashes of ~150 ms, 5 s apart, sampled every 20 ms.
+    Should Be True    12 <= len($red) <= 18    ${red}
+    Should Be True    len($red) < ${powered} <= 24    ${powered} powered samples
+    Should Be True    $red[-1] - $red[0] > 200    one flash only
     No LED Errors

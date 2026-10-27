@@ -18,8 +18,9 @@
 //! Unlike QMK, recording lets key releases through, so a key held when it
 //! starts doesn't stick.
 //!
-//! Power: A8 enables the LEDs' supply, as the vendor's code sets it
-//! (`Vendor::power`); A9, the boost converter, stays on.
+//! Power: A8 enables the LEDs' supply, as the vendor's code sets it, or
+//! for the lights-off battery flash (`Board::led_power`); it goes on before
+//! a frame is sent. A9, the boost converter, stays on.
 //!
 //! Saving: what QMK keeps in its EEPROM (`lighting_crate::record`) goes to
 //! its own two sectors of the SPI flash, after RMK's window, written in
@@ -58,9 +59,13 @@
 //! its device changes and the module's state go to the board before each
 //! frame.
 //!
+//! The battery indicators (LED 0, and Fn+Space's bar on 16-25) take the
+//! level and charge state from the radio (`radio::battery`) before each
+//! frame. The flat battery's sleep request (`Vendor::shutdown_requested`)
+//! is M7b's.
+//!
 //! Not yet: NK_TOGG (RMK has no NKRO toggle), the factory LED test (LCtrl
-//! held at power-up), the Win-lock LED's suspend rule, and the battery (M7)
-//! indicators.
+//! held at power-up), and the Win-lock LED's suspend rule.
 
 use core::cell::Cell;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -242,6 +247,7 @@ pub fn vialrgb(buf: &mut [u8]) -> bool {
 const USER_RP_P0: u8 = 5;
 const USER_RP_END: u8 = 8;
 const USER_RL_MOD: u8 = 9;
+const USER_HS_BATQ: u8 = 10;
 const USER_HS_CT_A: u8 = 14;
 const USER_KC_ENCW: u8 = 15;
 /// GU_TOGG, QMK's magic keycode 0x700B.
@@ -275,6 +281,7 @@ fn board_key(a: &Action) -> Key {
         Action::User(USER_RP_END) => Key::RpEnd,
         Action::User(USER_RL_MOD) => Key::RlMod,
         Action::User(USER_KC_ENCW) => Key::Encw,
+        Action::User(USER_HS_BATQ) => Key::BatQ,
         Action::KeyboardControl(KeyboardAction::ClearEeprom) => Key::EeClr,
         Action::LayerOn(LAYER_FL | LAYER_MFL) => Key::Fn,
         Action::LayerOn(_) => Key::Momentary,
@@ -383,7 +390,7 @@ impl Lighting {
     }
 
     fn update_power(&mut self) {
-        if self.board.vendor.power {
+        if self.board.led_power() {
             self.power.set_high();
         } else {
             self.power.set_low();
@@ -501,8 +508,11 @@ impl Lighting {
             }
         }
         self.board.vendor.md_state = radio::module_state();
+        let v = &mut self.board.vendor;
+        (v.bat, v.charging, v.full) = radio::battery();
         loop {
             if self.board.task_sparse(now) {
+                self.update_power();
                 self.leds.write(self.board.engine.leds.rgb.iter().map(|c| [c.r, c.g, c.b])).await;
             }
             if !self.board.engine.frame_due(now) {

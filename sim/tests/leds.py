@@ -31,10 +31,11 @@ def hsv_to_rgb(h, s, v):
 
 def cycle_left_right_time(colours, s=255, v=84):
     """The effect time t for which every key LED shows CYCLE_LEFT_RIGHT's
-    colour, hue = x - t, or fail. (The side lights show their own effect.)"""
+    colour, hue = x - t, or fail. (The side lights show their own effect;
+    LED 0 is the battery's, dark unless the battery is low or charging.)"""
     colours = [int(c) for c in colours][:SIDE.start]
     for t in range(256):
-        if all(c == hsv_to_rgb((x - t) & 0xFF, s, v) for c, (x, _) in zip(colours, POINTS)):
+        if all(c == hsv_to_rgb((x - t) & 0xFF, s, v) for c, (x, _) in list(zip(colours, POINTS))[1:]):
             return t
     raise AssertionError("no time fits cycle_left_right: %s" % " ".join("%06x" % c for c in colours))
 

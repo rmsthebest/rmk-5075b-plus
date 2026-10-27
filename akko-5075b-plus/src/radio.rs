@@ -15,7 +15,8 @@
 //!   sleep in both modes, then select the saved device.
 //! - The charge state (A7 cable, A15 full) goes to the module when it
 //!   changes and every 10 s, only while nothing is queued; the battery
-//!   level is asked every 3 s.
+//!   level is asked every 3 s. Both go to the lighting's battery
+//!   indicators (`battery`).
 //! - The host's lock LEDs come from the module while a wireless device is
 //!   selected (0 while it isn't connected).
 //! - Vial's id_custom_get_value channel 0xD4 answers the link counters
@@ -98,6 +99,10 @@ static UART_ERRORS: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU1
 /// The module's state as QMK's MD_STATE_* (`wireless::ModuleState` has
 /// the same order), for the lighting.
 static MODULE_STATE: AtomicU8 = AtomicU8::new(0);
+/// The charge pins as housekeeping last read them: CHARGE_CABLE, CHARGE_FULL.
+static CHARGE: AtomicU8 = AtomicU8::new(0);
+const CHARGE_CABLE: u8 = 1;
+const CHARGE_FULL: u8 = 2;
 static BOARD_EVENTS: Mutex<CriticalSectionRawMutex, RefCell<heapless::Deque<BoardEvent, 4>>> =
     Mutex::new(RefCell::new(heapless::Deque::new()));
 
@@ -130,6 +135,14 @@ pub fn module_state() -> u8 {
 
 fn now_ms() -> u32 {
     Instant::now().as_millis() as u32
+}
+
+/// The battery for the lighting: the module's level (%), the cable is in,
+/// the battery is full.
+pub fn battery() -> (u8, bool, bool) {
+    let c = CHARGE.load(Ordering::Relaxed);
+    let level = LINK.lock(|l| l.borrow().battery());
+    (level, c & CHARGE_CABLE != 0, c & CHARGE_FULL != 0)
 }
 
 /// The device bits of the lighting record's flags.
@@ -215,7 +228,9 @@ impl Radio {
         rmk::channel::set_report_hook(report_hook);
         // A7 is also the lighting's (src/lighting.rs); both only read it.
         let cable = Input::new(unsafe { AnyPin::steal(Port::A, 7) }, Pull::None);
-        let full = Input::new(unsafe { AnyPin::steal(Port::A, 15) }, Pull::None);
+        // Pulled up, as QMK's setPinInputHigh(BAT_FULL_PIN): the charger
+        // only pulls it low.
+        let full = Input::new(unsafe { AnyPin::steal(Port::A, 15) }, Pull::Up);
         Radio {
             uart,
             usb_power,
@@ -354,7 +369,12 @@ impl Radio {
     /// hs_housekeeping_task's module traffic.
     fn housekeeping(&mut self, now: u32) {
         let charging = self.cable.is_high();
-        let state = match (charging, self.full.is_high()) {
+        let full = self.full.is_high();
+        CHARGE.store(
+            if charging { CHARGE_CABLE } else { 0 } | if full { CHARGE_FULL } else { 0 },
+            Ordering::Relaxed,
+        );
+        let state = match (charging, full) {
             (true, true) => devctrl::CHARGING_DONE,
             (true, false) => devctrl::CHARGING,
             (false, _) => devctrl::CHARGING_STOP,
