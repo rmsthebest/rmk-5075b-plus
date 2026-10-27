@@ -29,7 +29,11 @@
 //! reads it, 1 + n sets it to n (0 never, 1-6: 1, 3, 5, 10, 20, 30 min, 7:
 //! 2 min, the default); byte 3 of the answer is the setting; a change is
 //! saved with the lighting record. 0xD8 with argument 0x48 ('H') hangs the
-//! firmware, to test the watchdog.
+//! firmware, to test the watchdog. 0xD9, stop mode while asleep
+//! (src/power.rs, off at reset, not saved): argument 0 reads, 1 turns it
+//! off, 0x53 ('S') on; byte 3 of the answer is 1 if on, bytes 4-7 and 8-11
+//! (little-endian) the stops so far and those a key, the knob or the cable
+//! ended, 12-15 the tries that didn't stop (an interrupt was pending).
 //!
 //! Crash policy (boot-guard): a panic resets into this image; a second one
 //! before the image has run `STABLE_AFTER` goes to DFU. The software
@@ -45,6 +49,7 @@ mod lighting;
 mod power;
 mod radio;
 mod scan;
+mod stop;
 mod watchdog;
 
 use boot_guard as _;
@@ -97,6 +102,9 @@ const CHANNEL_DEBOUNCE: u8 = 0xD6;
 const CHANNEL_SLEEP: u8 = 0xD7;
 const CHANNEL_HANG: u8 = 0xD8;
 const HANG_CONFIRM: u8 = b'H';
+const CHANNEL_STOP: u8 = 0xD9;
+const STOP_OFF: u8 = 1;
+const STOP_CONFIRM: u8 = b'S';
 const DEBOUNCE_EAGER: u8 = 1;
 const DEBOUNCE_DEFER: u8 = 2;
 const CRASH_CONFIRM: u8 = b'P';
@@ -218,6 +226,18 @@ fn custom_value(buf: &mut [u8]) {
                 }
             }
             buf[3] = power::setting();
+        }
+        CHANNEL_STOP if buf.len() >= 16 => {
+            match buf[2] {
+                STOP_OFF => power::set_stop_mode(false),
+                STOP_CONFIRM => power::set_stop_mode(true),
+                _ => {}
+            }
+            let (stops, wakes, aborts) = power::stop_counts();
+            buf[3] = power::stop_mode() as u8;
+            buf[4..8].copy_from_slice(&stops.to_le_bytes());
+            buf[8..12].copy_from_slice(&wakes.to_le_bytes());
+            buf[12..16].copy_from_slice(&aborts.to_le_bytes());
         }
         CHANNEL_STACK => {
             let (used, size) = stack_peak();

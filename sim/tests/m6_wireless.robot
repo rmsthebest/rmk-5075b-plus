@@ -56,6 +56,9 @@ ${LED_COLOUR}       0xFC
 ${LED_2G4}          38
 ${RED}              0xFF0000
 ${GREEN}            0x00FF00
+${SYST_CSR}         0xE000E010
+${SCB_SCR}          0xE000ED10
+${VERSION_ASK}      a6 70 16
 
 *** Keywords ***
 Start
@@ -197,6 +200,45 @@ Raw HID Send
     END
     Execute Command    usb WriteDoubleWord ${HOST_CMD} ${{ 0x09 | (${VIAL_OUT_EP} << 8) }}
     Run For    0.05
+
+Stop Mode
+    [Documentation]    Vial channel 0xD9: 0x53 ('S') on, 1 off, 0 reads.
+    [Arguments]    ${arg}
+    Raw HID Send    0x08    0xD9    ${arg}
+
+Should Be Stopped
+    [Documentation]    In stop mode's WFI (src/stop.rs, wb32-hal stop.rs):
+    ...    SysTick off and SLEEPDEEP set.
+    [Arguments]    ${stopped}
+    ${csr}=    Execute Command    sysbus ReadDoubleWord ${SYST_CSR}
+    ${scr}=    Execute Command    sysbus ReadDoubleWord ${SCB_SCR}
+    Should Be Equal    ${{ not (int($csr.strip(), 0) & 1) }}    ${stopped}    SysTick off
+    Should Be Equal    ${{ bool(int($scr.strip(), 0) & 4) }}    ${stopped}    SLEEPDEEP
+
+Stop Counts Should Be
+    [Documentation]    0xD9's answer: on, the stops, those a key, the knob or
+    ...    the cable ended.
+    [Arguments]    ${stops}    ${wakes}
+    Stop Mode    0
+    ${hex}=    Evaluate    "08 d9 00 01 " + " ".join("%02x" % b for b in list(int(${stops}).to_bytes(4, "little")) + list(int(${wakes}).to_bytes(4, "little")))
+    Wait For Log Entry    HOST HID 3: ${hex}    timeout=1    pauseEmulation=true
+
+Asleep And Stopped
+    [Documentation]    Stop mode on, on the dongle; the host suspends: asleep at
+    ...    once, stopped a second later (STOP_AFTER_MS).
+    Boot
+    Stop Mode    0x53
+    Wait For Log Entry    HOST HID 3: 08 d9 53 01    timeout=1    pauseEmulation=true
+    On The Dongle
+    Module Sends    ${HOST_SUSPEND}
+    Run For    0.5
+    Should Be Asleep    ${True}
+    Should Be Stopped    ${False}
+    Run For    1.2
+    Should Be Stopped    ${True}
+    # The vendor's PWR mode, STOP LP4 S32KON (from reset: CR0 0).
+    Wait For Log Entry    sysctl: MMIO W PWR+0x000 = 0x0003b004    timeout=0
+    Wait For Log Entry    sysctl: MMIO W PWR+0x020 = 0x000003b3    timeout=0
 
 *** Test Cases ***
 Start-up Talks To The Module As QMK Does
@@ -447,3 +489,84 @@ A Flat Battery Sleeps It Until The Cable Goes In
     Run For    0.5
     Should Be Asleep    ${False}
     Drive    0    7    2
+
+Stop Mode Is Off Unless Turned On
+    [Documentation]    M7c's stop mode is off at reset: asleep, the clocks run.
+    Boot
+    On The Dongle
+    Module Sends    ${HOST_SUSPEND}
+    Run For    2
+    Should Be Asleep    ${True}
+    Should Be Stopped    ${False}
+
+In Stop Mode A Key Wakes It And Is Typed
+    [Documentation]    Stopped (SysTick off, SLEEPDEEP), the rows' EXTI lines
+    ...    wake it: the key is read and sent, the device selected again. Ten
+    ...    seconds stopped don't trip the watchdog (no reset: the module isn't
+    ...    asked its version again).
+    Asleep And Stopped
+    Run For    10
+    Should Be Stopped    ${True}
+    Key    ${KEY_A}    1
+    # Out of the stop the device is selected again before the scan reads.
+    Radio Should Get    ${SEL_DONGLE}
+    Radio Should Get    ${A_DOWN}
+    Key    ${KEY_A}    0
+    Radio Should Get    ${ALL_UP}
+    Run For    0.3
+    Should Be Stopped    ${False}
+    Should Be Asleep    ${False}
+    Radio Should Not Get    ${VERSION_ASK}
+    Stop Counts Should Be    1    1
+    No Radio Errors
+    # PRE_LP, POST_LP and the clocks' set-up again open ANCTL first.
+    Should Not Be In Log    LOCKED write dropped    timeout=0
+
+In Stop Mode The Module's UART Wakes It
+    [Documentation]    A frame from the module ends the stop (EXTI 11 on the
+    ...    chip; the UART's interrupt in the sim); the radio reads it: the
+    ...    host resuming wakes the keyboard.
+    Asleep And Stopped
+    Module Sends    ${HOST_RESUME}
+    Radio Should Get    ${SEL_DONGLE}
+    Run For    0.3
+    Should Be Stopped    ${False}
+    Should Be Asleep    ${False}
+    Stop Counts Should Be    1    0
+
+In Stop Mode The Cable Wakes It, And It Doesn't Stop With The Cable In
+    Asleep And Stopped
+    Drive    0    7    1
+    Run For    0.5
+    Should Be Asleep    ${False}
+    Module Sends    ${HOST_SUSPEND}
+    Run For    2
+    Should Be Asleep    ${True}
+    Should Be Stopped    ${False}
+    Drive    0    7    2
+
+In Stop Mode The Knob Wakes It, And The Next Turn Is Sent
+    [Documentation]    B6's EXTI line wakes it. Line 7 is the cable's (A7)
+    ...    while stopped, so the first detent's B7 edge is missed and that
+    ...    turn isn't read; line 7 is the knob's again after, and the next
+    ...    turn is sent.
+    Asleep And Stopped
+    Drive    1    7    0
+    Run For    0.002
+    Drive    1    6    0
+    Run For    0.002
+    Drive    1    7    2
+    Run For    0.002
+    Drive    1    6    2
+    Radio Should Get    ${SEL_DONGLE}
+    Run For    0.3
+    Should Be Asleep    ${False}
+    Should Be Stopped    ${False}
+    Drive    1    7    0
+    Run For    0.002
+    Drive    1    6    0
+    Run For    0.002
+    Drive    1    7    2
+    Run For    0.002
+    Drive    1    6    2
+    Radio Should Get    a3 e9 00

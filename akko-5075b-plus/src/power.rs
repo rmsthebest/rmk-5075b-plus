@@ -28,6 +28,14 @@
 //! The sleep timeout is the vendor's setting (`record::SLEEP_*`: never, 1,
 //! 3, 5, 10, 20, 30 minutes, default 2), set over Vial channel 0xD7
 //! (tools/sleep.py) and saved with the lighting record.
+//!
+//! Stop mode (M7c, src/stop.rs): asleep for STOP_AFTER_MS on the battery
+//! (the cable out), the chip stops its clocks until a key, the knob, the
+//! cable or the radio module's UART wakes it. A UART wake stays asleep: the
+//! radio reads the frame, and it stops again (as the vendor's). Off at every
+//! reset and not saved: Vial channel 0xD9 turns it on (tools/sleep.py
+//! --stop), so a stop mode that misbehaves is gone after a reset. Time
+//! (SysTick) stands still while stopped.
 
 use core::convert::Infallible;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
@@ -36,11 +44,13 @@ use embassy_futures::select::select;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Instant, Timer};
+use wb32_hal::uart;
 use lighting_crate::board::{MD_STATE_DISCONNECTED, MD_STATE_PAIRING};
 use lighting_crate::record;
 use wb32_hal::gpio::{AnyPin, Input, Output, Port, Pull};
 
 use crate::radio;
+use crate::stop;
 
 /// HS_LBACK_TIMEOUT and HS_PAIR_TIMEOUT (wls.h).
 const RECONNECT_TIMEOUT_MS: u32 = 30_000;
@@ -49,6 +59,11 @@ const PAIR_TIMEOUT_MS: u32 = 120_000;
 const TICK_MS: u64 = 250;
 /// The vendor's wait after telling the module (wls.c, wait_ms(200)).
 const MODULE_SLEEP_WAIT_MS: u64 = 200;
+/// Asleep this long (the lights off, the columns driven) before stopping.
+const STOP_AFTER_MS: u32 = 1_000;
+/// After a stop, awake this long first (the vendor's LPWR_STOP_DELAY): a
+/// UART wake's frame comes in meanwhile.
+const STOP_DELAY_MS: u32 = 200;
 
 static SETTING: AtomicU8 = AtomicU8::new(record::SLEEP_DEFAULT);
 static SLEEPING: AtomicBool = AtomicBool::new(false);
@@ -61,6 +76,28 @@ static HOST_SUSPENDED: AtomicBool = AtomicBool::new(false);
 static FLAT: AtomicBool = AtomicBool::new(false);
 /// Wakes the task: input while asleep, the host's state, a flat battery.
 static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// Stop mode allowed (Vial 0xD9; off at reset).
+static STOP_ON: AtomicBool = AtomicBool::new(false);
+/// Stops so far, and those a key, the knob or the cable ended (the rest:
+/// the UART, or nothing that was armed).
+static STOPS: AtomicU32 = AtomicU32::new(0);
+static STOP_WAKES: AtomicU32 = AtomicU32::new(0);
+/// Tries that didn't stop: an interrupt was pending.
+static STOP_ABORTS: AtomicU32 = AtomicU32::new(0);
+
+pub fn stop_mode() -> bool {
+    STOP_ON.load(Ordering::Relaxed)
+}
+
+pub fn set_stop_mode(on: bool) {
+    STOP_ON.store(on, Ordering::Relaxed);
+}
+
+/// (stops, those ended by a key, the knob or the cable, tries that didn't
+/// stop).
+pub fn stop_counts() -> (u32, u32, u32) {
+    (STOPS.load(Ordering::Relaxed), STOP_WAKES.load(Ordering::Relaxed), STOP_ABORTS.load(Ordering::Relaxed))
+}
 
 /// The sleep timeout, `record::SLEEP_*`.
 pub fn setting() -> u8 {
@@ -128,6 +165,9 @@ pub struct Power {
     cable_was: bool,
     /// Why it's asleep (None: awake).
     asleep: Option<Why>,
+    /// When it went to sleep, and when it last came out of a stop (ms).
+    asleep_at: u32,
+    stopped_at: u32,
 }
 
 impl Power {
@@ -137,7 +177,7 @@ impl Power {
         let now = now_ms();
         LAST_INPUT.store(now, Ordering::Relaxed);
         let cable_was = cable.is_high();
-        Power { cable, state: 0, state_since: now, cable_was, asleep: None }
+        Power { cable, state: 0, state_since: now, cable_was, asleep: None, asleep_at: now, stopped_at: now }
     }
 
     /// Whether to sleep now, and why.
@@ -186,6 +226,7 @@ impl Power {
         LOWER.store(why == Why::Flat, Ordering::Relaxed);
         self.cable_was = self.cable.is_high();
         self.asleep = Some(why);
+        self.asleep_at = now_ms();
         SLEEPING.store(true, Ordering::Relaxed);
         refresh_caps();
     }
@@ -200,6 +241,32 @@ impl Power {
             SLEEPING.store(false, Ordering::Relaxed);
         }
         !sleeping()
+    }
+
+    /// Asleep: whether to stop now. Only on the battery: with the cable in,
+    /// USB may be up, and stopping its clock would drop it.
+    fn stop_due(&self, now: u32) -> bool {
+        stop_mode()
+            && now.wrapping_sub(self.asleep_at) >= STOP_AFTER_MS
+            && now.wrapping_sub(self.stopped_at) >= STOP_DELAY_MS
+            && self.cable.is_low()
+            && uart::idle()
+            && (lower() || stop::rows_high())
+    }
+
+    fn stop(&mut self) {
+        let Some(fired) = stop::stop(lower()) else {
+            STOP_ABORTS.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        self.stopped_at = now_ms();
+        STOPS.fetch_add(1, Ordering::Relaxed);
+        if fired & (stop::ROW_LINES | stop::KNOB_LINE | stop::CABLE_LINE) != 0 {
+            STOP_WAKES.fetch_add(1, Ordering::Relaxed);
+        }
+        if fired & (stop::ROW_LINES | stop::KNOB_LINE) != 0 {
+            input();
+        }
     }
 
     fn wake(&mut self) {
@@ -225,6 +292,11 @@ impl rmk::core_traits::Runnable for Power {
                 }
             } else if self.woken() {
                 self.wake();
+            } else if self.stop_due(now) {
+                self.stop();
+                if self.woken() {
+                    self.wake();
+                }
             }
         }
     }

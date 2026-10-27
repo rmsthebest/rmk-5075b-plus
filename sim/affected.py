@@ -45,7 +45,7 @@ RULES = [
     (r"third_party/rmk/", RMK),
     (r"third_party/musb/", ["m3_usb", "m4_rmk"]),
     (r"wb32-hal/src/ws2812", ["m5_lighting"]),
-    (r"wb32-hal/src/uart", ["m6_wireless"]),
+    (r"wb32-hal/src/(uart|stop)", ["m6_wireless"]),
     (r"wb32-hal/src/usb", ["m3_usb", "m4_rmk"]),
     (r"wb32-hal/src/(spi_nor|qspi)", ["m4_rmk", "m5_lighting"]),
 ]

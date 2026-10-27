@@ -33,6 +33,9 @@ const LSR_OE: u32 = 1 << 1;
 const LSR_PE: u32 = 1 << 2;
 const LSR_FE: u32 = 1 << 3;
 const LSR_THRE: u32 = 1 << 5;
+/// USR (DesignWare): sending or receiving; the TX FIFO empty.
+const USR_BUSY: u32 = 1 << 0;
+const USR_TFE: u32 = 1 << 2;
 
 /// Received bytes not yet read. A frame from the module is at most 36
 /// bytes and is read within a millisecond or so.
@@ -151,6 +154,16 @@ impl Uart3 {
     pub fn rx_errors(&self) -> u16 {
         RX_ERRORS.load(Ordering::Relaxed)
     }
+}
+
+/// True when UART3 has nothing left to send or to hand over: both rings
+/// empty, the TX FIFO empty and the UART not busy (USR, which, unlike LSR,
+/// doesn't clear the error flags when read). Stop mode (`crate::stop`)
+/// waits for this: its clock stops with the chip's.
+pub fn idle() -> bool {
+    let rings = critical_section::with(|cs| TX.borrow(cs).borrow().len == 0 && RX.borrow(cs).borrow().len == 0);
+    let usr = UART3.usr().read().0;
+    rings && usr & USR_TFE != 0 && usr & USR_BUSY == 0
 }
 
 /// Called in the interrupt's critical section.
