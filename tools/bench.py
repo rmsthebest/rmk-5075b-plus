@@ -43,6 +43,7 @@ RMK_ELF = ROOT / "target/thumbv7m-none-eabi/release/akko-rmk"
 FROZEN_ELF = BENCH / "akko-rmk.elf"
 FROZEN_BIN = BENCH / "akko-rmk.bin"
 STAMP = BENCH / "akko-rmk.json"
+LOGS = BENCH / "logs"
 QMK_BIN = ROOT.parent / "akko_5075b_plus_fixes.bin"
 QMK_SHA = "d5e10b44ed718de45f0da4c4e08914578baa9104895e88a2c3e67e912c3af306"
 RESULTS = ROOT / "target/sim-results/robot_output.xml"
@@ -134,6 +135,16 @@ class Job:
             self.say(f"FAILED: {e}")
         finally:
             self.proc, self.prompt = None, None
+            self._save()
+
+    def _save(self):
+        # Keeps every job's log on disk; the page only shows the latest one.
+        try:
+            LOGS.mkdir(parents=True, exist_ok=True)
+            name = f"{time.strftime('%Y%m%d-%H%M%S')}-{self.name}-{self.status}.log"
+            (LOGS / name).write_text("\n".join(self.log) + "\n")
+        except OSError as e:
+            print(f"can't save the log: {e}", flush=True)
 
     def say(self, line):
         self.log.append(line)
@@ -272,8 +283,9 @@ def do_capture(job):
             job.say(f"listening: {label}")
         except OSError as e:
             job.say(f"can't open {label}: {e}")
-    job.prompt = "Type a few letters, press Caps Lock twice, then turn the knob."
-    end = time.monotonic() + 30
+    job.prompt = ("Slowly, one key at a time: a, s, d. Caps Lock twice. Hold Win, tap e, release Win. "
+                  "Hold Fn, tap F6, release Fn. Turn the knob. Watch the Win-lock LED.")
+    end = time.monotonic() + 60
     t0 = time.monotonic()
     try:
         while time.monotonic() < end:
@@ -307,7 +319,7 @@ ACTIONS = {
     "test": ("Run sim tests", do_test),
     "flash-rmk": ("Flash RMK", do_flash_rmk),
     "flash-qmk": ("Flash QMK", do_flash_qmk),
-    "capture": ("Capture 30 s", do_capture),
+    "capture": ("Capture 60 s", do_capture),
     "reset": ("Leave DFU", do_reset),
 }
 
