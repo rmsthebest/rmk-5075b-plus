@@ -22,12 +22,15 @@ ${GPIO_DRIVE}       0x40000FF4
 ${GPIO_RELEASE}     0x40000FF8
 ${GPIOC_ODR}        0x40000814
 ${CAPS_LED}         0x20
+${GPIOB_ODR}        0x40000414
+${WIN_LOCK_LED}     0x01
 ${FLASH_ADDR}       0xF0
 ${FLASH_WORD}       0xF4
 ${FLASH_ERASE}      0xF8
 ${AIRCR}            0xE000ED0C
 ${SYSRESETREQ}      0x05FA0004
 ${VIAL_OUT_EP}      2
+${USB_TRACE}        0xF10
 
 *** Keywords ***
 Load Machine
@@ -116,6 +119,13 @@ Raw HID Send
     END
     Host    ${{ 0x09 | (${VIAL_OUT_EP} << 8) }}
 
+Win Lock LED Should Be
+    [Documentation]    The scan's diagnostic: on (PB0 low) while any debounced key is down.
+    [Arguments]    ${state}
+    ${v}=    Execute Command    sysbus ReadDoubleWord ${GPIOB_ODR}
+    ${on}=    Evaluate    (${v.strip()} & ${WIN_LOCK_LED}) == 0
+    Should Be Equal    ${on}    ${{ "${state}" == "on" }}
+
 PC Should Be In ROM
     ${pc}=    Execute Command    cpu PC
     Should Be Equal As Integers    ${pc.strip()}    ${ROM_PARKED}
@@ -167,10 +177,38 @@ Enumerates As The QMK Keyboard With Vial
 
 A Key Press Sends A Keyboard Report
     Boot And Enumerate
+    Win Lock LED Should Be    off
     Key    3    1    1
+    HID Should Show    1    00 00 04 00 00 00 00 00
+    Win Lock LED Should Be    on
+    Key    3    1    0
+    HID Should Show    1    00 00 00 00 00 00 00 00
+    Win Lock LED Should Be    off
+
+Endpoints Are Driven As ChibiOS Drives Them
+    [Documentation]    QMK's ChibiOS driver, which works on the board, clears
+    ...    INCSR2/OUTCSR2 when it opens an endpoint and starts each IN packet with
+    ...    a plain write of InPktRdy. musb left both CSR2s as they were and set
+    ...    InPktRdy with a read-modify-write; keyboard reports on EP1 never
+    ...    reached the host on the board (the knob on EP2 did).
+    Load Machine
+    Execute Command    qspi WriteDoubleWord ${FLASH_ERASE} 1
+    Start
+    # After the reset, which re-initialises the USB model.
+    Execute Command    usb WriteDoubleWord ${USB_TRACE} 1
+    # In the order embassy-usb opens them: keyboard EP1 IN and OUT, composite
+    # EP2 IN, Vial EP3 IN and EP2 OUT.
+    FOR    ${write}    IN    i1 +0x12    i1 +0x15    i2 +0x12    i3 +0x12    i2 +0x15
+        # Not paused: these come during SET_CONFIGURATION (see sim/README.md).
+        Wait For Log Entry    USBT W ${write} <- 0x00    timeout=4
+    END
+    Wait For Enumeration
+    Key    3    1    1
+    Wait For Log Entry    USBT W i1 +0x11 <- 0x01    timeout=1    pauseEmulation=true
     HID Should Show    1    00 00 04 00 00 00 00 00
     Key    3    1    0
     HID Should Show    1    00 00 00 00 00 00 00 00
+    Should Not Be In Log    USBT W i1 +0x11 <- 0x03
 
 Fn Layer Sends Consumer Keys
     Boot And Enumerate

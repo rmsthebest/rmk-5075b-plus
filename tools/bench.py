@@ -2,6 +2,7 @@
 """Workbench: run the sim tests, flash the tested RMK image, flash QMK back.
 
     python3 tools/bench.py        (opens http://127.0.0.1:8475 in the browser)
+    python3 tools/bench.py test   (the "Run sim tests" button, in the terminal)
 
 Everything is a button, so the keyboard being flashed can be the only one
 plugged in. Only the stdlib is used; the page is served on localhost only and
@@ -22,8 +23,10 @@ import hashlib
 import json
 import os
 import secrets
+import select
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import threading
@@ -106,6 +109,7 @@ class Job:
         self.cancel = threading.Event()
         self.cancellable = True
         self.prompt = None
+        self.echo = False
 
     def start(self, name, fn):
         with self.lock:
@@ -133,6 +137,8 @@ class Job:
 
     def say(self, line):
         self.log.append(line)
+        if self.echo:
+            print(line, flush=True)
 
     def run(self, *cmd, cwd=ROOT):
         if self.cancel.is_set():
@@ -235,6 +241,64 @@ def do_flash_qmk(job):
     flash(job, QMK_BIN)
 
 
+def keyboard_nodes():
+    """[(label, /dev path, kind)] for the keyboard's hidraw and evdev nodes."""
+    nodes = []
+    for h in sorted(Path("/sys/class/hidraw").iterdir()):
+        dev = h.resolve() / "device"
+        if "0003:0000342D:0000E4F6" not in (dev / "uevent").read_text().upper():
+            continue
+        iface = (dev / "..").resolve().name  # e.g. 3-2.3:1.0
+        nodes.append((f"if{iface.rsplit('.', 1)[-1]} {h.name}", f"/dev/{h.name}", "hidraw"))
+        for ev in sorted((dev / "input").glob("input*/event*")):
+            name = (ev.parent / "name").read_text().strip()
+            nodes.append((f"if{iface.rsplit('.', 1)[-1]} {ev.name} ({name})", f"/dev/input/{ev.name}", "evdev"))
+    return nodes
+
+
+def do_capture(job):
+    """Logs what the kernel receives from the keyboard (hidraw) and makes of it (evdev)."""
+    nodes = keyboard_nodes()
+    if not nodes:
+        raise RuntimeError("the keyboard isn't connected")
+    for h in sorted(Path("/sys/class/hidraw").iterdir()):
+        if any(path == f"/dev/{h.name}" for _, path, _ in nodes):
+            rd = (h.resolve() / "device/report_descriptor").read_bytes()
+            job.say(f"{h.name} report descriptor ({len(rd)} B): {rd.hex(' ')}")
+    fds = {}
+    for label, path, kind in nodes:
+        try:
+            fds[os.open(path, os.O_RDONLY | os.O_NONBLOCK)] = (label, kind)
+            job.say(f"listening: {label}")
+        except OSError as e:
+            job.say(f"can't open {label}: {e}")
+    job.prompt = "Type a few letters, press Caps Lock twice, then turn the knob."
+    end = time.monotonic() + 30
+    t0 = time.monotonic()
+    try:
+        while time.monotonic() < end:
+            if job.cancel.is_set():
+                raise Cancelled
+            ready, _, _ = select.select(list(fds), [], [], 0.2)
+            for fd in ready:
+                label, kind = fds[fd]
+                data = os.read(fd, 4096)
+                ts = f"{time.monotonic() - t0:6.3f}"
+                if kind == "hidraw":
+                    job.say(f"{ts} {label}: {data.hex(' ')}")
+                    continue
+                for off in range(0, len(data) - 23, 24):
+                    _, _, typ, code, val = struct.unpack_from("qqHHi", data, off)
+                    if typ == 1:  # EV_KEY
+                        job.say(f"{ts} {label}: key {code} {('up', 'down', 'repeat')[val] if val < 3 else val}")
+                    elif typ == 17:  # EV_LED
+                        job.say(f"{ts} {label}: led {code} {val}")
+    finally:
+        for fd in fds:
+            os.close(fd)
+        job.prompt = None
+
+
 def do_reset(job):
     job.run(DFU, "-R")
 
@@ -243,6 +307,7 @@ ACTIONS = {
     "test": ("Run sim tests", do_test),
     "flash-rmk": ("Flash RMK", do_flash_rmk),
     "flash-qmk": ("Flash QMK", do_flash_qmk),
+    "capture": ("Capture 30 s", do_capture),
     "reset": ("Leave DFU", do_reset),
 }
 
@@ -295,6 +360,10 @@ PAGE = (Path(__file__).with_name("bench.html")).read_text()
 
 
 def main():
+    if sys.argv[1:2] == ["test"]:
+        JOB.echo = True
+        JOB._run(do_test)
+        sys.exit(0 if JOB.status == "ok" else 1)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://127.0.0.1:{PORT}/?t={TOKEN}"
     print(f"Workbench at {url}  (Ctrl+C to stop)", flush=True)

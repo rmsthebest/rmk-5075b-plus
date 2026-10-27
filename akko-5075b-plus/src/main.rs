@@ -61,7 +61,6 @@ async fn main(_spawner: Spawner) {
     let _led_power = Output::new(p.PA8, Level::Low);
     let _led_boost = Output::new(p.PA9, Level::High);
     let _aux_led = Output::new(p.PB9, Level::Low);
-    let _win_lock_led = Output::new(p.PB0, Level::High); // off (active low)
     let caps_led = Output::new(p.PC5, Level::High);
 
     let scan = scan::Scan::new(
@@ -73,6 +72,7 @@ async fn main(_spawner: Spawner) {
         ],
         p.PC15.into(),
         p.PC14.into(),
+        Output::new(p.PB0, Level::High), // Win-lock LED, off (active low)
     );
     let knob = knob::Knob::new(
         ExtiInput::new(p.PB7, Pull::Up, PRIO_EXTI),

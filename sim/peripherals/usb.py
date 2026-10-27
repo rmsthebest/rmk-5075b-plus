@@ -374,6 +374,7 @@ if request.IsInit:
     h.addr = 0
     h.cmds = []
     h.out_bytes = []                 # queued by 0xF0C, sent by command 0x09
+    h.trace = False                  # 0xF10: log every register access (USBT lines)
     h.cdc_text = []
     h.ifaces = []                    # [number, class, subclass, protocol, [(ep_addr, attrs, maxp, interval)]]
     h.task = None                    # running control-transfer generator
@@ -741,11 +742,20 @@ if not request.IsInit:
     elif off == 0xF0C:
         if request.IsWrite:
             h.out_bytes.append(int(request.Value) & 0xFF)
+    elif off == 0xF10:
+        if request.IsWrite:
+            h.trace = int(request.Value) != 0
+        else:
+            request.Value = int(h.trace)
     elif off < 0x400:
+        idx = d.index
         if request.IsRead:
             request.Value = reg_read(off)
         else:
             reg_write(off, int(request.Value) & 0xFF)
+        if h.trace:
+            self.InfoLog("USBT %s i%d +0x%02x %s 0x%02x" % ("R" if request.IsRead else "W", idx, off,
+                         "->" if request.IsRead else "<-", int(request.Value) & 0xFF))
             if request.Length > 1:
                 self.WarningLog("HOST ERROR: %d-byte write to USB+0x%03x (registers are 8 bits)" % (request.Length, off))
         if request.IsRead and request.Length > 1:

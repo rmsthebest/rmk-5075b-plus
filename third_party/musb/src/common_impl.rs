@@ -129,6 +129,11 @@ pub fn ep_tx_enable<T: MusbInstance>(index: u8, config: &EndpointConfig) {
     // TODO: DMA
 
     if index != 0 {
+        // WB32: INCSR2 = 0 first, as ChibiOS's usb_lld_init_endpoint (its
+        // AUTOSET/ISO/DMAEN/DIRSEL bits are not left to their prior state).
+        #[cfg(feature = "builtin-wb32fq95")]
+        T::regs().txcsrh().write_value(Default::default());
+
         // This logic is only compiled when we are NOT using fixed FIFOs.
         #[cfg(not(feature = "_fixed-fifo-size"))]
         {
@@ -175,6 +180,12 @@ pub fn ep_tx_enable<T: MusbInstance>(index: u8, config: &EndpointConfig) {
             .txcsrh()
             .write(|w| w.set_mode(EndpointDirection::Tx));
 
+        // WB32: flush twice unconditionally, as ChibiOS.
+        #[cfg(feature = "builtin-wb32fq95")]
+        for _ in 0..2 {
+            T::regs().txcsrl().write(|w| w.set_flush_fifo(true));
+        }
+        #[cfg(not(feature = "builtin-wb32fq95"))]
         if T::regs().txcsrl().read().fifo_not_empty() {
             T::regs().txcsrl().modify(|w| w.set_flush_fifo(true));
             T::regs().txcsrl().modify(|w| w.set_flush_fifo(true));
@@ -223,6 +234,10 @@ pub fn ep_rx_enable<T: MusbInstance>(index: u8, config: &EndpointConfig) {
         //     w.set_auto_clear(true);
         // });
 
+        // WB32: OUTCSR2 = 0 first, as ChibiOS's usb_lld_init_endpoint.
+        #[cfg(feature = "builtin-wb32fq95")]
+        T::regs().rxcsrh().write_value(Default::default());
+
         #[cfg(not(feature = "_fixed-fifo-size"))]
         {
             T::regs().rx_fifo_sz().write(|w| {
@@ -254,6 +269,12 @@ pub fn ep_rx_enable<T: MusbInstance>(index: u8, config: &EndpointConfig) {
         T::regs().rxcsrl().write(|w| {
             w.set_clr_data_tog(true);
         });
+
+        // WB32: flush twice, as ChibiOS.
+        #[cfg(feature = "builtin-wb32fq95")]
+        for _ in 0..2 {
+            T::regs().rxcsrl().write(|w| w.set_flush_fifo(true));
+        }
 
         #[cfg(feature = "_ep-shared-fifo")]
         T::regs()

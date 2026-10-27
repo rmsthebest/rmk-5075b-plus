@@ -106,6 +106,11 @@ impl<'d, T: MusbInstance> driver::EndpointIn for Endpoint<'d, T, In> {
         buf.into_iter()
             .for_each(|b| regs.fifo(index).write(|w| w.set_data(*b)));
 
+        // WB32: a plain write of InPktRdy, as ChibiOS's usb_lld_start_in. A
+        // read-modify-write would also write back what it read (FIFONE).
+        #[cfg(feature = "builtin-wb32fq95")]
+        regs.txcsrl().write(|w| w.set_tx_pkt_rdy(true));
+        #[cfg(not(feature = "builtin-wb32fq95"))]
         regs.txcsrl().modify(|w| w.set_tx_pkt_rdy(true));
         trace!("musb/ep: write ok");
         Ok(())
