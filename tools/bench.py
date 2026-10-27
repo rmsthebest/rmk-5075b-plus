@@ -271,6 +271,7 @@ def keyboard_nodes():
 DIAG_REQUEST = bytes([0x00, 0x08, 0xD1]) + bytes(30)  # report ID 0, then 32 bytes
 DIAG_EVERY_S = 0.1
 PANIC_CHANNEL = 0xD2
+STACK_CHANNEL = 0xD5
 
 
 def read_panic_message(fd):
@@ -293,6 +294,32 @@ def read_panic_message(fd):
             break
         msg, off = msg + part, off + len(part)
     return msg.decode(errors="replace")
+
+
+def read_stack_peak(fd):
+    """(deepest stack use since start-up, stack size) in bytes, or None if the
+    image doesn't answer (QMK, or older than channel 0xD5)."""
+    os.write(fd, bytes([0x00, 0x08, STACK_CHANNEL]) + bytes(30))
+    deadline = time.monotonic() + 0.5
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0 or not select.select([fd], [], [], left)[0]:
+            return None
+        data = os.read(fd, 64)
+        if data[:2] == bytes([0x08, STACK_CHANNEL]):
+            used, size = struct.unpack_from("<II", data, 2)
+            return (used, size) if size else None
+
+
+def say_stack(job, fd, when):
+    try:
+        peak = read_stack_peak(fd)
+    except OSError as e:
+        job.say(f"can't ask for the stack peak: {e}")
+        return
+    if peak:
+        used, size = peak
+        job.say(f"stack {when}: deepest {used} of {size} B ({size - used} B never used)")
 
 
 class Diag:
@@ -361,6 +388,7 @@ def do_capture(job):
             job.say(f"previous run panicked: {msg}")
         elif msg == "":
             job.say("no panic in the previous run")
+        say_stack(job, diag_fd, "at the start")
     job.prompt = ("Slowly, one key at a time: a, s, d. Caps Lock twice. Hold Win, tap e, release Win. "
                   "Hold Fn, tap F6, release Fn. Turn the knob. Watch the Win-lock LED.")
     end = time.monotonic() + 60
@@ -397,6 +425,8 @@ def do_capture(job):
                     elif typ == 17:  # EV_LED
                         job.say(f"{ts} {label}: led {code} {val}")
     finally:
+        if diag_fd is not None:
+            say_stack(job, diag_fd, "at the end")
         for fd in fds:
             os.close(fd)
         job.prompt = None

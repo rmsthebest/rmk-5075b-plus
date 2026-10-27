@@ -19,8 +19,9 @@
 //! answers on four channels besides Vial's lighting: 0xD1, the scan's
 //! diagnostics (src/scan.rs); 0xD2, the message of the panic that ended the
 //! previous run; 0xD3 with argument 0x50 ('P'), a deliberate panic, to
-//! test the crash policy; and 0xD4, the radio link's counters
-//! (src/radio.rs).
+//! test the crash policy; 0xD4, the radio link's counters
+//! (src/radio.rs); and 0xD5, the deepest the stack has been since start-up
+//! (`paint_stack`).
 //!
 //! Crash policy (boot-guard): a panic resets into this image; a second one
 //! before the image has run `STABLE_AFTER` goes to DFU.
@@ -80,6 +81,7 @@ const CHANNEL_SCAN: u8 = 0xD1;
 const CHANNEL_PANIC: u8 = 0xD2;
 const CHANNEL_CRASH: u8 = 0xD3;
 const CHANNEL_RADIO: u8 = 0xD4;
+const CHANNEL_STACK: u8 = 0xD5;
 const CRASH_CONFIRM: u8 = b'P';
 const VIA_GET_VALUE: u8 = 0x08;
 
@@ -147,8 +149,50 @@ fn custom_value(buf: &mut [u8]) {
         }
         CHANNEL_CRASH if buf[2] == CRASH_CONFIRM => panic!("requested over Vial"),
         CHANNEL_RADIO => radio::fill_diag(buf),
+        CHANNEL_STACK => {
+            let (used, size) = stack_peak();
+            buf[2..6].copy_from_slice(&used.to_le_bytes());
+            buf[6..10].copy_from_slice(&size.to_le_bytes());
+        }
         _ => {}
     }
+}
+
+/// What `paint_stack` fills the free stack with.
+const STACK_PAINT: u32 = 0xAAAA_AAAA;
+
+unsafe extern "C" {
+    /// The top of the stack (flip-link: the bottom of RAM up to here).
+    static _stack_start: u32;
+}
+
+/// Fills the stack below the current frame with `STACK_PAINT`, so
+/// `stack_peak` can find the deepest point it has reached since. Called
+/// first thing in main, before any interrupt is enabled.
+#[inline(never)]
+fn paint_stack() {
+    // Leave this function's own frame (and a margin) alone.
+    let below = cortex_m::register::msp::read() as usize - 64;
+    let mut p = 0x2000_0000 as *mut u32;
+    while (p as usize) < below {
+        // SAFETY: free stack, below every live frame; interrupts are off.
+        unsafe {
+            p.write_volatile(STACK_PAINT);
+            p = p.add(1);
+        }
+    }
+}
+
+/// (The most stack ever used since `paint_stack`, the stack's size), in
+/// bytes: the lowest word that isn't paint any more.
+fn stack_peak() -> (u32, u32) {
+    let top = &raw const _stack_start as u32;
+    let mut a = 0x2000_0000u32;
+    // SAFETY: reads of RAM below the stack's top.
+    while a < top && unsafe { (a as *const u32).read_volatile() } == STACK_PAINT {
+        a += 4;
+    }
+    (top - a, top - 0x2000_0000)
 }
 
 /// Polls `F` from a stack frame of its own. Main never returns, so its
@@ -183,6 +227,7 @@ fn keep_panic_message() {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
+    paint_stack();
     rcc::init();
     time_driver::init(PRIO_TIME);
     let p = Pins::take().unwrap();
