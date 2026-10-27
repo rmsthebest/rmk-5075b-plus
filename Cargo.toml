@@ -3,7 +3,9 @@ resolver = "3"
 members = ["boot-guard", "wb32-pac", "wb32-hal", "lighting", "wireless", "akko-5075b-plus"]
 
 [profile.release]
-# "z": the RMK image needs it to fit the 128K the linker script allows.
+# "z": smallest code and stack frames. Speed isn't the limit: the image
+# idles ~70% of the time in the sim, and opt-level 2 for the lighting
+# effects changed nothing measurable (2026-10-27).
 opt-level = "z"
 lto = true
 codegen-units = 1

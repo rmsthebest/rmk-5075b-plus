@@ -508,6 +508,9 @@ impl Lighting {
             if !self.board.engine.frame_due(now) {
                 break;
             }
+            // Between chunks: the scan and the rest get their turn, so a
+            // heavy effect's frame doesn't delay a key by its whole length.
+            embassy_futures::yield_now().await;
         }
         // EE_CLR's reset happens in a frame.
         self.sync().await;
