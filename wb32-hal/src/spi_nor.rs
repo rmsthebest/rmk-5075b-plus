@@ -5,9 +5,13 @@
 //! Waiting for a program or erase polls the status register with a 100 us
 //! (program) or 1 ms (erase) timer in between, so other tasks keep running.
 //!
-//! [`SpiNor::partition`] hands out a window of the chip with offsets from 0;
-//! nothing outside it can be read or written through that handle.
+//! [`SharedNor::partition`] hands out a window of the chip with offsets
+//! from 0; nothing outside it can be read or written through that handle.
+//! Partitions share the chip: each operation holds it, so one task's erase
+//! can't interleave with another's read.
 
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_storage::nor_flash::{ErrorType, NorFlashError, NorFlashErrorKind};
 use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
@@ -81,17 +85,6 @@ impl SpiNor {
             [_, _, code @ 16..=24] => Some(1 << code),
             _ => None,
         }
-    }
-
-    /// The window `start .. start + len` of the chip (both sector aligned).
-    /// `None` if the chip's size is unknown or the window doesn't fit in it,
-    /// so an unexpectedly small chip can't wrap a write around onto offset 0.
-    pub fn partition(self, start: u32, len: u32) -> Option<Partition> {
-        let end = start.checked_add(len)?;
-        if start % SECTOR_SIZE != 0 || len % SECTOR_SIZE != 0 || len == 0 || end > self.capacity()? {
-            return None;
-        }
-        Some(Partition { nor: self, start, len })
     }
 
     /// One command: chip select low, send `tx`, then read `rx.len()` bytes.
@@ -170,25 +163,47 @@ impl SpiNor {
     }
 }
 
-/// A window of the chip, offsets from 0. See [`SpiNor::partition`].
-pub struct Partition {
-    nor: SpiNor,
+/// The chip, for its partitions to share.
+pub struct SharedNor {
+    nor: Mutex<NoopRawMutex, SpiNor>,
+    jedec_id: [u8; 3],
+    capacity: Option<u32>,
+}
+
+impl SharedNor {
+    pub fn new(nor: SpiNor) -> Self {
+        SharedNor { jedec_id: nor.jedec_id(), capacity: nor.capacity(), nor: Mutex::new(nor) }
+    }
+
+    pub fn jedec_id(&self) -> [u8; 3] {
+        self.jedec_id
+    }
+
+    /// The window `start .. start + len` of the chip (both sector aligned).
+    /// `None` if the chip's size is unknown or the window doesn't fit in it,
+    /// so an unexpectedly small chip can't wrap a write around onto offset 0.
+    pub fn partition(&self, start: u32, len: u32) -> Option<Partition<'_>> {
+        let end = start.checked_add(len)?;
+        if start % SECTOR_SIZE != 0 || len % SECTOR_SIZE != 0 || len == 0 || end > self.capacity? {
+            return None;
+        }
+        Some(Partition { nor: &self.nor, start, len })
+    }
+}
+
+/// A window of the chip, offsets from 0. See [`SharedNor::partition`].
+pub struct Partition<'a> {
+    nor: &'a Mutex<NoopRawMutex, SpiNor>,
     start: u32,
     len: u32,
 }
 
-impl Partition {
-    pub fn jedec_id(&self) -> [u8; 3] {
-        self.nor.jedec_id()
-    }
-
+impl Partition<'_> {
     /// Where the window starts on the chip.
     pub fn start(&self) -> u32 {
         self.start
     }
-}
 
-impl Partition {
     /// `offset .. offset + len` inside the window, `offset` a multiple of `align`.
     fn check(&self, offset: u32, len: usize, align: u32) -> Result<(), Error> {
         let end = (offset as u64) + len as u64;
@@ -202,16 +217,16 @@ impl Partition {
     }
 }
 
-impl ErrorType for Partition {
+impl ErrorType for Partition<'_> {
     type Error = Error;
 }
 
-impl ReadNorFlash for Partition {
+impl ReadNorFlash for Partition<'_> {
     const READ_SIZE: usize = 1;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         self.check(offset, bytes.len(), 1)?;
-        self.nor.read_at(self.start + offset, bytes).await
+        self.nor.lock().await.read_at(self.start + offset, bytes).await
     }
 
     fn capacity(&self) -> usize {
@@ -219,7 +234,7 @@ impl ReadNorFlash for Partition {
     }
 }
 
-impl NorFlash for Partition {
+impl NorFlash for Partition<'_> {
     const WRITE_SIZE: usize = 1;
     const ERASE_SIZE: usize = SECTOR_SIZE as usize;
 
@@ -228,9 +243,10 @@ impl NorFlash for Partition {
             return Err(Error::NotAligned);
         }
         self.check(from, (to - from) as usize, SECTOR_SIZE)?;
+        let mut nor = self.nor.lock().await;
         let mut a = from;
         while a < to {
-            self.nor.erase_sector_at(self.start + a).await?;
+            nor.erase_sector_at(self.start + a).await?;
             a += SECTOR_SIZE;
         }
         Ok(())
@@ -238,6 +254,6 @@ impl NorFlash for Partition {
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         self.check(offset, bytes.len(), 1)?;
-        self.nor.program_at(self.start + offset, bytes).await
+        self.nor.lock().await.program_at(self.start + offset, bytes).await
     }
 }

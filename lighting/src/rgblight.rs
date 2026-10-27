@@ -93,6 +93,11 @@ pub struct Rgblight {
 }
 
 impl Rgblight {
+    /// `Rgblight::new`'s state on an all-zero Rgblight, in place.
+    pub(crate) fn init_zeroed(&mut self) {
+        self.mood = [0, RAINBOW_MOOD, 0, 0];
+    }
+
     pub const fn new() -> Self {
         Rgblight {
             config: Config {

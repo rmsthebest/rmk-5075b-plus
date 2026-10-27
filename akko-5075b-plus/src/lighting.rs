@@ -1,5 +1,7 @@
-//! RGB lighting (M5): QMK's rgb_matrix (the `lighting` crate) on the 106
-//! WS2812 LEDs (wb32_hal::ws2812, SPIM2 on B15).
+//! RGB lighting: the vendor's board lighting (the `lighting` crate's
+//! `Board`: QMK's rgb_matrix, the side lights, 5075b_plus.c's RGB keys and
+//! blinks, recorded colours) on the 106 WS2812 LEDs (wb32_hal::ws2812, SPIM2
+//! on B15).
 //!
 //! The task runs a frame every 16 ms (RGB_MATRIX_LED_FLUSH_LIMIT), all
 //! chunks of it back to back (QMK spreads them over main-loop passes a
@@ -8,95 +10,374 @@
 //! two positions the Win/Mac switch taps (keymap::SWITCH_*): on QMK the
 //! switch is a GPIO, not a key, and (5, 3) is under LED 105, a side light.
 //!
-//! Power: A8 enables the LEDs' supply, on while lighting is on with a
-//! brightness above 0 (5075b_plus.c's keyboard_post_init_kb); A9, the boost
-//! converter, stays on.
+//! Keys reach `Board::key` as ActionEvents. `action_hook`, which RMK's
+//! keyboard calls first (third_party/rmk: set_action_hook), keeps from the
+//! keyboard what the board takes: key presses while recording colours, and
+//! EE_CLR, whose release RMK only sees once its 3 s hold has reset the
+//! lighting (RMK then erases its storage and reboots; QMK reset in place).
+//! Unlike QMK, recording lets key releases through, so a key held when it
+//! starts doesn't stick.
 //!
-//! The RGB keys act as QMK's process_rgb_matrix (without Shift reversing
-//! them). Still to come: the board's own key behaviour and side lights
-//! (5075b_plus.c, rgb_record/), and saving the settings.
+//! Power: A8 enables the LEDs' supply, as the vendor's code sets it
+//! (`Vendor::power`); A9, the boost converter, stays on.
+//!
+//! Saving: what QMK keeps in its EEPROM (`lighting_crate::record`) goes to
+//! its own two sectors of the SPI flash, after RMK's window, written in
+//! turn: each save erases the older one, so a power cut mid-write leaves
+//! the other. A save waits until `SAVE_AFTER` without a key, and is
+//! skipped when nothing changed (the CRC). EE_CLR's reset erases both
+//! before RMK sees the release. A save holds up this task (a sector erase
+//! and three page programs, about 50 ms on a typical part); since RMK's
+//! action channel waits rather than drops, more than its 16 actions in that
+//! time would delay the keyboard, never lose keys.
+//!
+//! Vial's lighting tab speaks VialRGB (`lighting_crate::vialrgb`) through
+//! RMK's custom value hook (src/main.rs). Its reads answer from a copy of
+//! the effect kept here; its changes go to the task, which applies them at
+//! the next frame. As with a key, a change is saved after `SAVE_AFTER`
+//! (vial-qmk keeps it unsaved until Vial's save); Vial's save, saves now.
+//!
+//! Not yet: NK_TOGG (RMK has no NKRO toggle),
+//! the factory LED test (LCtrl held at power-up), and the wireless (M6) and
+//! battery (M7) indicators.
 
+use core::cell::Cell;
+use core::sync::atomic::{AtomicBool, Ordering};
+
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
-use lighting_crate::{Engine, NoHooks};
-use rmk::event::{ActionEvent, KeyboardEvent, KeyboardEventPos};
+use lighting_crate::board::{CHANNELS, KEYS};
+use lighting_crate::record::{self, Record};
+use lighting_crate::engine::MAX_BRIGHTNESS;
+use lighting_crate::vialrgb;
+use lighting_crate::{Board, Key};
+use rmk::event::{ActionEvent, ConnectionStatusChangeEvent, KeyboardEvent, KeyboardEventPos};
 use rmk::macros::processor;
 use rmk::processor::DeadlineProcessor;
-use rmk::types::action::{Action, LightAction};
+use rmk::types::action::{Action, KeyboardAction, LightAction};
+use rmk::types::connection::UsbState;
+use rmk::types::modifier::ModifierCombination;
+use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
 use wb32_hal::gpio::Output;
+use wb32_hal::spi_nor::{Partition, SECTOR_SIZE};
 use wb32_hal::ws2812::Ws2812;
 
 use crate::keymap::{SWITCH_MAC, SWITCH_WIN};
 
-#[processor(subscribe = [KeyboardEvent, ActionEvent])]
+/// The board is recording colours: key presses are its.
+static RECORDING: AtomicBool = AtomicBool::new(false);
+/// EE_CLR's hold has reset the lighting: its release may go to RMK.
+static EE_CLR_DONE: AtomicBool = AtomicBool::new(false);
+/// A Shift was held at the last action (QMK's RGB keys go backwards with
+/// it). Read as the action's event is handled, a moment later.
+static SHIFTED: AtomicBool = AtomicBool::new(false);
+
+/// The lighting's sectors on the SPI flash: two, after RMK's window
+/// (src/main.rs).
+pub const STORE_START: u32 = 0x2_0000;
+pub const STORE_LEN: u32 = 2 * SECTOR_SIZE;
+/// A save waits this long after the last key.
+const SAVE_AFTER: u32 = 3000;
+
+/// The saved lighting on the flash (see the top of this file).
+pub struct Store {
+    flash: Partition<'static>,
+    /// The record read at start-up, then each one written.
+    buf: &'static mut [u8; record::LEN],
+    /// The sector with the newest good record, its seq and CRC.
+    current: Option<u32>,
+    seq: u32,
+    crc: u32,
+    save_at: Option<u32>,
+}
+
+impl Store {
+    /// Finds the newest good record, leaving it in `buf` (see `record`).
+    pub async fn load(mut flash: Partition<'static>, buf: &'static mut [u8; record::LEN]) -> Self {
+        let mut seqs = [None; 2];
+        for (i, seq) in seqs.iter_mut().enumerate() {
+            if flash.read(i as u32 * SECTOR_SIZE, buf).await.is_ok() {
+                *seq = Record::check(buf).map(Record::seq);
+            }
+        }
+        let current = match seqs {
+            [Some(a), Some(b)] => Some(if b.wrapping_sub(a) as i32 > 0 { 1 } else { 0 }),
+            [Some(_), None] => Some(0),
+            [None, Some(_)] => Some(1),
+            [None, None] => None,
+        };
+        let mut s = Store { flash, buf, current, seq: 0, crc: 0, save_at: None };
+        if let Some(c) = current {
+            // The second read left sector 1 in `buf`.
+            if c == 0 && s.flash.read(0, s.buf).await.is_err() {
+                s.current = None;
+            }
+        }
+        match s.record() {
+            Some(r) => {
+                s.seq = r.seq();
+                s.crc = record::stored_crc(s.buf);
+            }
+            None => s.current = None,
+        }
+        s
+    }
+
+    /// The record found by `load`, if any (until the first save).
+    pub fn record(&self) -> Option<&Record> {
+        self.current.and(Record::check(&*self.buf))
+    }
+
+    fn touch(&mut self, now: u32) {
+        self.save_at = Some(now.wrapping_add(SAVE_AFTER));
+    }
+
+    fn due(&self, now: u32) -> bool {
+        self.save_at.is_some_and(|t| now.wrapping_sub(t) as i32 >= 0)
+    }
+
+    /// Writes `board`'s settings if they changed since the last save.
+    async fn save(&mut self, board: &Board) {
+        self.save_at = None;
+        record::encode(board, self.seq, self.buf);
+        if self.current.is_some() && record::stored_crc(self.buf) == self.crc {
+            return;
+        }
+        let seq = self.seq.wrapping_add(1);
+        record::encode(board, seq, self.buf);
+        let to = match self.current {
+            Some(0) => 1,
+            _ => 0,
+        };
+        let at = to * SECTOR_SIZE;
+        if self.flash.erase(at, at + SECTOR_SIZE).await.is_err() || self.flash.write(at, &self.buf[..]).await.is_err() {
+            return;
+        }
+        self.current = Some(to);
+        self.seq = seq;
+        self.crc = record::stored_crc(self.buf);
+    }
+
+    /// Erases both sectors: the next start-up finds the defaults.
+    async fn erase(&mut self) {
+        let _ = self.flash.erase(0, STORE_LEN).await;
+        self.current = None;
+        self.seq = 0;
+        self.save_at = None;
+    }
+}
+
+/// VialRGB's mode: id (little-endian), speed, h, s, v.
+type VialMode = [u8; 6];
+/// The effect as Vial sees it, kept by the task.
+static VIAL_MODE: Mutex<CriticalSectionRawMutex, Cell<VialMode>> = Mutex::new(Cell::new([0; 6]));
+/// A mode set from Vial, for the task.
+static VIAL_SET: Mutex<CriticalSectionRawMutex, Cell<Option<VialMode>>> = Mutex::new(Cell::new(None));
+static VIAL_SAVE: AtomicBool = AtomicBool::new(false);
+
+const VIA_SET_VALUE: u8 = 0x07;
+const VIA_GET_VALUE: u8 = 0x08;
+const VIA_SAVE: u8 = 0x09;
+
+/// VialRGB, from RMK's custom value hook: `buf` is the 32-byte reply,
+/// pre-filled with the request. False if it isn't a VialRGB command.
+pub fn vialrgb(buf: &mut [u8]) -> bool {
+    if buf.len() < 32 {
+        return false;
+    }
+    match (buf[0], buf[1]) {
+        (VIA_GET_VALUE, vialrgb::GET_INFO) => {
+            buf[2..4].copy_from_slice(&vialrgb::PROTOCOL_VERSION.to_le_bytes());
+            buf[4] = MAX_BRIGHTNESS;
+        }
+        (VIA_GET_VALUE, vialrgb::MODE) => buf[2..8].copy_from_slice(&VIAL_MODE.lock(Cell::get)),
+        (VIA_GET_VALUE, vialrgb::GET_SUPPORTED) => {
+            let gt = u16::from_le_bytes([buf[2], buf[3]]);
+            vialrgb::supported_after(gt, &mut buf[2..32]);
+        }
+        (VIA_SET_VALUE, vialrgb::MODE) => {
+            let mut m: VialMode = buf[2..8].try_into().unwrap();
+            m[5] = m[5].min(MAX_BRIGHTNESS);
+            VIAL_SET.lock(|c| c.set(Some(m)));
+            VIAL_MODE.lock(|c| c.set(m));
+        }
+        (VIA_SAVE, _) => VIAL_SAVE.store(true, Ordering::Relaxed),
+        _ => return false,
+    }
+    true
+}
+
+/// The keymap's vendor keycodes (keyboard.json "keycodes", User(n)).
+const USER_RP_P0: u8 = 5;
+const USER_RP_END: u8 = 8;
+const USER_RL_MOD: u8 = 9;
+const USER_KC_ENCW: u8 = 15;
+/// The Fn layers, whose MO keys recording lets through.
+const LAYER_FL: u8 = 1;
+const LAYER_MFL: u8 = 3;
+
+/// The board's key for an action.
+fn board_key(a: &Action) -> Key {
+    match *a {
+        Action::Light(l) => match l {
+            LightAction::RgbTog => Key::RgbTog,
+            LightAction::RgbModeForward => Key::RgbMod,
+            LightAction::RgbModeReverse => Key::RgbRmod,
+            LightAction::RgbHui => Key::RgbHui,
+            LightAction::RgbHud => Key::RgbHud,
+            LightAction::RgbSai => Key::RgbSai,
+            LightAction::RgbSad => Key::RgbSad,
+            LightAction::RgbVai => Key::RgbVai,
+            LightAction::RgbVad => Key::RgbVad,
+            LightAction::RgbSpi => Key::RgbSpi,
+            LightAction::RgbSpd => Key::RgbSpd,
+            _ => Key::Other,
+        },
+        Action::User(n @ USER_RP_P0..USER_RP_END) => Key::RpPlay(n - USER_RP_P0),
+        Action::User(USER_RP_END) => Key::RpEnd,
+        Action::User(USER_RL_MOD) => Key::RlMod,
+        Action::User(USER_KC_ENCW) => Key::Encw,
+        Action::KeyboardControl(KeyboardAction::ClearEeprom) => Key::EeClr,
+        Action::LayerOn(LAYER_FL | LAYER_MFL) => Key::Fn,
+        Action::LayerOn(_) => Key::Momentary,
+        _ => Key::Other,
+    }
+}
+
+/// RMK's action hook (see the top of this file): false keeps the action
+/// from the keyboard.
+pub fn action_hook(a: &Action, e: &KeyboardEvent, mods: ModifierCombination) -> bool {
+    SHIFTED.store(mods.left_shift() || mods.right_shift(), Ordering::Relaxed);
+    // The Win/Mac switch's taps: a GPIO on QMK, never the board's.
+    if matches!(a, Action::DefaultLayer(_)) {
+        return true;
+    }
+    let key = board_key(a);
+    if key == Key::EeClr {
+        return !e.pressed && EE_CLR_DONE.load(Ordering::Relaxed);
+    }
+    let exempt = matches!(key, Key::RpPlay(_) | Key::RpEnd | Key::RgbMod | Key::Fn);
+    !(RECORDING.load(Ordering::Relaxed) && e.pressed && !exempt)
+}
+
+#[processor(subscribe = [KeyboardEvent, ActionEvent, ConnectionStatusChangeEvent])]
 #[::rmk::macros::runnable_generated]
 pub struct Lighting {
-    engine: &'static mut Engine,
+    board: &'static mut Board,
+    store: Store,
     leds: Ws2812,
     power: Output,
 }
 
 impl Lighting {
-    /// `engine` from `Engine::new(Config::default())`, kept outside the
+    /// `board` from `Board::new_in` with `store.record()`, kept outside the
     /// main task (src/main.rs `ram2`).
-    pub fn new(engine: &'static mut Engine, leds: Ws2812, power: Output) -> Self {
-        let mut l = Lighting { engine, leds, power };
+    pub fn new(board: &'static mut Board, store: Store, leds: Ws2812, power: Output) -> Self {
+        let mut l = Lighting { board, store, leds, power };
         l.update_power();
         l
     }
 
+    /// The default recordings, for `Board::new_in`.
+    pub fn recordings() -> &'static [[u16; KEYS]; CHANNELS] {
+        &crate::keymap::RECORDINGS
+    }
+
     fn update_power(&mut self) {
-        let c = &self.engine.config;
-        if c.enable && c.hsv.v > 0 {
+        if self.board.vendor.power {
             self.power.set_high();
         } else {
             self.power.set_low();
         }
     }
 
+    /// A mode set from Vial, as vialrgb.c's set_mode with the _noeeprom
+    /// setters.
+    fn apply_vial(&mut self, now: u32) {
+        if let Some(m) = VIAL_SET.lock(|c| c.take()) {
+            let e = &mut self.board.engine;
+            let id = u16::from_le_bytes([m[0], m[1]]);
+            if id == vialrgb::OFF {
+                e.disable();
+            } else {
+                e.enable();
+                // An unknown id: QMK's mode 0, which rgb_matrix ignores.
+                if let Some(mode) = vialrgb::from_vial(id) {
+                    e.set_mode(mode);
+                }
+            }
+            e.set_speed(m[2]);
+            e.sethsv(m[3], m[4], m[5]);
+            self.store.touch(now);
+        }
+        if VIAL_SAVE.swap(false, Ordering::Relaxed) {
+            self.store.save_at = Some(now);
+        }
+    }
+
+    /// After anything that may have changed the board's state.
+    async fn sync(&mut self) {
+        let c = &self.board.engine.config;
+        let id = if c.enable { vialrgb::to_vial(c.mode) } else { vialrgb::OFF };
+        let [lo, hi] = id.to_le_bytes();
+        VIAL_MODE.lock(|m| m.set([lo, hi, c.speed, c.hsv.h, c.hsv.s, c.hsv.v]));
+        self.update_power();
+        RECORDING.store(self.board.recording(), Ordering::Relaxed);
+        if self.board.vendor.reset_requested {
+            self.board.vendor.reset_requested = false;
+            self.store.erase().await;
+            EE_CLR_DONE.store(true, Ordering::Relaxed);
+        }
+    }
+
     async fn on_keyboard_event(&mut self, e: KeyboardEvent) {
         if let KeyboardEventPos::Key(k) = e.pos {
             if (k.row, k.col) != SWITCH_WIN && (k.row, k.col) != SWITCH_MAC {
-                self.engine.key_event(k.row, k.col, e.pressed);
+                self.board.engine.key_event(k.row, k.col, e.pressed);
             }
         }
     }
 
     async fn on_action_event(&mut self, e: ActionEvent) {
-        let Action::Light(a) = e.action else { return };
-        // RGB_TRIGGER_ON_KEYDOWN.
-        if !e.keyboard_event.pressed {
+        if matches!(e.action, Action::DefaultLayer(_)) {
             return;
         }
-        let en = &mut self.engine;
-        match a {
-            LightAction::RgbTog => en.toggle(),
-            LightAction::RgbModeForward => en.step(),
-            LightAction::RgbModeReverse => en.step_reverse(),
-            LightAction::RgbHui => en.increase_hue(),
-            LightAction::RgbHud => en.decrease_hue(),
-            LightAction::RgbSai => en.increase_sat(),
-            LightAction::RgbSad => en.decrease_sat(),
-            LightAction::RgbVai => en.increase_val(),
-            LightAction::RgbVad => en.decrease_val(),
-            LightAction::RgbSpi => en.increase_speed(),
-            LightAction::RgbSpd => en.decrease_speed(),
-            _ => return,
+        // Encoder turns have no key; the board records nothing for them.
+        let (row, col) = match e.keyboard_event.pos {
+            KeyboardEventPos::Key(k) => (k.row, k.col),
+            _ => (u8::MAX, u8::MAX),
+        };
+        let key = board_key(&e.action);
+        let pressed = e.keyboard_event.pressed;
+        if key == Key::EeClr && pressed {
+            EE_CLR_DONE.store(false, Ordering::Relaxed);
         }
-        self.update_power();
+        let now = now_ms();
+        self.board.key(key, row, col, pressed, SHIFTED.load(Ordering::Relaxed), now);
+        self.store.touch(now);
+        self.sync().await;
+    }
+
+    async fn on_connection_status_change_event(&mut self, e: ConnectionStatusChangeEvent) {
+        self.board.vendor.usb_active = e.0.usb == UsbState::Configured;
     }
 
     /// Runs one whole frame: rgb_matrix_task() until the frame is sent (or
     /// found unchanged).
     async fn frame(&mut self) {
         let now = now_ms();
+        self.apply_vial(now);
         loop {
-            if self.engine.task(now, &mut NoHooks) {
-                self.leds.write(self.engine.leds.rgb.iter().map(|c| [c.r, c.g, c.b])).await;
+            if self.board.task_sparse(now) {
+                self.leds.write(self.board.engine.leds.rgb.iter().map(|c| [c.r, c.g, c.b])).await;
             }
-            if !self.engine.frame_due(now) {
+            if !self.board.engine.frame_due(now) {
                 break;
             }
         }
+        // EE_CLR's reset happens in a frame.
+        self.sync().await;
     }
 }
 
@@ -107,15 +388,24 @@ fn now_ms() -> u32 {
 impl DeadlineProcessor for Lighting {
     fn deadline(&self) -> Option<Instant> {
         let now = now_ms();
-        if self.engine.frame_due(now) {
+        let engine = &self.board.engine;
+        if engine.frame_due(now) || self.store.due(now) {
             return Some(Instant::now());
         }
-        let wait = self.engine.next_frame().wrapping_sub(now);
+        let mut wait = engine.next_frame().wrapping_sub(now);
+        if let Some(t) = self.store.save_at {
+            wait = wait.min(t.wrapping_sub(now));
+        }
         Some(Instant::now() + embassy_time::Duration::from_millis(wait as u64))
     }
 
     async fn on_deadline(&mut self) {
-        self.frame().await;
+        if self.store.due(now_ms()) {
+            self.store.save(self.board).await;
+        }
+        if self.board.engine.frame_due(now_ms()) {
+            self.frame().await;
+        }
     }
 }
 

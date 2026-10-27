@@ -53,9 +53,10 @@ KEYCODES = {
     "RGB_SAI": "light(LightAction::RgbSai)", "RGB_SAD": "light(LightAction::RgbSad)",
     # QK_BOOT: bootloader.rs turns its press into boot-guard's DFU request.
     "QK_BOOT": "kbctrl(KeyboardAction::Bootloader)",
-    # QMK's EE_CLR clears the settings after a 3 s hold (5075b_plus.c); RMK's
-    # ClearEeprom would act at once. No-op until that hold is ported.
-    "EE_CLR": "a!(No)",
+    # QMK's EE_CLR clears the settings after a 3 s hold (5075b_plus.c). Its
+    # press and release go to src/lighting.rs, which times the hold; RMK's
+    # ClearEeprom (erase and reboot) sees the release only once it's done.
+    "EE_CLR": "kbctrl(KeyboardAction::ClearEeprom)",
     # NKRO and the GUI lock aren't in RMK yet.
     "NK_TOGG": "a!(No)",
     "GU_TOGG": "a!(No)",
@@ -124,6 +125,16 @@ def main():
         KEYCODES["MO(%s)" % n] = "mo!(%d)" % i
 
     km = src[src.index("keymaps[]"):src.index("rgbrec_default_effects")]
+    rec = src[src.index("rgbrec_default_effects"):]
+    rec = rec[:rec.index("};")]
+    hs = dict(re.findall(r"#define\s+(HS_\w+)\s+(0x[0-9A-Fa-f]+)", open(os.path.join(QMK_DIR, "rgb_record/rgb_record.h")).read()))
+    hs["________"] = hs["HS_BLACK"]
+    recordings = {}
+    for m in re.finditer(r"\[(\d+)\]\s*=\s*LAYOUT_iso", rec):
+        keys = split_args(body(rec, m.end() - 1))
+        if len(keys) != len(order):
+            sys.exit("recording %s has %d keys, LAYOUT_iso has %d" % (m.group(1), len(keys), len(order)))
+        recordings[int(m.group(1))] = [int(hs[k], 16) for k in keys]
     layers = {}
     for m in re.finditer(r"\[(\w+)\]\s*=\s*LAYOUT_iso", km):
         keys = split_args(body(km, m.end() - 1))
@@ -198,6 +209,20 @@ def main():
     for li in range(len(layers)):
         cw, ccw = encoders.get(li, ("_______", "_______"))
         w("    [EncoderAction::new(%s, %s)]," % (rust(cw), rust(ccw)))
+    w("];")
+    w("")
+    w("/// The default recorded colours (rgbrec_default_effects), H << 8 | S per")
+    w("/// matrix position, row-major; 4 channels (RGBREC_CHANNEL_NUM).")
+    w("#[rustfmt::skip]")
+    w("pub static RECORDINGS: [[u16; ROW * COL]; 4] = [")
+    for ch in range(4):
+        grid = [0] * (rows * cols)
+        for (r, c), v in zip(order, recordings.get(ch, [0] * len(order))):
+            grid[r * cols + c] = v
+        w("    [")
+        for r in range(rows):
+            w("        " + ", ".join("0x%04X" % v for v in grid[r * cols:(r + 1) * cols]) + ",")
+        w("    ],")
     w("];")
     print("\n".join(out))
 

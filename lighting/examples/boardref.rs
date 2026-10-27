@@ -69,7 +69,7 @@ fn main() {
         let n = |i: usize| -> u32 { w[i].parse().unwrap() };
         match w.first().copied().unwrap_or("") {
             "boot" => {
-                let mut nb = Board::new(None, None, defaults, n(1) != 0 && n(2) == 0, now);
+                let mut nb = Board::new(None, defaults, n(1) != 0 && n(2) == 0, now);
                 nb.vendor.usb_active = usb;
                 power_check!(nb);
                 b = Some(nb);

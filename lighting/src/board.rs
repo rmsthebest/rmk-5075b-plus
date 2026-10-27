@@ -13,11 +13,14 @@
 //! the colour picked for each effect, confinfo), this holds it in RAM; the
 //! firmware saves it.
 
+use core::mem::MaybeUninit;
+
 use crate::color::{Hsv, Rgb, hsv_to_rgb};
 use crate::effects::effect;
 use crate::engine::{Config, Engine, Hooks, Leds, MAX_BRIGHTNESS, VAL_STEP};
 use crate::layout::{LED_COUNT, MATRIX_CO, MATRIX_COLS, MATRIX_ROWS, NO_LED};
 use crate::rgblight::{self, Rgblight};
+use crate::record::Record;
 
 /// Keys in the matrix: one recorded colour each.
 pub const KEYS: usize = MATRIX_ROWS * MATRIX_COLS;
@@ -27,7 +30,7 @@ pub const CHANNELS: usize = 4;
 /// own colour, an index into `HSVS`.
 pub const MODES: [u8; 16] = [13, 15, 16, 24, 25, 26, 29, 37, 33, 34, 35, 43, 2, 5, 6, 9];
 /// rgb_hsvs: the colours RGB_SAI / RGB_SAD step through.
-const HSVS: [(u8, u8); 5] = [(0, 255), (64, 255), (128, 255), (192, 255), (0, 0)];
+pub(crate) const HSVS: [(u8, u8); 5] = [(0, 255), (64, 255), (128, 255), (192, 255), (0, 0)];
 /// RGB_RECORD_HS_LISTS: the colours a key cycles through while recording,
 /// as H << 8 | S. 0x0000 is off and 0x0101 white.
 const RECORD_COLOURS: [u16; 8] = [
@@ -143,15 +146,6 @@ struct Blink {
     rgb: Rgb,
 }
 
-const NO_BLINK: Blink = Blink {
-    active: false,
-    timer: 0,
-    interval: 0,
-    times: 0,
-    index: 0,
-    rgb: Rgb::OFF,
-};
-
 /// For each LED, the first key (row-major) over it: find_matrix_row_col.
 const LED_KEY: [u8; LED_COUNT] = {
     let mut t = [0xFF; LED_COUNT];
@@ -171,7 +165,7 @@ pub struct Vendor {
     pub conf: ConfInfo,
     pub colours: [u8; MODES.len()],
     pub channels: [[u16; KEYS]; CHANNELS],
-    default_channels: &'static [[u16; KEYS]; CHANNELS],
+    default_channels: Option<&'static [[u16; KEYS]; CHANNELS]>,
     /// rgbrec_buffer: the channel being played or recorded.
     rec: [u16; KEYS],
     recording: bool,
@@ -212,48 +206,51 @@ impl Board {
     /// rgblight_init and keyboard_post_init_kb. `None`: nothing saved yet.
     /// `factory_test`: LCtrl held at power-up without Esc.
     pub fn new(
-        config: Option<Config>,
-        saved: Option<Saved>,
+        saved: Option<&Record>,
         default_channels: &'static [[u16; KEYS]; CHANNELS],
         factory_test: bool,
         now: u32,
     ) -> Self {
-        let mut b = Board {
-            engine: Engine::new(config.unwrap_or_default()),
-            vendor: Vendor {
-                rgblight: Rgblight::new(),
-                conf: ConfInfo::default(),
-                colours: [0; MODES.len()],
-                channels: *default_channels,
-                default_channels,
-                rec: [0; KEYS],
-                recording: false,
-                rec_channel: 0,
-                rec_value: 0,
-                no_record_fg: false,
-                side_index: 0,
-                blinks: [NO_BLINK; BLINKS],
-                ee_clr_timer: 0,
-                led_status: false,
-                power: false,
-                usb_active: true,
-                usb_blink_timer: 0,
-                usb_blink_state: false,
-                devs_timer: 0,
-                factory_test,
-                factory_timer: 0,
-                factory_step: 0,
-                reset_requested: false,
-                now,
-            },
+        let mut slot = MaybeUninit::uninit();
+        Self::new_in(&mut slot, saved, default_channels, factory_test, now);
+        // SAFETY: new_in initialised it.
+        unsafe { slot.assume_init() }
+    }
+
+    /// `Board::new`, built in `slot` rather than on the stack (it's 2 KB).
+    pub fn new_in<'a>(
+        slot: &'a mut MaybeUninit<Board>,
+        saved: Option<&Record>,
+        default_channels: &'static [[u16; KEYS]; CHANNELS],
+        factory_test: bool,
+        now: u32,
+    ) -> &'a mut Board {
+        // SAFETY: Board is plain data (integers, bools, fieldless enums,
+        // arrays of them, and an Option<&T>), for which all-zero bytes are
+        // valid; the fields that aren't zero are set below.
+        let b = unsafe {
+            slot.as_mut_ptr().write_bytes(0, 1);
+            slot.assume_init_mut()
         };
+        b.engine.init_zeroed(saved.map_or_else(Config::default, Record::config));
         let v = &mut b.vendor;
-        v.rgblight.init(saved.as_ref().map(|s| s.rgblight), now);
+        v.rgblight.init_zeroed();
+        v.conf = ConfInfo::default();
+        v.default_channels = Some(default_channels);
+        v.channels = *default_channels;
+        v.usb_active = true;
+        v.factory_test = factory_test;
+        v.now = now;
+        v.rgblight.init(saved.map(Record::rgblight), now);
         match saved {
             Some(s) => {
-                v.conf = s.conf;
-                v.colours = s.colours;
-                v.channels = s.channels;
+                v.conf = s.conf();
+                v.colours = s.colours();
+                for (c, channel) in v.channels.iter_mut().enumerate() {
+                    for (k, hs) in channel.iter_mut().enumerate() {
+                        *hs = s.channel(c, k);
+                    }
+                }
             }
             None => v.confinfo_default(),
         }
@@ -499,7 +496,9 @@ impl Vendor {
     fn confinfo_default(&mut self) {
         self.conf = ConfInfo::default();
         self.colours = [0; MODES.len()];
-        self.channels = *self.default_channels;
+        if let Some(d) = self.default_channels {
+            self.channels = *d;
+        }
         self.rgblight.mode(SIDE_MODES[0], self.now);
     }
 

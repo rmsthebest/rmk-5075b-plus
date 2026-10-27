@@ -15,9 +15,12 @@ mod effects;
 pub mod engine;
 pub mod layout;
 pub mod math;
+pub mod record;
 pub mod rgblight;
+pub mod vialrgb;
 
 pub use board::{Board, Key, Outcome, Saved};
+pub use record::Record;
 pub use color::{Hsv, Rgb, hsv_to_rgb};
 pub use effects::effect;
 pub use engine::{Config, Engine, Hooks, Leds, NoHooks};

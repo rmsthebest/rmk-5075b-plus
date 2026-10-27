@@ -101,18 +101,6 @@ pub struct HitTracker {
     pub tick: [u16; HITS],
 }
 
-impl HitTracker {
-    const fn new() -> Self {
-        HitTracker {
-            count: 0,
-            x: [0; HITS],
-            y: [0; HITS],
-            index: [0; HITS],
-            tick: [u16::MAX; HITS],
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum TaskState {
     Starting,
@@ -166,41 +154,25 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(config: Config) -> Self {
-        Engine {
-            config,
-            leds: Leds {
-                rgb: [Rgb::OFF; LED_COUNT],
-                dirty: false,
-            },
-            suspended: false,
-            timer: 0,
-            timer_buffer: 0,
-            now: 0,
-            hits: HitTracker::new(),
-            hit_buffer: HitTracker::new(),
-            state: TaskState::Syncing,
-            params: Params {
-                iter: 0,
-                flags: LED_FLAG_ALL,
-                init: false,
-            },
-            last_effect: u8::MAX,
-            last_enable: u8::MAX,
-            rand: Rand::default(),
-            crand: 1,
-            frame_buffer: [[0; MATRIX_COLS]; MATRIX_ROWS],
-            st: Statics {
-                pixel_rain_wait: 0,
-                pixel_flow_led: [Rgb::OFF; LED_COUNT],
-                pixel_flow_wait: 0,
-                fractal_led: [[false; effects::MID_COL]; MATRIX_ROWS],
-                fractal_wait: 0,
-                heatmap_decrease_timer: 0,
-                heatmap_decrease: false,
-                rain_drop: 0,
-                rain_decay: 0,
-            },
-        }
+        // SAFETY: every field is plain data (integers, bools, fieldless
+        // enums and arrays of them), for which all-zero bytes are valid.
+        let mut e: Engine = unsafe { core::mem::zeroed() };
+        e.init_zeroed(config);
+        e
+    }
+
+    /// `Engine::new`'s state, set in place on an all-zero Engine: the
+    /// firmware builds it in its static, not on the stack.
+    pub(crate) fn init_zeroed(&mut self, config: Config) {
+        self.config = config;
+        self.state = TaskState::Syncing;
+        self.params.flags = LED_FLAG_ALL;
+        self.last_effect = u8::MAX;
+        self.last_enable = u8::MAX;
+        self.rand = Rand::default();
+        self.crand = 1;
+        self.hits.tick = [u16::MAX; HITS];
+        self.hit_buffer.tick = [u16::MAX; HITS];
     }
 
     /// One rgb_matrix_task() at `now` ms. True when it flushed changed LEDs

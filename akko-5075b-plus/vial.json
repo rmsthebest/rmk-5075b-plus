@@ -2,7 +2,7 @@
  "name": "AKKO 5075B Plus",
  "vendorId": "0x342D",
  "productId": "0xE4F6",
- "lighting": "none",
+ "lighting": "vialrgb",
  "matrix": {
   "rows": 6,
   "cols": 15

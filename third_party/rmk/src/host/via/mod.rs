@@ -13,17 +13,19 @@ use crate::{MACRO_SPACE_SIZE, boot};
 
 pub(crate) mod keycode_convert;
 
-// akko-5075b-plus: lets the firmware answer VIA's id_custom_get_value
-// (0x08). The hook gets the whole 32-byte reply, pre-filled with the request.
-static CUSTOM_GET_VALUE: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+// akko-5075b-plus: lets the firmware answer VIA's id_custom_set_value
+// (0x07), id_custom_get_value (0x08) and id_custom_save (0x09). The hook
+// gets the whole 32-byte reply, pre-filled with the request (the command
+// in byte 0).
+static CUSTOM_VALUE: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
-/// Sets the handler for VIA's id_custom_get_value (0x08).
-pub fn set_custom_get_value_hook(f: fn(&mut [u8])) {
-    CUSTOM_GET_VALUE.store(f as usize, core::sync::atomic::Ordering::Relaxed);
+/// Sets the handler for VIA's id_custom_set_value, get_value and save.
+pub fn set_custom_value_hook(f: fn(&mut [u8])) {
+    CUSTOM_VALUE.store(f as usize, core::sync::atomic::Ordering::Relaxed);
 }
 
-fn custom_get_value_hook() -> Option<fn(&mut [u8])> {
-    match CUSTOM_GET_VALUE.load(core::sync::atomic::Ordering::Relaxed) {
+fn custom_value_hook() -> Option<fn(&mut [u8])> {
+    match CUSTOM_VALUE.load(core::sync::atomic::Ordering::Relaxed) {
         0 => None,
         // Only ever stored from a `fn(&mut [u8])` above.
         f => Some(unsafe { core::mem::transmute::<usize, fn(&mut [u8])>(f) }),
@@ -142,20 +144,12 @@ impl<'a> VialService<'a> {
             ViaCommand::DynamicKeymapReset => {
                 warn!("Dynamic keymap reset -- not supported")
             }
-            ViaCommand::CustomSetValue => {
-                // backlight/rgblight/rgb matrix/led matrix/audio settings here
-                warn!("Custom set value -- not supported")
-            }
-            ViaCommand::CustomGetValue => {
-                // akko-5075b-plus: answered by the firmware's hook, if set.
-                match custom_get_value_hook() {
+            // akko-5075b-plus: answered by the firmware's hook, if set.
+            ViaCommand::CustomSetValue | ViaCommand::CustomGetValue | ViaCommand::CustomSave => {
+                match custom_value_hook() {
                     Some(f) => f(&mut report.input_data),
-                    None => warn!("Custom get value -- not supported"),
+                    None => warn!("Custom value -- not supported"),
                 }
-            }
-            ViaCommand::CustomSave => {
-                // backlight/rgblight/rgb matrix/led matrix/audio settings here
-                warn!("Custom get value -- not supported")
             }
             ViaCommand::EepromReset => {
                 warn!("Resetting storage..");

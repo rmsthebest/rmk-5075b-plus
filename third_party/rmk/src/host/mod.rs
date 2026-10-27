@@ -18,7 +18,7 @@ pub(crate) mod transport;
 #[cfg(feature = "vial")]
 pub(crate) mod via;
 #[cfg(feature = "vial")]
-pub use via::set_custom_get_value_hook;
+pub use via::set_custom_value_hook;
 
 /// The active host-protocol service. Resolves to [`via::VialService`]
 /// under the `vial` feature and [`rynk::RynkService`] under `rynk` (the
