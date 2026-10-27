@@ -44,7 +44,7 @@ use rmk::keyboard::Keyboard;
 use rmk::processor::builtin::led_indicator::KeyboardIndicatorProcessor;
 use rmk::types::led_indicator::LedIndicatorType;
 use rmk::usb::UsbTransport;
-use rmk::{KeymapData, initialize_keymap_and_storage, run_all};
+use rmk::{KeymapData, initialize_keymap_and_storage};
 use core::future::Future;
 use core::mem::MaybeUninit;
 use core::pin::Pin;
@@ -55,7 +55,7 @@ use wb32_hal::gpio::{AnyPin, Input, Level, Output, Pins, Pull};
 use wb32_hal::qspi::Qspi;
 use wb32_hal::spi_nor::{SharedNor, SpiNor};
 use wb32_hal::uart::Uart3;
-use wb32_hal::ws2812::{self, Ws2812};
+use wb32_hal::ws2812::Ws2812;
 use wb32_hal::{rcc, time_driver, usb};
 
 use crate::keymap::{COL, ENCODER_MAP, KEYMAP, NUM_ENCODER, NUM_LAYER, ROW};
@@ -89,10 +89,10 @@ const VIA_GET_VALUE: u8 = 0x08;
 /// again rather than going to DFU.
 const STABLE_AFTER: Duration = Duration::from_secs(60);
 
-/// The LED chain's encoded frame, and the lighting state.
-const LED_FRAME_LEN: usize = ws2812::frame_len(lighting_crate::layout::LED_COUNT);
+/// The LED chain's colours as sent (the WS2812 driver's), and the lighting
+/// state.
 #[unsafe(link_section = ".ram2")]
-static mut LED_FRAME: MaybeUninit<[u8; LED_FRAME_LEN]> = MaybeUninit::uninit();
+static mut LED_FRAME: MaybeUninit<[[u8; 3]; lighting_crate::layout::LED_COUNT]> = MaybeUninit::uninit();
 #[unsafe(link_section = ".ram2")]
 static mut LIGHTING: MaybeUninit<lighting_crate::Board> = MaybeUninit::uninit();
 #[unsafe(link_section = ".ram2")]
@@ -110,12 +110,12 @@ unsafe fn ram2<T>(slot: *mut MaybeUninit<T>, value: T) -> &'static mut T {
     unsafe { (*slot).write(value) }
 }
 
-/// `ram2` for a byte array, zeroed in place rather than built on the stack
-/// and copied.
+/// `ram2` for a value that is all zero bytes, zeroed in place rather than
+/// built on the stack and copied.
 ///
 /// # Safety
-/// Once per slot.
-unsafe fn ram2_zeroed<const N: usize>(slot: *mut MaybeUninit<[u8; N]>) -> &'static mut [u8; N] {
+/// Once per slot, and all zero bytes must be a valid `T` (byte arrays).
+unsafe fn ram2_zeroed<T>(slot: *mut MaybeUninit<T>) -> &'static mut T {
     unsafe {
         (*slot).as_mut_ptr().write_bytes(0, 1);
         (*slot).assume_init_mut()
@@ -346,5 +346,23 @@ async fn main(_spawner: Spawner) {
         Timer::after(STABLE_AFTER).await;
         boot_guard::mark_stable();
     };
-    embassy_futures::join::join(run_all!(scan, knob, keyboard, storage, usb, caps, boot, lights, radio), stable).await;
+    // As run_all!, but each one polled from its own frame (`OwnFrame`):
+    // inlined, a join's poll frame is the sum of its children's, and it is
+    // under every poll for the whole run.
+    use rmk::core_traits::Runnable as _;
+    embassy_futures::join::join(
+        rmk::join_all!(
+            OwnFrame(scan.run()),
+            OwnFrame(knob.run()),
+            OwnFrame(keyboard.run()),
+            OwnFrame(storage.run()),
+            OwnFrame(usb.run()),
+            OwnFrame(caps.run()),
+            OwnFrame(boot.run()),
+            OwnFrame(lights.run()),
+            OwnFrame(radio.run()),
+        ),
+        stable,
+    )
+    .await;
 }

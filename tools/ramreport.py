@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ELF = ROOT / "target/thumbv7m-none-eabi/release/akko-rmk"
 RAM_START = 0x2000_0000
-RAM2 = (0x2000_7400, 0x2000_9000)
+RAM2 = (0x2000_7110, 0x2000_9000)
 TOP = 15
 
 

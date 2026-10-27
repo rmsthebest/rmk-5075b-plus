@@ -7,12 +7,12 @@ MEMORY
      (boot-guard), shared with QMK. Keep it out of .data/.bss/stack. The SRAM
      above it holds boot-guard's panic record (0x20007000). */
   RAM   : ORIGIN = 0x20000000, LENGTH = 28K - 8
-  /* The SRAM past boot-guard's records (panic record 0x20007000, crash
-     counter 0x20007100), to the end of the 36K: buffers that need no
-     start-up initialisation, in section .ram2 (src/main.rs `ram2`).
-     flip-link puts the stack at the bottom of RAM, so every byte of .bss is
-     a byte of stack; big buffers go here instead. */
-  RAM2  : ORIGIN = 0x20007400, LENGTH = 36K - 0x7400
+  /* The SRAM past boot-guard's records (panic record 0x20007000-0x20007083,
+     crash counter 0x20007100-0x2000710B), to the end of the 36K: buffers
+     that need no start-up initialisation, in section .ram2 (src/main.rs
+     `ram2`). flip-link puts the stack at the bottom of RAM, so every byte
+     of .bss is a byte of stack; big buffers go here instead. */
+  RAM2  : ORIGIN = 0x20007110, LENGTH = 36K - 0x7110
 }
 
 SECTIONS

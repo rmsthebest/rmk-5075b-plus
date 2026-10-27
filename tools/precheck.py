@@ -29,7 +29,7 @@ RAM = (0x2000_0000, 28 * 1024)
 MAGIC_ADDR = 0x2000_6FFC
 # memory.x's RAM2: the SRAM past boot-guard's panic record (0x2000_7000) and
 # crash counter (0x2000_7100), to the end of the chip's 36K. NOLOAD buffers only.
-RAM2 = (0x2000_7400, 0x2000_9000)
+RAM2 = (0x2000_7110, 0x2000_9000)
 GUARD_SYMBOLS = [
     "__pre_init",
     "__boot_guard_enter_rom",
