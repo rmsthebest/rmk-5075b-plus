@@ -120,11 +120,16 @@ Raw HID Send
     Host    ${{ 0x09 | (${VIAL_OUT_EP} << 8) }}
 
 Win Lock LED Should Be
-    [Documentation]    The scan's diagnostic: on (PB0 low) while any debounced key is down.
+    [Documentation]    PB0, active low.
     [Arguments]    ${state}
     ${v}=    Execute Command    sysbus ReadDoubleWord ${GPIOB_ODR}
     ${on}=    Evaluate    (${v.strip()} & ${WIN_LOCK_LED}) == 0
     Should Be Equal    ${on}    ${{ "${state}" == "on" }}
+
+PC Should Be In Flash
+    ${pc}=    Execute Command    cpu PC
+    ${pc}=    Convert To Integer    ${pc.strip()}
+    Should Be True    0x08000000 <= ${pc} < 0x08040000    PC ${pc} is not in flash
 
 PC Should Be In ROM
     ${pc}=    Execute Command    cpu PC
@@ -177,13 +182,12 @@ Enumerates As The QMK Keyboard With Vial
 
 A Key Press Sends A Keyboard Report
     Boot And Enumerate
-    Win Lock LED Should Be    off
     Key    3    1    1
     HID Should Show    1    00 00 04 00 00 00 00 00
-    Win Lock LED Should Be    on
+    # No longer the scan's diagnostic: off, as in QMK without Win lock.
+    Win Lock LED Should Be    off
     Key    3    1    0
     HID Should Show    1    00 00 00 00 00 00 00 00
-    Win Lock LED Should Be    off
 
 Endpoints Are Driven As ChibiOS Drives Them
     [Documentation]    QMK's ChibiOS driver, which works on the board, clears
@@ -363,6 +367,29 @@ The Last Run's Panic Message Is Readable Over Vial
         ${part}=    Evaluate    $msg.encode()[${off}:${off} + 28].hex(" ")
         HID Should Show    3    08 d2 ${{ "%02x" % ${off} }} ${{ "%02x" % ${n} }} ${part}
     END
+
+A Panic Resets Into The Keyboard, A Second One Enters DFU
+    [Documentation]    boot-guard's crash policy, through the deliberate panic
+    ...    on Vial channel 0xD3 (argument 'P'). The second panic comes well
+    ...    within STABLE_AFTER (60 s), so it goes to DFU.
+    Boot And Enumerate
+    # Without the confirmation byte, nothing happens.
+    Raw HID Send    0x08    0xD3    0x00
+    HID Should Show    3    08 d3 00 00
+    Raw HID Send    0x08    0xD3    0x50
+    Run For    0.01
+    PC Should Be In Flash
+    Wait For Log Entry    HOST: configured    timeout=4    pauseEmulation=true
+    Run For    0.05
+    Raw HID Send    0x08    0xD2    0
+    # "akko-5075b-plus/src/main.rs:" is the first 28 bytes.
+    Wait For Log Entry    HOST HID 3: 08 d2 00 [0-9a-f]{2} ${{ b"akko-5075b-plus/src/main.rs:".hex(" ") }}    timeout=1    treatAsRegex=true    pauseEmulation=true
+    Key    3    1    1
+    HID Should Show    1    00 00 04 00 00 00 00 00
+    Key    3    1    0
+    Raw HID Send    0x08    0xD3    0x50
+    Run For    0.01
+    PC Should Be In ROM
 
 The Stack Has Headroom
     [Documentation]    Stack high-water mark over first boot (default keymap

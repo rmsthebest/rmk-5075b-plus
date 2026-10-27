@@ -18,16 +18,13 @@
 //!
 //! Debounce: per key, a change counts once the pin has read the same for
 //! `DEBOUNCE_MS` passes in a row. Passes are one SysTick tick (1 ms) apart:
-//! each waits 0.5 ms, which the time base rounds up to its next tick (a
-//! 1 ms wait would land on the tick after, every 2 ms). Also after the
-//! executor was held up, as there's no catching up (as a Ticker would, with
-//! back-to-back passes). Same 5 ms as QMK's default DEBOUNCE, though QMK debounces the
+//! each waits for the millisecond after the one it started in, which the
+//! time base wakes at that tick, however long the pass took (a fixed 1 ms
+//! wait would land on the tick after, every 2 ms; on the board a 0.5 ms
+//! wait did too while a key was down, as the pass then takes longer). After
+//! the executor was held up, the next pass comes at once, with no catching
+//! up (as a Ticker would, with back-to-back passes). Same 5 ms as QMK's default DEBOUNCE, though QMK debounces the
 //! whole matrix at once (sym_defer_g) and this does it per key.
-//!
-//! Diagnostic, until typing is confirmed on the board: the Win-lock LED is
-//! on while any key is down after debouncing, i.e. while the scan has sent a
-//! press without its release. (A version lit by the raw reading showed the
-//! board's keys read fine.)
 //!
 //! Live diagnostics, for the bench while typing fails on the board: VIA's
 //! id_custom_get_value (0x08) on channel 0xD1 (src/main.rs) answers with the
@@ -45,7 +42,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Instant, Timer};
 use rmk::event::KeyboardEvent;
 use rmk::macros::input_device;
-use wb32_hal::gpio::{AnyPin, Input, Level, Mode, Output, Pull};
+use wb32_hal::gpio::{AnyPin, Input, Level, Mode, Pull};
 
 use crate::keymap::{COL, ROW, SWITCH_MAC, SWITCH_WIN};
 
@@ -147,8 +144,6 @@ pub struct Scan {
     rows: [Input; ROW],
     cols: [AnyPin; COL],
     mac: Input,
-    /// Win-lock LED (active low), on while any debounced key is down.
-    diag_led: Output,
     /// Debounced state, bit c of word r = key (r, c) down.
     state: [u16; ROW],
     /// Passes the raw reading has differed from `state`, per key.
@@ -160,7 +155,7 @@ pub struct Scan {
 }
 
 impl Scan {
-    pub fn new(rows: [AnyPin; ROW], cols: [AnyPin; COL], win: AnyPin, mac: AnyPin, diag_led: Output) -> Self {
+    pub fn new(rows: [AnyPin; ROW], cols: [AnyPin; COL], win: AnyPin, mac: AnyPin) -> Self {
         for c in &cols {
             c.set_level(Level::Low);
             c.set_mode(RELEASED);
@@ -172,7 +167,6 @@ impl Scan {
             rows: rows.map(|p| Input::new(p, Pull::Up)),
             cols,
             mac: Input::new(mac, Pull::Up),
-            diag_led,
             state: [0; ROW],
             count: [[0; COL]; ROW],
             mac_mode: None,
@@ -212,11 +206,6 @@ impl Scan {
                     self.count[r][c] = 0;
                     self.state[r] ^= 1 << c;
                     diag_event();
-                    if self.state.iter().any(|&w| w != 0) {
-                        self.diag_led.set_low();
-                    } else {
-                        self.diag_led.set_high();
-                    }
                     return Some(KeyboardEvent::key(r as u8, c as u8, self.state[r] & (1 << c) != 0));
                 }
             }
@@ -247,14 +236,15 @@ impl Scan {
                 self.tap_release = Some((r, c));
                 return KeyboardEvent::key(r, c, true);
             }
+            let start = Instant::now();
             let raw = self.read();
             diag_pass(&raw);
             if let Some(e) = self.next_change(&raw) {
                 return e;
             }
             self.count_up(&raw);
-            // To the next 1 ms tick (see the top of this file).
-            Timer::after_micros(500).await;
+            // The next 1 ms tick (see the top of this file).
+            Timer::at(Instant::from_millis(start.as_millis() + 1)).await;
         }
     }
 }

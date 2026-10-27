@@ -402,6 +402,54 @@ def do_capture(job):
         job.prompt = None
 
 
+def rmk_raw_hid():
+    """/dev path of akko-rmk's Vial raw HID node, or None."""
+    for h in sorted(Path("/sys/class/hidraw").iterdir()):
+        dev = h.resolve() / "device"
+        if "0003:0000342D:0000E4F6" not in (dev / "uevent").read_text().upper():
+            continue
+        if (dev / "report_descriptor").read_bytes().startswith(b"\x06\x60\xff"):
+            return f"/dev/{h.name}"
+    return None
+
+
+def do_crash(job):
+    """One deliberate panic (Vial channel 0xD3): RMK should reset into itself
+    and report it. A second within 60 s would go to DFU, so this sends one."""
+    path = rmk_raw_hid()
+    if not path:
+        raise RuntimeError("akko-rmk isn't connected")
+    fd = os.open(path, os.O_RDWR)
+    try:
+        os.write(fd, bytes([0x00, 0x08, 0xD3, ord("P")]) + bytes(29))
+    except OSError:
+        pass  # it may reset before the write returns
+    finally:
+        os.close(fd)
+    job.say("Panic requested. Waiting for the keyboard to come back...")
+    time.sleep(1.0)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if job.cancel.is_set():
+            raise Cancelled
+        if any(v == "342d" and p == "dfa0" for v, p, *_ in usb_devices()):
+            raise RuntimeError("the keyboard went to DFU instead of restarting (use Leave DFU)")
+        path = rmk_raw_hid()
+        if path:
+            time.sleep(0.5)
+            fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+            try:
+                msg = read_panic_message(fd)
+            finally:
+                os.close(fd)
+            if msg and "requested over Vial" in msg:
+                job.say(f"Back in RMK, which reports: {msg}")
+                return
+            raise RuntimeError(f"back in RMK, but the panic report was {msg!r}")
+        time.sleep(0.2)
+    raise RuntimeError("the keyboard didn't come back within 15 s")
+
+
 def do_reset(job):
     job.run(DFU, "-R")
 
@@ -411,6 +459,7 @@ ACTIONS = {
     "flash-rmk": ("Flash RMK", do_flash_rmk),
     "flash-qmk": ("Flash QMK", do_flash_qmk),
     "capture": ("Capture 60 s", do_capture),
+    "crash": ("Test crash recovery", do_crash),
     "reset": ("Leave DFU", do_reset),
 }
 

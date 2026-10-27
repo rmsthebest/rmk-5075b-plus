@@ -143,10 +143,21 @@ def main():
     print("Any 'cdc: port opened/closed' line not caused by this script means")
     print("another program is reading the port.")
 
-    step("A panic lands in DFU, and its message survives to the next boot")
+    step("A panic resets into the firmware, and its message survives")
     port.send("panic")
     port.close()
-    wait_for("DFU device after the panic", dfu_present, 10)
+    time.sleep(0.5)
+    path = wait_for("serial port after the panic", port_path, 10)
+    time.sleep(0.3)
+    port = Port(path)
+    lines = port.read_for(1.0)
+    if not any("previous run panicked: " in l and "requested over USB" in l for l in lines):
+        failures.append("no panic report line after the panic's reset")
+
+    step("A second panic lands in DFU, and its message survives the ROM bootloader")
+    port.send("panic")
+    port.close()
+    wait_for("DFU device after the second panic", dfu_present, 10)
     print("In DFU. Resetting back into m3-usb.")
     subprocess.run(["wb32-dfu-updater_cli", "-R"])
     path = wait_for("serial port after the reset", port_path, 10)

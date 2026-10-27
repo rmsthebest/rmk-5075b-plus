@@ -215,8 +215,18 @@ Esc Enters DFU While Configured
     Run For    0.002
     PC Should Be In ROM
 
-A Panic Enters DFU And Is Reported After The Next Boot
+A Panic Resets Into The Firmware, A Second One Enters DFU
+    [Documentation]    boot-guard's policy: the first panic resets into the
+    ...    firmware with its message kept; another before the firmware calls
+    ...    mark_stable (m3-usb never does) enters DFU.
     Boot And Enumerate
+    Send Line    panic
+    Run For    0.01
+    PC Should Be In Flash
+    Run For    0.3
+    Host State Should Be    2
+    Host    0x01
+    CDC Should Show    previous run panicked: akko-5075b-plus/src/bin/m3-usb.rs:\\d+:\\d+: requested over USB
     Send Line    panic
     Run For    0.01
     PC Should Be In ROM
@@ -226,12 +236,16 @@ A Panic Enters DFU And Is Reported After The Next Boot
     Host State Should Be    2
     Host    0x01
     CDC Should Show    previous run panicked: akko-5075b-plus/src/bin/m3-usb.rs:\\d+:\\d+: requested over USB
-    # Reported once only: the boot after that finds no record.
+    # Reported once only: the boot after that finds no record. And DFU
+    # cleared the count: the next panic resets into the firmware again.
     Execute Command    sysbus WriteDoubleWord ${AIRCR} ${SYSRESETREQ}
     Run For    0.3
     Host    0x01
     Run For    0.02
     CDC Should Show    \\[\\s+0\\] no panic record from the previous run
+    Send Line    panic
+    Run For    0.01
+    PC Should Be In Flash
 
 Without A Host It Returns To DFU After 30 s
     Boot

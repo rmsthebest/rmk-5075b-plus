@@ -15,7 +15,9 @@
 //!   crash lands in DFU instead of hanging.
 //! - [`request_bootloader`] for the firmware's own bootloader keycode.
 //! - With `panic-dfu`, a panic handler that keeps the panic message for the
-//!   next boot ([`take_panic_message`]) and then requests the bootloader.
+//!   next boot ([`take_panic_message`]) and resets into the firmware; a
+//!   second panic before the firmware called [`mark_stable`] requests the
+//!   bootloader instead, so a crash loop ends in DFU.
 //!
 //! Everything that runs at reset is plain assembly that touches only
 //! peripheral registers and the hardware-provided stack.
@@ -272,6 +274,34 @@ pub fn take_panic_message(buf: &mut [u8; PANIC_MSG_MAX]) -> Option<&str> {
     }
 }
 
+/// Panics since the firmware last called [`mark_stable`], kept across the
+/// reset after the panic record: magic, count, and the count's complement.
+const CRASH_COUNT_ADDR: u32 = 0x2000_7100;
+const CRASH_MAGIC: u32 = 0x4352_5348; // "CRSH"
+/// A panic with this many before it (since [`mark_stable`]) goes to DFU.
+pub const CRASHES_BEFORE_DFU: u32 = 1;
+
+fn crash_count_ptr() -> *mut [u32; 3] {
+    CRASH_COUNT_ADDR as *mut [u32; 3]
+}
+
+/// Panics since the last [`mark_stable`] (0 after a power-on: the words
+/// don't check out).
+pub fn crash_count() -> u32 {
+    let w = unsafe { crash_count_ptr().read_volatile() };
+    if w[0] == CRASH_MAGIC && w[2] == !w[1] { w[1] } else { 0 }
+}
+
+fn set_crash_count(n: u32) {
+    unsafe { crash_count_ptr().write_volatile([CRASH_MAGIC, n, !n]) };
+}
+
+/// The firmware has run long enough to count as working: the next panic
+/// resets into it again instead of going to DFU.
+pub fn mark_stable() {
+    set_crash_count(0);
+}
+
 #[cfg(feature = "panic-dfu")]
 struct RecordWriter {
     len: usize,
@@ -292,9 +322,10 @@ impl core::fmt::Write for RecordWriter {
     }
 }
 
-/// Any panic lands in DFU instead of hanging, leaving its message for
-/// [`take_panic_message`]. A fault while formatting it still ends in DFU,
-/// through HardFault.
+/// A panic leaves its message for [`take_panic_message`] and resets into the
+/// firmware, or, when it follows another panic since [`mark_stable`],
+/// enters DFU. A fault while formatting the message ends in DFU, through
+/// HardFault.
 #[cfg(feature = "panic-dfu")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
@@ -317,5 +348,17 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
         (&raw mut (*r).check).write_volatile(panic_check(w.len as u32, &msg[..w.len]));
         (&raw mut (*r).magic).write_volatile(PANIC_MAGIC);
     }
-    request_bootloader()
+    let crashes = crash_count();
+    if crashes >= CRASHES_BEFORE_DFU {
+        set_crash_count(0);
+        request_bootloader()
+    }
+    set_crash_count(crashes + 1);
+    // SYSRESETREQ: back into the firmware (boot-guard's checks run first).
+    unsafe {
+        core::arch::asm!("dsb", options(nomem, nostack, preserves_flags));
+        (0xE000_ED0C as *mut u32).write_volatile(0x05FA_0004);
+        core::arch::asm!("dsb", options(nomem, nostack, preserves_flags));
+    }
+    loop {}
 }

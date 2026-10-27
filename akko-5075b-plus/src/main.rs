@@ -14,8 +14,12 @@
 //! (boot-guard), or a panic (boot-guard keeps the message for the next boot).
 //!
 //! For the bench (tools/bench.py Capture), VIA's id_custom_get_value (0x08)
-//! answers on two channels: 0xD1, the scan's diagnostics (src/scan.rs), and
-//! 0xD2, the message of the panic that ended the previous run.
+//! answers on three channels: 0xD1, the scan's diagnostics (src/scan.rs);
+//! 0xD2, the message of the panic that ended the previous run; and 0xD3
+//! with argument 0x50 ('P'), a deliberate panic, to test the crash policy.
+//!
+//! Crash policy (boot-guard): a panic resets into this image; a second one
+//! before the image has run `STABLE_AFTER` goes to DFU.
 
 #![no_std]
 #![no_main]
@@ -37,6 +41,7 @@ use rmk::{KeymapData, initialize_keymap_and_storage, run_all};
 use core::cell::RefCell;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_time::{Duration, Timer};
 use wb32_hal::exti::ExtiInput;
 use wb32_hal::gpio::{AnyPin, Level, Output, Pins, Pull};
 use wb32_hal::qspi::Qspi;
@@ -60,6 +65,12 @@ const SPI_DIVISOR: u16 = 32;
 /// id_custom_get_value channels (see the top of this file).
 const CHANNEL_SCAN: u8 = 0xD1;
 const CHANNEL_PANIC: u8 = 0xD2;
+const CHANNEL_CRASH: u8 = 0xD3;
+const CRASH_CONFIRM: u8 = b'P';
+
+/// After this long without a panic, the next panic resets into this image
+/// again rather than going to DFU.
+const STABLE_AFTER: Duration = Duration::from_secs(60);
 
 /// The previous run's panic message, taken from boot-guard at start-up.
 static PANIC_MSG: Mutex<CriticalSectionRawMutex, RefCell<([u8; boot_guard::PANIC_MSG_MAX], usize)>> =
@@ -79,6 +90,7 @@ fn custom_get_value(buf: &mut [u8]) {
             buf[4..4 + n].copy_from_slice(&msg[off..off + n]);
             buf[4 + n..32].fill(0);
         }),
+        CHANNEL_CRASH if buf[2] == CRASH_CONFIRM => panic!("requested over Vial"),
         _ => {}
     }
 }
@@ -113,8 +125,8 @@ async fn main(_spawner: Spawner) {
         ],
         p.PC15.into(),
         p.PC14.into(),
-        Output::new(p.PB0, Level::High), // Win-lock LED, off (active low)
     );
+    let _win_lock_led = Output::new(p.PB0, Level::High); // off (active low)
     let knob = knob::Knob::new(
         ExtiInput::new(p.PB7, Pull::Up, PRIO_EXTI),
         ExtiInput::new(p.PB6, Pull::Up, PRIO_EXTI),
@@ -156,5 +168,9 @@ async fn main(_spawner: Spawner) {
     let mut caps = KeyboardIndicatorProcessor::new(caps_led, true, LedIndicatorType::CapsLock);
     let mut boot = bootloader::Bootloader::new();
 
-    run_all!(scan, knob, keyboard, storage, usb, caps, boot).await;
+    let stable = async {
+        Timer::after(STABLE_AFTER).await;
+        boot_guard::mark_stable();
+    };
+    embassy_futures::join::join(run_all!(scan, knob, keyboard, storage, usb, caps, boot), stable).await;
 }
