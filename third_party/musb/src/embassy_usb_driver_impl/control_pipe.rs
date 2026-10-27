@@ -1,5 +1,30 @@
 use super::*;
 
+/// Clears what an earlier control transfer left in CSR0, as ChibiOS's
+/// `usb_serve_ep0_handler` does on every EP0 interrupt: SentStall (set after
+/// `reject()`, cleared by writing 0) and SetupEnd (the host ended a transfer
+/// early, or a status stage completed without DataEnd). A stale SetupEnd
+/// would otherwise end the next `accept_set_address` before its status stage.
+fn clear_ep0_flags<T: MusbInstance>() {
+    let regs = T::regs();
+    regs.index().write(|w| w.set_index(0));
+    let csr0 = regs.csr0l().read();
+    if csr0.sent_stall() || csr0.setup_end() {
+        regs.csr0l().write(|w| w.set_serviced_setup_end(csr0.setup_end()));
+    }
+}
+
+/// Whether the transfer in progress has ended under us: a bus reset since
+/// `gen`, or the host started a new SETUP (SetupEnd).
+fn ep0_aborted<T: MusbInstance>(gen: u8) -> bool {
+    if RESET_GEN.load(Ordering::Acquire) != gen {
+        return true;
+    }
+    let regs = T::regs();
+    regs.index().write(|w| w.set_index(0));
+    regs.csr0l().read().setup_end()
+}
+
 /// USB control pipe.
 pub struct ControlPipe<'d, T: MusbInstance> {
     pub(super) _phantom: PhantomData<&'d mut T>,
@@ -19,7 +44,7 @@ impl<'d, T: MusbInstance> driver::ControlPipe for ControlPipe<'d, T> {
         loop {
             poll_fn(|cx| {
                 EP_RX_WAKERS[0].register(cx.waker());
-                regs.index().write(|w| w.set_index(0));
+                clear_ep0_flags::<T>();
                 if regs.csr0l().read().rx_pkt_rdy() {
                     Poll::Ready(())
                 } else {
@@ -59,19 +84,23 @@ impl<'d, T: MusbInstance> driver::ControlPipe for ControlPipe<'d, T> {
         );
 
         let regs = T::regs();
+        let gen = RESET_GEN.load(Ordering::Acquire);
 
-        let _ = poll_fn(|cx| {
+        poll_fn(|cx| {
             EP_RX_WAKERS[0].register(cx.waker());
-
+            // A new SETUP in the FIFO isn't this transfer's data.
+            if ep0_aborted::<T>(gen) {
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
             regs.index().write(|w| w.set_index(0));
             let ready = regs.csr0l().read().rx_pkt_rdy();
             if ready {
-                Poll::Ready(())
+                Poll::Ready(Ok(()))
             } else {
                 Poll::Pending
             }
         })
-        .await;
+        .await?;
 
         regs.index().write(|w| w.set_index(0));
         let read_count = regs.count0().read().count();
@@ -110,18 +139,26 @@ impl<'d, T: MusbInstance> driver::ControlPipe for ControlPipe<'d, T> {
         }
 
         let regs = T::regs();
+        let gen = RESET_GEN.load(Ordering::Acquire);
 
-        let _ = poll_fn(|cx| {
+        poll_fn(|cx| {
             EP_TX_WAKERS[0].register(cx.waker());
+            // As ChibiOS: no IN data once the host has moved on to a new
+            // SETUP (SetupEnd, or one already waiting in the FIFO).
+            if ep0_aborted::<T>(gen) {
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
             regs.index().write(|w| w.set_index(0));
-            let unready = regs.csr0l().read().tx_pkt_rdy();
-            if unready {
+            let csr0 = regs.csr0l().read();
+            if csr0.rx_pkt_rdy() {
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else if csr0.tx_pkt_rdy() {
                 Poll::Pending
             } else {
-                Poll::Ready(())
+                Poll::Ready(Ok(()))
             }
         })
-        .await;
+        .await?;
         regs.index().write(|w| w.set_index(0));
 
         data.into_iter()
@@ -165,21 +202,30 @@ impl<'d, T: MusbInstance> driver::ControlPipe for ControlPipe<'d, T> {
         // self.accept().await;
         // trace!("musb/control_pipe: setting addr: {}", addr);
         let regs = T::regs();
+        let gen = RESET_GEN.load(Ordering::Acquire);
 
         // We intentionally do not set the `DataEnd` so that the `SetupEnd` indicates the interrupt
         // after the Status Stage completes.
         // musb Programming Guide 21.1.1. ZERO DATA REQUESTS
-        let _ = poll_fn(|cx| {
+        // (`setup()` cleared any SetupEnd left from before this request.)
+        let acked = poll_fn(|cx| {
             EP_TX_WAKERS[0].register(cx.waker());
+            // A bus reset instead: the host starts over at address 0.
+            if RESET_GEN.load(Ordering::Acquire) != gen {
+                return Poll::Ready(false);
+            }
             regs.index().write(|w| w.set_index(0));
             let setup_end = regs.csr0l().read().setup_end();
             if setup_end {
-                regs.csr0l().modify(|w| w.set_serviced_setup_end(true));
-                Poll::Ready(())
+                regs.csr0l().write(|w| w.set_serviced_setup_end(true));
+                Poll::Ready(true)
             } else {
                 Poll::Pending
             }
         }).await;
+        if !acked {
+            return;
+        }
         trace!("musb/control_pipe: set address acked, setting addr now");
         regs.faddr().write(|w| w.set_func_addr(addr));
     }

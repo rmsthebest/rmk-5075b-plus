@@ -616,6 +616,24 @@ if request.IsInit:
             h.state = 2
         elif op == 0x06:
             for x in enumerate_device(): yield
+        elif op == 0x0A:
+            # CLEAR_FEATURE(ENDPOINT_HALT) with wIndex = arg, which may name
+            # an endpoint the device doesn't have (a host may send anything).
+            for x in control("CLEAR_FEATURE(ENDPOINT_HALT, 0x%02x)" % arg, 0x02, 0x01, 0, arg, 0): yield
+        elif op == 0x0B:
+            # A control read the host gives up on after its SETUP: the next
+            # SETUP comes before the data stage (the device sees SetupEnd).
+            setup = [0x80, 6, 0, 2, 0, 0, 0xFF, 0]
+            if tok_setup(h.addr, setup) != "ACK":
+                err("aborted GET_DESCRIPTOR: SETUP not ACKed"); return
+            log("GET_DESCRIPTOR(config) SETUP, then abandoned")
+            for x in wait_ms(2): yield
+            d.c0 |= C0_SETUPEND
+            d.intrin |= 1
+            for x in get_descriptor("device, after an aborted transfer", 1, 0, 18): yield
+            got = result["data"]
+            if not isinstance(got, list) or got[:2] != [18, 1]:
+                err("no device descriptor after an aborted transfer: %r" % (got,))
         elif op == 0x09:
             if not any(e[0] == arg for i in h.ifaces for e in i[4]):
                 err("no EP%d OUT" % arg); return

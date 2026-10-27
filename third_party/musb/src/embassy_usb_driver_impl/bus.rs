@@ -42,8 +42,11 @@ impl<'d, T: MusbInstance> driver::Bus for Bus<'d, T> {
                 regs.csr0l().modify(|w| w.set_serviced_rx_pkt_rdy(true));
                 for index in 1..ENDPOINTS.len() {
                     regs.index().write(|w| w.set_index(index as _));
-                    regs.txcsrl().modify(|w| w.set_flush_fifo(true));
-                    regs.txcsrl().modify(|w| w.set_flush_fifo(true));
+                    // Plain writes, as everywhere else on WB32 (and as
+                    // ChibiOS): a read-modify-write would write back
+                    // whatever the status bits read.
+                    regs.txcsrl().write(|w| w.set_flush_fifo(true));
+                    regs.txcsrl().write(|w| w.set_flush_fifo(true));
                 }
 
                 // A bus reset disables every endpoint but EP0 until the host
@@ -81,22 +84,28 @@ impl<'d, T: MusbInstance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        // This can race, so do a retry loop.
         let ep_index = ep_addr.index();
+        // The index comes from the host (SET/CLEAR_FEATURE(ENDPOINT_HALT)'s
+        // wIndex): one this chip doesn't have is ignored, not a panic.
+        if ep_index >= ENDPOINTS.len() {
+            return;
+        }
         match ep_addr.direction() {
             Direction::In => {
                 common_impl::ep_tx_stall::<T>(ep_index as _, stalled);
-                EP_TX_WAKERS[ep_addr.index()].wake();
+                EP_TX_WAKERS[ep_index].wake();
             }
             Direction::Out => {
                 common_impl::ep_rx_stall::<T>(ep_index as _, stalled);
-                EP_TX_WAKERS[ep_addr.index()].wake();
-                EP_RX_WAKERS[ep_addr.index()].wake();
+                EP_RX_WAKERS[ep_index].wake();
             }
         }
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
+        if ep_addr.index() >= ENDPOINTS.len() {
+            return false;
+        }
         match ep_addr.direction() {
             Direction::In => common_impl::ep_tx_is_stalled::<T>(ep_addr.index() as _),
             Direction::Out => common_impl::ep_rx_is_stalled::<T>(ep_addr.index() as _),

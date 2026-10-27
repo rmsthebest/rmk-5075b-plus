@@ -291,6 +291,29 @@ Vial's Bootloader Button Enters DFU
     Run For    0.05
     PC Should Be In ROM
 
+Odd Host Requests Don't Crash USB
+    [Documentation]    CLEAR_FEATURE(ENDPOINT_HALT) for endpoints the chip doesn't
+    ...    have (musb indexed its waker arrays with the host's number and
+    ...    panicked), and a control read abandoned after its SETUP (SetupEnd).
+    ...    USB keeps working without a reset: no panic was recorded.
+    Boot And Enumerate
+    Host    ${{ 0x0A | (0x85 << 8) }}
+    Wait For Log Entry    HOST: CLEAR_FEATURE(ENDPOINT_HALT, 0x85) -> ok    timeout=1    pauseEmulation=true
+    Host    ${{ 0x0A | (0x0F << 8) }}
+    Wait For Log Entry    HOST: CLEAR_FEATURE(ENDPOINT_HALT, 0x0f) -> ok    timeout=1    pauseEmulation=true
+    # The status stage completes before the request is handled, so "ok"
+    # doesn't rule out a panic after it.
+    Run For    0.05
+    ${magic}=    Execute Command    sysbus ReadDoubleWord 0x20007000
+    Should Not Be Equal As Integers    ${magic.strip()}    0x504E4943    a panic was recorded
+    Host    0x0B
+    Wait For Log Entry    HOST: GET_DESCRIPTOR(device, after an aborted transfer) -> 18 bytes    timeout=1    pauseEmulation=true
+    Host State Should Be    2
+    Tap    3    1
+    HID Should Show    1    00 00 04 00 00 00 00 00
+    ${magic}=    Execute Command    sysbus ReadDoubleWord 0x20007000
+    Should Not Be Equal As Integers    ${magic.strip()}    0x504E4943    a panic was recorded
+
 Esc At A Cold Start Enters DFU
     Boot
     Key    0    0    1
