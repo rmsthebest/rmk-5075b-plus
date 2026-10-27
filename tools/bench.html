@@ -58,7 +58,7 @@ pre { background: var(--log); border: 1px solid var(--line); border-radius: 10px
     <button data-act="flash-rmk" data-confirm>Flash RMK</button>
     <button data-act="flash-qmk" data-confirm>Flash QMK back</button>
     <button data-act="capture">Capture 60 s</button>
-    <button data-act="crash" data-confirm>Test crash recovery</button>
+    <button data-act="crash" data-confirm="Click again to crash RMK">Test crash recovery</button>
     <button data-act="reset">Leave DFU</button>
     <button id="cancel">Cancel</button>
   </div>
@@ -80,7 +80,7 @@ document.querySelectorAll("button[data-act]").forEach(b => {
   b.dataset.text = b.textContent;
   b.onclick = () => {
     if (b.hasAttribute("data-confirm") && armed !== b) {
-      disarm(); armed = b; b.classList.add("danger"); b.textContent = "Click again to flash";
+      disarm(); armed = b; b.classList.add("danger"); b.textContent = b.dataset.confirm || "Click again to flash";
       setTimeout(() => { if (armed === b) disarm(); }, 4000);
       return;
     }
