@@ -20,13 +20,14 @@ dwt: Miscellaneous.DWT @ sysbus 0xE0001000
 rom: Memory.MappedMemory @ sysbus 0x1FFFE000
     size: 0x2000
 
-// Booting from flash maps it at 0 as well, which is where the core fetches
-// the initial SP and reset vector.
+// 256K: the chip is a WB32FQ95xC, as the DFU tool reports. Booting from
+// flash maps it at 0 as well, which is where the core fetches the initial SP
+// and reset vector.
 flash: Memory.MappedMemory @ {
         sysbus 0x08000000;
         sysbus 0x00000000
     }
-    size: 0x20000
+    size: 0x40000
 
 // 36K on the die; QMK links 28K and keeps the bootloader magic at 0x2000_6FFC.
 sram: Memory.MappedMemory @ sysbus 0x20000000

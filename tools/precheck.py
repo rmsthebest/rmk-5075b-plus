@@ -22,7 +22,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-FLASH = (0x0800_0000, 128 * 1024)
+FLASH = (0x0800_0000, 256 * 1024)  # WB32FQ95xC
 RAM = (0x2000_0000, 28 * 1024)
 MAGIC_ADDR = 0x2000_6FFC
 GUARD_SYMBOLS = [

@@ -50,7 +50,7 @@ QMK Reaches The ChibiOS Scheduler
     Execute Command    emulation RunFor "0.5"
     ${pc}=    Execute Command    cpu PC
     ${pc}=    Convert To Integer    ${pc.strip()}
-    Should Be True    0x08000000 <= ${pc} < 0x08020000
+    Should Be True    0x08000000 <= ${pc} < 0x08040000
 
 QMK SPI Flash Bring-Up Matches Its Golden Trace
     # Without the hooks: QSPI setup (BAUDR 0x20 = PCLK1/32, SER, CR0 8-bit

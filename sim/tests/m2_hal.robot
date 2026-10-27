@@ -82,7 +82,7 @@ PC Should Be In ROM
 PC Should Be In Flash
     ${pc}=    Execute Command    cpu PC
     ${pc}=    Convert To Integer    ${pc.strip()}
-    Should Be True    0x08000000 <= ${pc} < 0x08020000    PC 0x${pc} is not in flash
+    Should Be True    0x08000000 <= ${pc} < 0x08040000    PC 0x${pc} is not in flash
 
 Caps LED Toggles Every 500 ms Then DFU
     # Toggles at t = 0, 0.5, ..., 9.5 s; DFU at 10 s. Each edge is checked
