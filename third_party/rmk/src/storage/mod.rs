@@ -400,7 +400,14 @@ pub struct Storage<
 macro_rules! update_storage_field {
     ($f: expr, $buf: expr, $key:ident, $field:ident) => {{
         let key = StorageKey::$key;
-        if let Ok(Some(StorageData::$key(mut saved))) = $f.fetch_item($buf, &key).await {
+        // akko-5075b-plus: bound first, so the fetched `StorageData` (a
+        // whole storage message) isn't kept in the future across
+        // `store_item`, once per use of this macro.
+        let saved = match $f.fetch_item($buf, &key).await {
+            Ok(Some(StorageData::$key(saved))) => Some(saved),
+            _ => None,
+        };
+        if let Some(mut saved) = saved {
             saved.$field = $field;
             $f.store_item($buf, &key, &StorageData::$key(saved)).await
         } else {
@@ -886,7 +893,12 @@ const fn get_buffer_size() -> usize {
         // The buffer size needed = size_of(StorageData) = MACRO_SPACE_SIZE + 8(generally)
         // According to doc of `sequential-storage`, for some flashes it should be aligned in 32 bytes
         // To make sure the buffer works, do this alignment always
-        let buffer_size = if crate::MACRO_SPACE_SIZE < 248 {
+        // akko-5075b-plus: 128, not 256, below 120-byte macros. The largest
+        // item is then the macro data (postcard: the bytes plus a tag);
+        // combos and morses (4 patterns at most) stay under 64.
+        let buffer_size = if crate::MACRO_SPACE_SIZE < 120 {
+            128
+        } else if crate::MACRO_SPACE_SIZE < 248 {
             256
         } else {
             crate::MACRO_SPACE_SIZE + 8

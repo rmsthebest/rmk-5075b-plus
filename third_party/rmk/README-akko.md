@@ -44,3 +44,14 @@ Fixes:
   `MapStorage::erase_all` keeps the old one, and page states cached from a
   previous layout sent writes to the wrong place (found in the sim, moving
   the board's 4-sector storage to 16 sectors: the next boot wiped it).
+
+RAM and stack (2026-10-27 headroom pass):
+
+- `src/storage/mod.rs`: `update_storage_field!` binds the fetched item
+  before storing, so its `StorageData` isn't held across `store_item` (it
+  was, once per use: ~0.6 KB of the main future here). The read/write
+  buffer is 128 bytes when macros are under 120 (was 256).
+- `src/keyboard/held_buffer.rs`: `sort_held_by_key`, an insertion sort, in
+  place of `sort_unstable_by_key` at every held-buffer sort (at most 16
+  keys; core's sort had a 1.6 KB stack frame and 8 KB of code).
+- `src/keyboard.rs`: the combo path is skipped when `COMBO_MAX_NUM` is 0.

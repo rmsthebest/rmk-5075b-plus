@@ -168,7 +168,7 @@ impl<'a> Keyboard<'a> {
                                 k.press_time = released_time;
                                 k.timeout_time = released_time + keep_alive;
                             }
-                            self.held_buffer.keys.sort_unstable_by_key(|k| k.timeout_time);
+                            crate::keyboard::held_buffer::sort_held_by_key(&mut self.held_buffer.keys, |k| k.timeout_time);
                             if !self.has_unresolved_morse_key() {
                                 self.fire_held_non_morse_keys().await;
                             }
@@ -258,7 +258,7 @@ impl<'a> Keyboard<'a> {
     }
 
     pub(crate) async fn fire_held_non_morse_keys(&mut self) {
-        self.held_buffer.keys.sort_unstable_by_key(|k| k.press_time);
+        crate::keyboard::held_buffer::sort_held_by_key(&mut self.held_buffer.keys, |k| k.press_time);
 
         // Trigger all non morse keys in the buffer
         while let Some(key) = self.held_buffer.remove_if(|k| !k.action.is_morse()) {
@@ -271,7 +271,7 @@ impl<'a> Keyboard<'a> {
             }
         }
 
-        self.held_buffer.keys.sort_unstable_by_key(|k| k.timeout_time);
+        crate::keyboard::held_buffer::sort_held_by_key(&mut self.held_buffer.keys, |k| k.timeout_time);
     }
 
     fn has_unresolved_morse_key(&self) -> bool {

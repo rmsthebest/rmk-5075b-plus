@@ -4,6 +4,20 @@ use rmk_types::morse::MorsePattern;
 
 use crate::event::{KeyboardEvent, KeyboardEventPos};
 
+/// Sorts held keys by `key`, in place (akko-5075b-plus). An insertion sort:
+/// the buffer holds at most 16 keys, and core's `sort_unstable_by_key` put
+/// a 1.6 KB stack frame (and 7 KB of code, once per call site) on the key
+/// path. Stable, which `sort_unstable_by_key` didn't promise either way.
+pub(crate) fn sort_held_by_key<K: Ord>(keys: &mut [HeldKey], key: impl Fn(&HeldKey) -> K) {
+    for i in 1..keys.len() {
+        let mut j = i;
+        while j > 0 && key(&keys[j - 1]) > key(&keys[j]) {
+            keys.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+}
+
 /// The buffer of held keys.
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -27,7 +41,7 @@ impl HeldBuffer {
         }
 
         // Sort the buffer after push
-        self.keys.sort_unstable_by_key(|k| k.timeout_time);
+        sort_held_by_key(&mut self.keys, |k| k.timeout_time);
     }
 
     /// Push a new held key into the buffer
@@ -68,7 +82,7 @@ impl HeldBuffer {
     pub fn remove(&mut self, pos: KeyboardEventPos) -> Option<HeldKey> {
         let k = self.remove_if(|k| k.event.pos == pos);
         // Re-sort the buffer after remove
-        self.keys.sort_unstable_by_key(|k| k.timeout_time);
+        sort_held_by_key(&mut self.keys, |k| k.timeout_time);
         k
     }
 

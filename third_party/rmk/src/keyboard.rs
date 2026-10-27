@@ -409,7 +409,9 @@ impl<'a> Keyboard<'a> {
         // Process key
         let key_action = &self.keymap.get_action_with_layer_cache(event);
 
-        if self.combo_on {
+        // akko-5075b-plus: `COMBO_MAX_NUM == 0` compiles the combo path out
+        // (its future state and stack frames are on every key's path).
+        if COMBO_MAX_NUM > 0 && self.combo_on {
             if let (Some(key_action), is_combo) = self.process_combo(key_action, event, event_time).await {
                 self.process_key_action(&key_action, event, is_combo, event_time).await
             }
@@ -730,7 +732,7 @@ impl<'a> Keyboard<'a> {
 
         if check_held_buffer {
             // First, sort by press time
-            self.held_buffer.keys.sort_unstable_by_key(|k| k.press_time);
+            crate::keyboard::held_buffer::sort_held_by_key(&mut self.held_buffer.keys, |k| k.press_time);
 
             // Check all unresolved held keys, calculate their decision one-by-one
             for held_key in self
