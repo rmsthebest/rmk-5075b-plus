@@ -48,7 +48,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 use embassy_time::{Duration, Timer};
 use wb32_hal::exti::ExtiInput;
-use wb32_hal::gpio::{AnyPin, Level, Output, Pins, Pull};
+use wb32_hal::gpio::{AnyPin, Input, Level, Output, Pins, Pull};
 use wb32_hal::qspi::Qspi;
 use wb32_hal::spi_nor::{SharedNor, SpiNor};
 use wb32_hal::ws2812::{self, Ws2812};
@@ -186,7 +186,9 @@ async fn main(_spawner: Spawner) {
     let _usb_power = Output::new(p.PB1, Level::Low);
     let led_power = Output::new(p.PA8, Level::Low);
     let _led_boost = Output::new(p.PA9, Level::High);
-    let _aux_led = Output::new(p.PB9, Level::Low);
+    let aux_led = Output::new(p.PB9, Level::Low);
+    // The cable sense, high with a cable in (HS_BAT_CABLE_PIN).
+    let cable = Input::new(p.PA7, Pull::None);
     let caps_led = Output::new(p.PC5, Level::High);
 
     let scan = scan::Scan::new(
@@ -199,7 +201,7 @@ async fn main(_spawner: Spawner) {
         p.PC15.into(),
         p.PC14.into(),
     );
-    let _win_lock_led = Output::new(p.PB0, Level::High); // off (active low)
+    let win_lock_led = Output::new(p.PB0, Level::High); // off (active low)
     let knob = knob::Knob::new(
         ExtiInput::new(p.PB7, Pull::Up, PRIO_EXTI),
         ExtiInput::new(p.PB6, Pull::Up, PRIO_EXTI),
@@ -269,8 +271,19 @@ async fn main(_spawner: Spawner) {
     };
     // Not configured until RMK says so.
     board.vendor.usb_active = false;
-    let mut lights = lighting::Lighting::new(board, store, Ws2812::new(p.PB15, frame, PRIO_LEDS), led_power);
+    lighting::set_flags(store.record().map_or(0, |r| r.flags()));
+    let mut lights = lighting::Lighting::new(
+        board,
+        store,
+        Ws2812::new(p.PB15, frame, PRIO_LEDS),
+        led_power,
+        win_lock_led,
+        aux_led,
+        cable,
+    );
     rmk::keyboard::set_action_hook(lighting::action_hook);
+    // Vial's "bootloader" button: DFU, as QK_BOOT (src/bootloader.rs).
+    rmk::boot::set_bootloader_hook(boot_guard::request_bootloader);
 
     let stable = async {
         Timer::after(STABLE_AFTER).await;

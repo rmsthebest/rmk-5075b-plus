@@ -189,17 +189,18 @@ impl Runnable for Keyboard<'_> {
 static ACTION_HOOK: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
 /// Sets a function that sees every action the keyboard is about to process,
-/// with its key event and the modifiers held; returning false keeps the
-/// action from the keyboard (it is still published as an ActionEvent).
-pub fn set_action_hook(f: fn(&Action, &KeyboardEvent, ModifierCombination) -> bool) {
+/// with its key event and the modifiers held. It may replace the action;
+/// returning false keeps it from the keyboard (it is still published as an
+/// ActionEvent).
+pub fn set_action_hook(f: fn(&mut Action, &KeyboardEvent, ModifierCombination) -> bool) {
     ACTION_HOOK.store(f as usize, core::sync::atomic::Ordering::Relaxed);
 }
 
-fn action_hook() -> Option<fn(&Action, &KeyboardEvent, ModifierCombination) -> bool> {
+fn action_hook() -> Option<fn(&mut Action, &KeyboardEvent, ModifierCombination) -> bool> {
     match ACTION_HOOK.load(core::sync::atomic::Ordering::Relaxed) {
         0 => None,
         // Only ever stored from such a fn above.
-        f => Some(unsafe { core::mem::transmute::<usize, fn(&Action, &KeyboardEvent, ModifierCombination) -> bool>(f) }),
+        f => Some(unsafe { core::mem::transmute::<usize, fn(&mut Action, &KeyboardEvent, ModifierCombination) -> bool>(f) }),
     }
 }
 
@@ -1253,11 +1254,11 @@ impl<'a> Keyboard<'a> {
         });
     }
 
-    async fn process_key_action_normal(&mut self, action: Action, event: KeyboardEvent) {
+    async fn process_key_action_normal(&mut self, mut action: Action, event: KeyboardEvent) {
         // akko-5075b-plus: the firmware's hook sees the action first, with
-        // the held modifiers, and may keep it from the keyboard. Its
-        // ActionEvent goes out either way.
-        let pass = action_hook().is_none_or(|f| f(&action, &event, self.held_modifiers));
+        // the held modifiers, and may replace it or keep it from the
+        // keyboard. Its ActionEvent goes out either way.
+        let pass = action_hook().is_none_or(|f| f(&mut action, &event, self.held_modifiers));
         publish_event_async(ActionEvent {
             action,
             keyboard_event: event,

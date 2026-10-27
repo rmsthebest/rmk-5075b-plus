@@ -27,6 +27,10 @@ ${RMK}              ${CURDIR}/../../target/thumbv7m-none-eabi/release/akko-rmk
 ${GOLDEN_SPIM2}     ${CURDIR}/../golden/qmk_spim2_init.txt
 ${GPIO_KEY}         0x40000FF0
 ${GPIOA_ODR}        0x40000014
+${GPIOB_ODR}        0x40000414
+${GPIO_DRIVE}       0x40000FF4
+${WIN_LOCK_LED}     0x1
+${AUX_LED}          0x200
 ${LED_POWER}        0x100
 ${FLASH_ADDR}       0xF0
 ${FLASH_WORD}       0xF4
@@ -89,6 +93,12 @@ Saved To Sector
     [Arguments]    ${n}
     Wait For Log Entry    flash: PP 0x02${n}200    timeout=4    pauseEmulation=true
     Should Not Be In Log    flash: (CE|BE|(SE|PP) 0x0[03-7])    timeout=0    treatAsRegex=true
+
+Pin B Should Be
+    [Arguments]    ${mask}    ${high}
+    ${v}=    Execute Command    sysbus ReadDoubleWord ${GPIOB_ODR}
+    ${is_high}=    Evaluate    bool(int($v.strip(), 0) & ${mask})
+    Should Be Equal    ${is_high}    ${high}
 
 Run For
     [Arguments]    ${seconds}
@@ -530,4 +540,81 @@ Vial's Lighting Tab Reads, Sets And Saves The Effect
     Reset And Boot
     Raw HID Send    0x08    0x41
     HID Should Show    3    08 41 02 00 80 55 ff 2a
+    No LED Errors
+
+
+GU_TOGG Turns Off The Windows Keys And Lights Win-Lock
+    [Documentation]    Fn+LWin (GU_TOGG) in Windows mode: the Win-lock LED
+    ...    (B0, active low) comes on and LWin types nothing. It's saved: after
+    ...    a reset it's still on; GU_TOGG again gives LWin back. Vial reads
+    ...    the key as QMK's GU_TOGG (0x700B).
+    Boot To Lighting
+    Raw HID Send    0x04    1    5    1
+    HID Should Show    3    04 01 05 01 70 0b
+    Pin B Should Be    ${WIN_LOCK_LED}    ${True}
+    Fn Tap    5 1
+    Pin B Should Be    ${WIN_LOCK_LED}    ${False}
+    Key    5    1    1
+    Run For    0.05
+    Key    5    1    0
+    Run For    0.05
+    Should Not Be In Log    HOST HID 1: 08    timeout=0
+    Saved To Sector    0
+    Reset And Boot
+    Pin B Should Be    ${WIN_LOCK_LED}    ${False}
+    Fn Tap    5 1
+    Pin B Should Be    ${WIN_LOCK_LED}    ${True}
+    Key    5    1    1
+    HID Should Show    1    08 00 00 00 00 00 00 00
+    Key    5    1    0
+    No LED Errors
+
+HS_CT_A Held 3 s Makes Right Ctrl Send App
+    [Documentation]    Right Ctrl is Right Ctrl until Fn+RCtrl (HS_CT_A) is
+    ...    held 3 s; a black blink confirms, and then it sends App (0x65).
+    Boot To Lighting
+    Key    5    11    1
+    HID Should Show    1    10 00 00 00 00 00 00 00
+    Key    5    11    0
+    Run For    0.05
+    Key    5    10    1
+    Run For    0.03
+    Key    5    11    1
+    Run For    2.9
+    ${colours}=    LED Colours
+    ${lit}=    Evaluate    sum(1 for c in $colours[1:84] if c)
+    Should Be True    ${lit} > 0    dark before the 3 s
+    ${black}=    Set Variable    ${False}
+    FOR    ${i}    IN RANGE    6
+        Run For    0.05
+        ${colours}=    LED Colours
+        ${lit}=    Evaluate    sum(1 for c in $colours[1:84] if c)
+        IF    ${lit} == 0
+            ${black}=    Set Variable    ${True}
+            BREAK
+        END
+    END
+    Should Be True    ${black}    no black blink after the 3 s hold
+    Key    5    11    0
+    Run For    0.03
+    Key    5    10    0
+    Run For    0.05
+    Key    5    11    1
+    HID Should Show    1    00 00 65 00 00 00 00 00
+    Key    5    11    0
+    No LED Errors
+
+The Aux LED Shows Lighting On Without A Cable
+    [Documentation]    B9 is high while the lighting is on and the cable
+    ...    sense (A7) is low; a cable (A7 high) or Fn+L turns it off.
+    Boot To Lighting
+    Pin B Should Be    ${AUX_LED}    ${True}
+    Execute Command    sysbus WriteDoubleWord ${GPIO_DRIVE} ${{ (1 << 16) | 7 }}
+    Run For    0.05
+    Pin B Should Be    ${AUX_LED}    ${False}
+    Execute Command    sysbus WriteDoubleWord ${GPIO_DRIVE} ${{ (2 << 16) | 7 }}
+    Run For    0.05
+    Pin B Should Be    ${AUX_LED}    ${True}
+    Fn Tap And Wait    ${RGB_TOG}
+    Pin B Should Be    ${AUX_LED}    ${False}
     No LED Errors

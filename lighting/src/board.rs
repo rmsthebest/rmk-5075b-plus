@@ -278,6 +278,14 @@ impl Board {
         self.vendor.recording
     }
 
+    /// The black 250 ms blink the vendor's keys confirm with
+    /// (rgb_matrix_hs_indicator_set(0xFF, black, 250, 1)), at `now` ms: for
+    /// HS_CT_A's 3 s hold, which the firmware times.
+    pub fn confirm_blink(&mut self, now: u32) {
+        self.vendor.now = now;
+        self.vendor.blink_dir();
+    }
+
     /// One key event through process_record_kb, at `now` ms; (row, col) is
     /// the key's position, `shifted` whether a Shift is held (QMK's RGB keys
     /// go backwards with it).

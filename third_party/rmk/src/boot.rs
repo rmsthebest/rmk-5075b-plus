@@ -1,4 +1,18 @@
+// akko-5075b-plus: the firmware's own way into its bootloader, if set.
+static BOOTLOADER_HOOK: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Sets how `jump_to_bootloader` (VIA's bootloader jump) gets there.
+pub fn set_bootloader_hook(f: fn() -> !) {
+    BOOTLOADER_HOOK.store(f as usize, core::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn jump_to_bootloader() {
+    match BOOTLOADER_HOOK.load(core::sync::atomic::Ordering::Relaxed) {
+        0 => {}
+        // Only ever stored from a `fn() -> !` above.
+        f => unsafe { core::mem::transmute::<usize, fn() -> !>(f)() },
+    }
+
     #[cfg(feature = "adafruit_bl")]
     // Reference: https://github.com/adafruit/Adafruit_nRF52_Bootloader/blob/d6b28e66053eea467166f44875e3c7ec741cb471/src/main.c#L107
     embassy_nrf::pac::POWER

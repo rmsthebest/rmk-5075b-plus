@@ -23,6 +23,18 @@ fn main() {
     fs::write(&dest_path, constants).expect("Failed to write constants.rs file");
 }
 fn compute_build_hash() -> u32 {
+    // akko-5075b-plus: a fixed hash from the environment, so a new image
+    // keeps the keymap saved in storage (see README-akko.md).
+    println!("cargo:rerun-if-env-changed=RMK_BUILD_HASH");
+    if let Ok(v) = env::var("RMK_BUILD_HASH") {
+        let v = v.trim();
+        let parsed = match v.strip_prefix("0x") {
+            Some(hex) => u32::from_str_radix(hex, 16),
+            None => v.parse(),
+        };
+        return parsed.expect("RMK_BUILD_HASH: a u32, decimal or 0x hex");
+    }
+
     // Get the short hash of the latest Git commit. Use "unknown" if it fails
     let commit_id = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])

@@ -37,9 +37,20 @@
 //! the next frame. As with a key, a change is saved after `SAVE_AFTER`
 //! (vial-qmk keeps it unsaved until Vial's save); Vial's save, saves now.
 //!
-//! Not yet: NK_TOGG (RMK has no NKRO toggle),
-//! the factory LED test (LCtrl held at power-up), and the wireless (M6) and
-//! battery (M7) indicators.
+//! Keyboard settings the vendor keeps beside the lighting, saved in the
+//! same record (`record::FLAG_*`):
+//! - GU_TOGG (QMK's magic keycode, User(0x8B) through third_party/rmk)
+//!   turns the GUI keys off in Windows mode, and the Win-lock LED (B0,
+//!   active low) on. As on QMK, Mac mode ignores it.
+//! - HS_CT_A held 3 s makes Right Ctrl send App, or back, with a black
+//!   blink; `action_hook` swaps the action.
+//!
+//! The aux LED (B9) is high while the lighting is on (RGB_TOG) and no
+//! cable is in (A7, the cable sense, low), as 5075b_plus.c sets it.
+//!
+//! Not yet: NK_TOGG (RMK has no NKRO toggle), the factory LED test (LCtrl
+//! held at power-up), the Win-lock LED's suspend rule, and the wireless (M6)
+//! and battery (M7) indicators.
 
 use core::cell::Cell;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -56,10 +67,11 @@ use rmk::event::{ActionEvent, ConnectionStatusChangeEvent, KeyboardEvent, Keyboa
 use rmk::macros::processor;
 use rmk::processor::DeadlineProcessor;
 use rmk::types::action::{Action, KeyboardAction, LightAction};
+use rmk::types::keycode::{HidKeyCode, KeyCode};
 use rmk::types::connection::UsbState;
 use rmk::types::modifier::ModifierCombination;
 use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
-use wb32_hal::gpio::Output;
+use wb32_hal::gpio::{Input, Output};
 use wb32_hal::spi_nor::{Partition, SECTOR_SIZE};
 use wb32_hal::ws2812::Ws2812;
 
@@ -72,6 +84,12 @@ static EE_CLR_DONE: AtomicBool = AtomicBool::new(false);
 /// A Shift was held at the last action (QMK's RGB keys go backwards with
 /// it). Read as the action's event is handled, a moment later.
 static SHIFTED: AtomicBool = AtomicBool::new(false);
+/// The Win/Mac switch is on Mac (its last DefaultLayer tap).
+static MAC: AtomicBool = AtomicBool::new(false);
+/// GU_TOGG's state (QMK's keymap_config.no_gui).
+static NO_GUI: AtomicBool = AtomicBool::new(false);
+/// HS_CT_A's state (the vendor's confinfo.ctrl_app_flag).
+static CTRL_APP: AtomicBool = AtomicBool::new(false);
 
 /// The lighting's sectors on the SPI flash: two, after RMK's window
 /// (src/main.rs).
@@ -140,12 +158,12 @@ impl Store {
     /// Writes `board`'s settings if they changed since the last save.
     async fn save(&mut self, board: &Board) {
         self.save_at = None;
-        record::encode(board, self.seq, self.buf);
+        record::encode(board, flags(), self.seq, self.buf);
         if self.current.is_some() && record::stored_crc(self.buf) == self.crc {
             return;
         }
         let seq = self.seq.wrapping_add(1);
-        record::encode(board, seq, self.buf);
+        record::encode(board, flags(), seq, self.buf);
         let to = match self.current {
             Some(0) => 1,
             _ => 0,
@@ -212,7 +230,14 @@ pub fn vialrgb(buf: &mut [u8]) -> bool {
 const USER_RP_P0: u8 = 5;
 const USER_RP_END: u8 = 8;
 const USER_RL_MOD: u8 = 9;
+const USER_HS_CT_A: u8 = 14;
 const USER_KC_ENCW: u8 = 15;
+/// GU_TOGG, QMK's magic keycode 0x700B.
+const USER_GU_TOGG: u8 = 0x80 | 0x0B;
+/// The Mac default layer (_MBL), which the switch selects.
+const LAYER_MBL: u8 = 2;
+/// HS_CT_A's hold.
+const CT_A_HOLD: u32 = 3000;
 /// The Fn layers, whose MO keys recording lets through.
 const LAYER_FL: u8 = 1;
 const LAYER_MFL: u8 = 3;
@@ -245,13 +270,51 @@ fn board_key(a: &Action) -> Key {
     }
 }
 
-/// RMK's action hook (see the top of this file): false keeps the action
-/// from the keyboard.
-pub fn action_hook(a: &Action, e: &KeyboardEvent, mods: ModifierCombination) -> bool {
+/// The saved keyboard flags (`record::FLAG_*`).
+fn flags() -> u8 {
+    let mut f = 0;
+    if NO_GUI.load(Ordering::Relaxed) {
+        f |= record::FLAG_NO_GUI;
+    }
+    if CTRL_APP.load(Ordering::Relaxed) {
+        f |= record::FLAG_CTRL_APP;
+    }
+    f
+}
+
+/// The saved keyboard flags at start-up, before `action_hook` is set.
+pub fn set_flags(f: u8) {
+    NO_GUI.store(f & record::FLAG_NO_GUI != 0, Ordering::Relaxed);
+    CTRL_APP.store(f & record::FLAG_CTRL_APP != 0, Ordering::Relaxed);
+}
+
+/// RMK's action hook (see the top of this file): it may swap the action;
+/// false keeps it from the keyboard.
+pub fn action_hook(a: &mut Action, e: &KeyboardEvent, mods: ModifierCombination) -> bool {
     SHIFTED.store(mods.left_shift() || mods.right_shift(), Ordering::Relaxed);
-    // The Win/Mac switch's taps: a GPIO on QMK, never the board's.
-    if matches!(a, Action::DefaultLayer(_)) {
-        return true;
+    match *a {
+        // The Win/Mac switch's taps: a GPIO on QMK, never the board's.
+        Action::DefaultLayer(layer) => {
+            MAC.store(layer == LAYER_MBL, Ordering::Relaxed);
+            return true;
+        }
+        Action::User(USER_GU_TOGG) => {
+            if e.pressed {
+                NO_GUI.fetch_xor(true, Ordering::Relaxed);
+            }
+            return true;
+        }
+        // keycode_config(): no GUI in Windows mode. Releases pass, so a GUI
+        // held across GU_TOGG doesn't stick.
+        Action::Key(KeyCode::Hid(HidKeyCode::LGui | HidKeyCode::RGui))
+            if e.pressed && NO_GUI.load(Ordering::Relaxed) && !MAC.load(Ordering::Relaxed) =>
+        {
+            return false;
+        }
+        Action::Key(KeyCode::Hid(HidKeyCode::RCtrl)) if CTRL_APP.load(Ordering::Relaxed) => {
+            *a = Action::Key(KeyCode::Hid(HidKeyCode::Application));
+        }
+        _ => {}
     }
     let key = board_key(a);
     if key == Key::EeClr {
@@ -268,13 +331,26 @@ pub struct Lighting {
     store: Store,
     leds: Ws2812,
     power: Output,
+    win_lock_led: Output,
+    aux_led: Output,
+    cable: Input,
+    /// When HS_CT_A went down, while it's held and hasn't fired.
+    ct_a_since: Option<u32>,
 }
 
 impl Lighting {
     /// `board` from `Board::new_in` with `store.record()`, kept outside the
     /// main task (src/main.rs `ram2`).
-    pub fn new(board: &'static mut Board, store: Store, leds: Ws2812, power: Output) -> Self {
-        let mut l = Lighting { board, store, leds, power };
+    pub fn new(
+        board: &'static mut Board,
+        store: Store,
+        leds: Ws2812,
+        power: Output,
+        win_lock_led: Output,
+        aux_led: Output,
+        cable: Input,
+    ) -> Self {
+        let mut l = Lighting { board, store, leds, power, win_lock_led, aux_led, cable, ct_a_since: None };
         l.update_power();
         l
     }
@@ -289,6 +365,26 @@ impl Lighting {
             self.power.set_high();
         } else {
             self.power.set_low();
+        }
+    }
+
+    /// The Win-lock and aux LEDs, as 5075b_plus.c's housekeeping sets them.
+    fn update_leds(&mut self) {
+        let locked = NO_GUI.load(Ordering::Relaxed) && !MAC.load(Ordering::Relaxed);
+        self.win_lock_led.set_level((!locked).into());
+        let aux = self.board.vendor.conf.rgb_enable && self.cable.is_low();
+        self.aux_led.set_level(aux.into());
+    }
+
+    /// HS_CT_A's hold, as the vendor's housekeeping times it.
+    fn ct_a(&mut self, now: u32) {
+        if let Some(t) = self.ct_a_since {
+            if now.wrapping_sub(t) > CT_A_HOLD {
+                self.ct_a_since = None;
+                CTRL_APP.fetch_xor(true, Ordering::Relaxed);
+                self.board.confirm_blink(now);
+                self.store.touch(now);
+            }
         }
     }
 
@@ -323,6 +419,7 @@ impl Lighting {
         let [lo, hi] = id.to_le_bytes();
         VIAL_MODE.lock(|m| m.set([lo, hi, c.speed, c.hsv.h, c.hsv.s, c.hsv.v]));
         self.update_power();
+        self.update_leds();
         RECORDING.store(self.board.recording(), Ordering::Relaxed);
         if self.board.vendor.reset_requested {
             self.board.vendor.reset_requested = false;
@@ -341,7 +438,11 @@ impl Lighting {
 
     async fn on_action_event(&mut self, e: ActionEvent) {
         if matches!(e.action, Action::DefaultLayer(_)) {
+            self.update_leds();
             return;
+        }
+        if e.action == Action::User(USER_HS_CT_A) {
+            self.ct_a_since = e.keyboard_event.pressed.then(now_ms);
         }
         // Encoder turns have no key; the board records nothing for them.
         let (row, col) = match e.keyboard_event.pos {
@@ -368,6 +469,7 @@ impl Lighting {
     async fn frame(&mut self) {
         let now = now_ms();
         self.apply_vial(now);
+        self.ct_a(now);
         loop {
             if self.board.task_sparse(now) {
                 self.leds.write(self.board.engine.leds.rgb.iter().map(|c| [c.r, c.g, c.b])).await;

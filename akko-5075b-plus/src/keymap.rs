@@ -47,7 +47,7 @@ pub const KEYMAP: [[[KeyAction; COL]; ROW]; NUM_LAYER] = [
         [a!(Transparent), a!(Transparent), user(11), user(0), user(1), user(2), user(3), user(4), k!(Insert), a!(Transparent), k!(PrintScreen), a!(Transparent), a!(Transparent), a!(Transparent), a!(Transparent)],
         [a!(Transparent), a!(Transparent), a!(Transparent), a!(Transparent), a!(Transparent), user(15), a!(Transparent), a!(Transparent), a!(Transparent), light(LightAction::RgbTog), a!(Transparent), a!(Transparent), a!(No), a!(Transparent), a!(Transparent)],
         [a!(Transparent), a!(Transparent), a!(Transparent), a!(Transparent), k!(Calculator), a!(Transparent), a!(No), a!(Transparent), k!(AudioMute), k!(AudioVolDown), k!(AudioVolUp), a!(Transparent), mo!(4), light(LightAction::RgbVai), a!(Transparent)],
-        [user(9), a!(No), a!(Transparent), df(0), df(2), a!(No), user(10), a!(No), a!(No), a!(Transparent), a!(Transparent), user(14), light(LightAction::RgbSai), light(LightAction::RgbVad), light(LightAction::RgbSad)],
+        [user(9), user(0x8B), a!(Transparent), df(0), df(2), a!(No), user(10), a!(No), a!(No), a!(Transparent), a!(Transparent), user(14), light(LightAction::RgbSai), light(LightAction::RgbVad), light(LightAction::RgbSad)],
     ],
     // 2: _MBL
     [

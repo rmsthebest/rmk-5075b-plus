@@ -283,6 +283,14 @@ Fn Right Shift Esc Enters DFU
     Run For    0.03
     PC Should Be In ROM
 
+Vial's Bootloader Button Enters DFU
+    [Documentation]    VIA's id_bootloader_jump (0x0B), through RMK's
+    ...    bootloader hook and boot-guard.
+    Boot And Enumerate
+    Raw HID Send    0x0B
+    Run For    0.05
+    PC Should Be In ROM
+
 Esc At A Cold Start Enters DFU
     Boot
     Key    0    0    1

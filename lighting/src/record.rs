@@ -1,6 +1,7 @@
-//! The saved lighting, as one record of bytes: what QMK keeps in its
+//! The saved settings, as one record of bytes: what QMK keeps in its
 //! EEPROM (rgb_matrix's config, rgblight's, the board's confinfo with its
-//! colour indexes, and the recorded channels).
+//! colour indexes, the recorded channels, and two keyboard flags: QMK's
+//! no_gui and the vendor's ctrl_app_flag).
 //!
 //! Layout, little-endian:
 //!     0  magic "AKL"      3  VERSION       4  seq u32
@@ -9,19 +10,29 @@
 //!    21  confinfo: record_channel record_last_mode rgb_enable
 //!    24  colours[16]
 //!    40  channels[4][90] u16
-//!   760  CRC-32 of bytes 0..760
-//! `seq` counts saves, so of two good records the newer wins.
+//!   760  flags (FLAG_*)
+//!   761  CRC-32 of bytes 0..761
+//! `seq` counts saves, so of two good records the newer wins. Version 1
+//! had no flags (its CRC at 760); it still loads, with the flags clear.
 
 use crate::board::{CHANNELS, ConfInfo, HSVS, KEYS, MODES};
 use crate::color::Hsv;
 use crate::engine::MAX_BRIGHTNESS;
 use crate::{Board, Config, effect, rgblight};
 
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 const MAGIC: [u8; 3] = *b"AKL";
 const CHANNELS_AT: usize = 40;
-const CRC_AT: usize = CHANNELS_AT + CHANNELS * KEYS * 2;
+const FLAGS_AT: usize = CHANNELS_AT + CHANNELS * KEYS * 2;
+const CRC_AT: usize = FLAGS_AT + 1;
 pub const LEN: usize = CRC_AT + 4;
+/// Version 1's CRC, where version 2 has the flags.
+const V1_CRC_AT: usize = FLAGS_AT;
+
+/// GU_TOGG: the GUI keys are off (in Windows mode).
+pub const FLAG_NO_GUI: u8 = 1 << 0;
+/// HS_CT_A: Right Ctrl sends App.
+pub const FLAG_CTRL_APP: u8 = 1 << 1;
 
 /// A record that passed its checks: magic, version, CRC and every field
 /// in range.
@@ -31,9 +42,13 @@ pub struct Record([u8; LEN]);
 impl Record {
     /// `bytes` if it's a good record.
     pub fn check(bytes: &[u8; LEN]) -> Option<&Record> {
+        let crc_ok = match bytes[3] {
+            1 => crc32(&bytes[..V1_CRC_AT]) == u32::from_le_bytes(bytes[V1_CRC_AT..][..4].try_into().unwrap()),
+            VERSION => crc32(&bytes[..CRC_AT]) == stored_crc(bytes),
+            _ => false,
+        };
         let ok = bytes[..3] == MAGIC
-            && bytes[3] == VERSION
-            && crc32(&bytes[..CRC_AT]) == stored_crc(bytes)
+            && crc_ok
             && (1..effect::COUNT).contains(&bytes[9])
             && bytes[12] <= MAX_BRIGHTNESS
             && (rgblight::MODE_STATIC..=rgblight::MODES).contains(&bytes[16])
@@ -77,6 +92,10 @@ impl Record {
         self.0[24..40].try_into().unwrap()
     }
 
+    pub fn flags(&self) -> u8 {
+        if self.0[3] == 1 { 0 } else { self.0[FLAGS_AT] }
+    }
+
     /// Recorded colour `key` of `channel`.
     pub fn channel(&self, channel: usize, key: usize) -> u16 {
         let at = CHANNELS_AT + (channel * KEYS + key) * 2;
@@ -84,8 +103,8 @@ impl Record {
     }
 }
 
-/// `board`'s saved state as record `seq`, into `out`.
-pub fn encode(board: &Board, seq: u32, out: &mut [u8; LEN]) {
+/// `board`'s saved state and `flags` as record `seq`, into `out`.
+pub fn encode(board: &Board, flags: u8, seq: u32, out: &mut [u8; LEN]) {
     let m = &board.engine.config;
     let v = &board.vendor;
     let l = &v.rgblight.config;
@@ -99,6 +118,7 @@ pub fn encode(board: &Board, seq: u32, out: &mut [u8; LEN]) {
     for (i, c) in v.channels.iter().flatten().enumerate() {
         out[CHANNELS_AT + i * 2..][..2].copy_from_slice(&c.to_le_bytes());
     }
+    out[FLAGS_AT] = flags;
     let crc = crc32(&out[..CRC_AT]);
     out[CRC_AT..].copy_from_slice(&crc.to_le_bytes());
 }
@@ -149,9 +169,10 @@ mod tests {
         b.key(Key::RlMod, 0, 0, true, false, 20);
         b.vendor.channels[2][7] = 0xABCD;
         let mut buf = [0; LEN];
-        encode(&b, 7, &mut buf);
+        encode(&b, FLAG_CTRL_APP, 7, &mut buf);
         let r = Record::check(&buf).unwrap();
         assert_eq!(r.seq(), 7);
+        assert_eq!(r.flags(), FLAG_CTRL_APP);
         let c = Board::new(Some(r), defaults, false, 0);
         assert_eq!(c.engine.config, b.engine.config);
         assert_eq!(c.vendor.rgblight.config, b.vendor.rgblight.config);
@@ -159,15 +180,32 @@ mod tests {
         assert_eq!(c.vendor.colours, b.vendor.colours);
         assert_eq!(c.vendor.channels, b.vendor.channels);
         let mut again = [0; LEN];
-        encode(&c, 7, &mut again);
+        encode(&c, r.flags(), 7, &mut again);
         assert_eq!(again, buf);
 
         b.key(Key::RgbVad, 0, 0, true, false, 30);
-        encode(&b, 7, &mut again);
+        encode(&b, FLAG_CTRL_APP, 7, &mut again);
         assert_ne!(stored_crc(&again), stored_crc(&buf));
 
         buf[100] ^= 1;
         assert!(Record::check(&buf).is_none());
+    }
+
+    #[test]
+    fn version_1_loads() {
+        static DEFAULTS: [[u16; KEYS]; CHANNELS] = [[0; KEYS]; CHANNELS];
+        let mut b = Board::new(None, &DEFAULTS, false, 0);
+        b.key(Key::RgbVad, 0, 0, true, false, 0);
+        let mut buf = [0xFF; LEN];
+        encode(&b, FLAG_NO_GUI, 3, &mut buf);
+        // As version 1 wrote it: no flags byte, the CRC in its place.
+        buf[3] = 1;
+        let crc = crc32(&buf[..V1_CRC_AT]);
+        buf[V1_CRC_AT..][..4].copy_from_slice(&crc.to_le_bytes());
+        buf[V1_CRC_AT + 4] = 0xFF;
+        let r = Record::check(&buf).unwrap();
+        assert_eq!(r.flags(), 0);
+        assert_eq!(Board::new(Some(r), &DEFAULTS, false, 0).engine.config, b.engine.config);
     }
 
     #[test]
@@ -176,8 +214,8 @@ mod tests {
         let defaults = &DEFAULTS;
         let b = Board::new(None, defaults, false, 0);
         let (mut x, mut y) = ([0; LEN], [0; LEN]);
-        encode(&b, u32::MAX, &mut x);
-        encode(&b, 0, &mut y);
+        encode(&b, 0, u32::MAX, &mut x);
+        encode(&b, 0, 0, &mut y);
         let (x, y) = (Record::check(&x), Record::check(&y));
         assert_eq!(newer(x, y).unwrap().seq(), 0);
         assert_eq!(newer(y, x).unwrap().seq(), 0);

@@ -57,9 +57,11 @@ KEYCODES = {
     # press and release go to src/lighting.rs, which times the hold; RMK's
     # ClearEeprom (erase and reboot) sees the release only once it's done.
     "EE_CLR": "kbctrl(KeyboardAction::ClearEeprom)",
-    # NKRO and the GUI lock aren't in RMK yet.
+    # NKRO isn't in RMK yet.
     "NK_TOGG": "a!(No)",
-    "GU_TOGG": "a!(No)",
+    # QMK's magic keycode 0x700B, as third_party/rmk passes magic keycodes
+    # (User(0x80 | n)); src/lighting.rs handles it.
+    "GU_TOGG": "user(0x8B)",
 }
 for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
     KEYCODES["KC_" + c] = "k!(%s)" % c
