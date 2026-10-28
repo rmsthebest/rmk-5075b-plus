@@ -399,6 +399,10 @@ impl Radio {
                 l.send_devctrl(devctrl::SLEEP_BT_EN);
                 l.send_devctrl(devctrl::SLEEP_2G4_EN);
             });
+            // The battery as soon as the link is free, not 3 s on: on USB
+            // power a plug-in starts us, and the host reads the battery
+            // (GET_REPORT) within about a second (src/lighting.rs).
+            self.battery_asked = now.wrapping_sub(BATTERY_POLL_MS + 1);
             let dev = Device::from_u8(DEVS.load(Ordering::Relaxed)).unwrap_or(Device::Usb);
             board_event(BoardEvent::Select(dev as u8));
             self.change(dev, false).await;

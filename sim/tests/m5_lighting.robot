@@ -757,9 +757,16 @@ On USB The Battery Is Reported To The Host
     ...    second after USB is configured, then on each change. A
     ...    GET_REPORT of it (Linux asks as soon as it sees the battery) gets
     ...    the level as soon as the module has told it; before, a stall.
-    Boot To Lighting
+    Create Log Tester    3
+    Execute Command    include @${SIM}/akko.resc
+    Execute Command    qspi WriteDoubleWord ${FLASH_ERASE} 1
+    Execute Command    sysbus LoadELF @${RMK}
+    Execute Command    machine Reset
+    Wait For Log Entry    HOST: configured    timeout=4    pauseEmulation=true
+    # As Linux, as soon as it sees the battery: answered already, the module
+    # asked right after its post-init (100 ms), not 3 s on.
     Execute Command    usb WriteDoubleWord ${HOST_CMD} ${{ 0x0C | (5 << 8) | (1 << 16) }}
-    Wait For Log Entry    HOST: GET_REPORT(input 5) -> STALL    timeout=1    pauseEmulation=true
+    Wait For Log Entry    HOST: GET_REPORT\\(input 5\\) -> 3 bytes: 05 64 0[01]    timeout=1    treatAsRegex=true    pauseEmulation=true
     Set Battery    57
     Wait For Log Entry    HOST HID 2: 05 39 0[01]    timeout=1    treatAsRegex=true    pauseEmulation=true
     Execute Command    usb WriteDoubleWord ${HOST_CMD} ${{ 0x0C | (5 << 8) | (1 << 16) }}
