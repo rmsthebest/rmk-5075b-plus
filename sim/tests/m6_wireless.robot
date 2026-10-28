@@ -539,6 +539,36 @@ A Flat Battery Sleeps It Until The Cable Goes In
     Should Be Asleep    ${False}
     Drive    0    7    2
 
+In Stop Mode A Flat Battery Stops It Until The Cable Goes In
+    [Documentation]    Lower sleep stopped: only the cable and the UART are
+    ...    armed. A key doesn't wake it; a frame from the module does, but
+    ...    it's read and the keyboard stops again (the host resuming doesn't
+    ...    end a flat battery's sleep); the cable going in ends it.
+    Boot
+    Stop Mode    0x53
+    Wait For Log Entry    HOST HID 3: 08 d9 53 01    timeout=1    pauseEmulation=true
+    Execute Command    uart3 WriteDoubleWord ${RADIO_FLAGS} 0
+    On The Dongle
+    Run For    62
+    Radio Should Get    ${SEL_USB}    timeout=5
+    Run For    1.5
+    Should Be Asleep    ${True}    lower=${True}
+    Should Be Stopped    ${True}
+    Key    ${KEY_A}    1
+    Run For    0.3
+    Should Be Stopped    ${True}
+    Key    ${KEY_A}    0
+    Module Sends    ${HOST_RESUME}
+    Run For    1.5
+    Should Be Asleep    ${True}    lower=${True}
+    Should Be Stopped    ${True}
+    Drive    0    7    1
+    Run For    0.5
+    Should Be Stopped    ${False}
+    Should Be Asleep    ${False}
+    Drive    0    7    2
+    Stop Counts Should Be    2    1
+
 Stop Mode Is Off Unless Turned On
     [Documentation]    M7c's stop mode is off at reset: asleep, the clocks run.
     Boot
