@@ -54,7 +54,7 @@ mod watchdog;
 
 use boot_guard as _;
 use embassy_executor::Spawner;
-use rmk::config::{BehaviorConfig, DeviceConfig, PositionalConfig, RMK_BUILD_INFO, RmkConfig, StorageConfig, VialConfig};
+use rmk::config::{BehaviorConfig, DeviceConfig, PositionalConfig, RmkConfig, StorageConfig, VialConfig};
 use rmk::host::HostService;
 use rmk::keyboard::Keyboard;
 use rmk::processor::builtin::led_indicator::KeyboardIndicatorProcessor;
@@ -109,6 +109,12 @@ const DEBOUNCE_EAGER: u8 = 1;
 const DEBOUNCE_DEFER: u8 = 2;
 const CRASH_CONFIRM: u8 = b'P';
 const VIA_GET_VALUE: u8 = 0x08;
+
+/// The USB serial: Vial's magic, so the Vial app finds it. Not RMK's
+/// `RMK_BUILD_INFO` ("vial:f64c2b3c;rmk:0.9.0"): the kernel names the
+/// battery after it, and upower can't export a name with a ';' (not allowed
+/// in a D-Bus object path), so the battery never showed.
+const SERIAL: &str = "vial:f64c2b3c-akko-rmk";
 
 /// After this long without a panic, the next panic resets into this image
 /// again rather than going to DFU.
@@ -368,7 +374,7 @@ async fn main(_spawner: Spawner) {
             pid: 0xE4F6,
             manufacturer: "AKKO",
             product_name: "AKKO 5075B Plus (RMK)",
-            serial_number: RMK_BUILD_INFO,
+            serial_number: SERIAL,
         },
         vial_config: VialConfig { insecure: true, ..VialConfig::new(&VIAL_KEYBOARD_ID, &VIAL_KEYBOARD_DEF, &[]) },
         // start_addr 0: the last num_sectors of the window, here all 16 of
