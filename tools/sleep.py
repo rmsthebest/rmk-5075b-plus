@@ -42,7 +42,9 @@ def rmk_raw_hid():
     """/dev path of akko-rmk's Vial raw HID node, or None (as tools/bench.py)."""
     for h in sorted(Path("/sys/class/hidraw").iterdir()):
         dev = h.resolve() / "device"
-        if "0003:0000342D:0000E4F6" not in (dev / "uevent").read_text().upper():
+        uevent = (dev / "uevent").read_text()
+        # The 2.4G dongle has the same ids (and a Vial node): only "(RMK)".
+        if "0003:0000342D:0000E4F6" not in uevent.upper() or "(RMK)" not in uevent:
             continue
         if (dev / "report_descriptor").read_bytes().startswith(b"\x06\x60\xff"):
             return f"/dev/{h.name}"
