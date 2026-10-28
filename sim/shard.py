@@ -3,15 +3,17 @@
 in parallel (it only parallelises across suite files). Renode resets the
 emulation before every test, so the tests don't depend on each other.
 
-    shard.py OUT_DIR [--match REGEX] SUITE...
+    shard.py OUT_DIR [--match REGEX] [--durations FILE] SUITE...
 
 Each shard is OUT_DIR/<suite>-NN.robot: the suite's other sections as they
 are (${CURDIR} pinned to the suite's own directory) plus one test case.
 --match keeps only tests whose name matches REGEX (case-insensitive).
-Prints the shard paths, longest-running suites' tests first.
+Prints the shard paths, longest-running tests first: by --durations
+(test name -> seconds, from earlier runs: sim/durations.py), else by suite.
 """
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -48,6 +50,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
     ap.add_argument("--match")
+    ap.add_argument("--durations")
     ap.add_argument("suites", nargs="+")
     args = ap.parse_args()
     out = Path(args.out)
@@ -65,10 +68,18 @@ def main():
                 continue
             shard = out / f"{suite.stem}-{i:02d}.robot"
             shard.write_text(f"{rest.rstrip()}\n\n*** Test Cases ***\n{body}")
-            shards.append(shard)
+            shards.append((name, shard))
     if not shards:
         sys.exit(f"no tests{' match ' + repr(args.match) if match else ''}")
-    print("\n".join(map(str, shards)))
+    try:
+        took = json.loads(Path(args.durations).read_text()) if args.durations else {}
+    except (OSError, ValueError):
+        took = {}
+    if took:
+        # A new test: assume it's slow, so it doesn't finish last.
+        unknown = max(took.values())
+        shards.sort(key=lambda s: -took.get(s[0], unknown))
+    print("\n".join(str(shard) for _, shard in shards))
 
 
 if __name__ == "__main__":

@@ -30,20 +30,23 @@ if [ $# -eq 0 ]; then
     set -- sim/tests/*.robot
 fi
 shards=$PWD/target/sim-shards
+# How long each test took last time (sim/durations.py), so shard.py starts
+# the longest first. In the main checkout's target/, shared by worktrees.
+durations=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)/target/sim-durations.json
 rm -rf "$shards"
 if [ -n "${SIM_CHANGED:-}" ]; then
     rev=$([ "$SIM_CHANGED" = 1 ] && echo HEAD || echo "$SIM_CHANGED")
     suites=()
     while IFS=$'\t' read -r suite match; do
         echo "sim: ${suite##*/} ${match:+(only: $match)}"
-        mapfile -t -O "${#suites[@]}" suites < <(python3 sim/shard.py "$shards" ${match:+--match "$match"} "$suite")
+        mapfile -t -O "${#suites[@]}" suites < <(python3 sim/shard.py "$shards" --durations "$durations" ${match:+--match "$match"} "$suite")
     done < <(python3 sim/affected.py "$rev")
     if [ ${#suites[@]} -eq 0 ]; then
         echo "sim: no suite affected"
         exit 0
     fi
 else
-    mapfile -t suites < <(python3 sim/shard.py "$shards" ${SIM_MATCH:+--match "$SIM_MATCH"} "$@")
+    mapfile -t suites < <(python3 sim/shard.py "$shards" --durations "$durations" ${SIM_MATCH:+--match "$SIM_MATCH"} "$@")
 fi
 cpus=$(nproc)
 jobs=${SIM_JOBS:-$(( cpus / 2 < 16 ? (cpus / 2 > 0 ? cpus / 2 : 1) : 16 ))}
@@ -52,5 +55,9 @@ jobs=${SIM_JOBS:-$(( cpus / 2 < 16 ? (cpus / 2 > 0 ? cpus / 2 : 1) : 16 ))}
 out=target/sim-results
 # logs/ and snapshots/ up front: renode-keywords.robot creates them per test
 # (check, then create), and two shards starting together can race.
+root=$PWD
 rm -rf "$out" && mkdir -p "$out/logs" "$out/snapshots" && cd "$out"
-PATH=$VENV/bin:$PATH "$RENODE/renode-test" -j "$jobs" "${suites[@]}"
+status=0
+PATH=$VENV/bin:$PATH "$RENODE/renode-test" -j "$jobs" "${suites[@]}" || status=$?
+python3 "$root/sim/durations.py" robot_output.xml "$durations" || true
+exit $status
