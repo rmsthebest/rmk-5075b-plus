@@ -16,11 +16,15 @@ replug.
                      stops its clocks; only on the battery (cable out).
                      Off at every reset, and not saved: turn it on, then
                      unplug the cable (the keyboard runs on).
+  stop diag          stop mode on, with the Caps and Win-lock LEDs showing
+                     how far the last stop got: Caps alone, it never
+                     woke; both, it woke but its clocks didn't come back;
+                     Win-lock alone, it got out of the stop
   stop               print whether it's on, and how many stops so far
                      (and how many a key, the knob or the cable ended)
 
 Usage: python3 -I tools/sleep.py [never|1|3|5|10|20|30|default]
-       python3 -I tools/sleep.py stop [on|off]
+       python3 -I tools/sleep.py stop [on|off|diag]
 """
 
 import os
@@ -31,7 +35,7 @@ from pathlib import Path
 
 CHANNEL = 0xD7
 STOP_CHANNEL = 0xD9
-STOP_ARG = {None: 0, "off": 1, "on": ord("S")}
+STOP_ARG = {None: 0, "off": 1, "on": ord("S"), "diag": ord("D")}
 # The firmware's index for each setting (lighting/src/record.rs SLEEP_*).
 INDEX = {"never": 0, "1": 1, "3": 2, "5": 3, "10": 4, "20": 5, "30": 6, "default": 7}
 NAMES = {0: "never", 1: "1 min", 2: "3 min", 3: "5 min", 4: "10 min", 5: "20 min", 6: "30 min",

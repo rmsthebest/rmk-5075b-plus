@@ -12,13 +12,19 @@
 //!
 //! In lower sleep (the flat battery) only the cable and the UART wake it.
 //!
+//! With `diag`, the Caps and Win-lock LEDs (both active low) show how far
+//! the last stop got, for a stop that never comes back: Caps alone, it
+//! never woke; both, it woke but the clocks didn't come back; Win-lock
+//! alone, it got out of the stop (until the firmware sets them again).
+//!
 //! The EXTI setup is put back as it was after; a knob edge that woke it is
 //! left pending for the knob's `ExtiInput` (line 6, if armed). The turn
 //! that wakes it is mostly lost all the same (B7's edge isn't seen while
 //! line 7 is A7's); the next one is read.
 
 use wb32_hal::gpio::{AnyPin, Mode, Port, Pull};
-use wb32_pac::{AFIO, EXTI, GPIOA, GPIOC, Interrupt};
+use wb32_hal::stop::Mark;
+use wb32_pac::{AFIO, EXTI, GPIOA, GPIOB, GPIOC, Interrupt};
 
 pub const ROW_LINES: u32 = 0x1F | 1 << 13;
 pub const KNOB_LINE: u32 = 1 << 6;
@@ -54,9 +60,20 @@ pub fn rows_high() -> bool {
     GPIOA.idr().read().0 & 0x1F == 0x1F && GPIOC.idr().read().0 & 1 << 13 != 0
 }
 
+const CAPS_LED: u32 = 1 << 5;
+const WIN_LOCK_LED: u32 = 1 << 0;
+
+/// The diagnostic LEDs: `on` low (BSRR's upper half), the rest high.
+fn diag_leds(caps: bool, win_lock: bool) {
+    let bsrr = |on: bool, pin: u32| if on { pin << 16 } else { pin };
+    GPIOC.bsrr().write_value(wb32_pac::gpio::regs::Bsrr(bsrr(caps, CAPS_LED)));
+    GPIOB.bsrr().write_value(wb32_pac::gpio::regs::Bsrr(bsrr(win_lock, WIN_LOCK_LED)));
+}
+
 /// Stops until a wake line fires; returns those that fired, or None if it
-/// didn't stop (an interrupt was pending: try again later).
-pub fn stop(lower: bool) -> Option<u32> {
+/// didn't stop (an interrupt was pending: try again later). With `diag`,
+/// the LEDs mark its progress (see the top of this file).
+pub fn stop(lower: bool, diag: bool) -> Option<u32> {
     let lines = CABLE_LINE | UART_LINE | if lower { 0 } else { ROW_LINES | KNOB_LINE };
     let rising = CABLE_LINE | KNOB_LINE;
     let falling = ROW_LINES | KNOB_LINE | UART_LINE;
@@ -91,7 +108,14 @@ pub fn stop(lower: bool) -> Option<u32> {
             unsafe { cortex_m::peripheral::NVIC::unmask(irq) };
         }
 
-        let woke = wb32_hal::stop::enter();
+        if diag {
+            diag_leds(true, false);
+        }
+        let woke = wb32_hal::stop::enter(|m| {
+            if diag {
+                diag_leds(m == Mark::Woke, true);
+            }
+        });
 
         rx.set_mode(Mode::alternate(7));
         let fired = woke.unwrap_or(0) & lines;

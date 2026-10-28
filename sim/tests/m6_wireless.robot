@@ -601,6 +601,27 @@ In Stop Mode A Key Wakes It And Is Typed
     # PRE_LP, POST_LP and the clocks' set-up again open ANCTL first.
     Should Not Be In Log    LOCKED write dropped    timeout=0
 
+With Stop Diag On, Caps Shows A Stop In Progress
+    [Documentation]    0xD9 'D': stop mode with the LEDs marking how far a stop
+    ...    got (src/stop.rs). Stopped: Caps on (C5 low), Win-lock off (B0
+    ...    high); a key still wakes it, and the device is selected again.
+    Boot
+    Stop Mode    0x44
+    Wait For Log Entry    HOST HID 3: 08 d9 44 01    timeout=1    pauseEmulation=true
+    On The Dongle
+    Module Sends    ${HOST_SUSPEND}
+    Run For    1.7
+    Should Be Stopped    ${True}
+    ${c}=    Execute Command    sysbus ReadDoubleWord ${GPIOC_ODR}
+    ${b}=    Execute Command    sysbus ReadDoubleWord ${GPIOB_ODR}
+    Should Be Equal    ${{ int($c.strip(), 0) & ${CAPS_LED} }}    ${0}    Caps on
+    Should Be Equal    ${{ int($b.strip(), 0) & 1 }}    ${1}    Win-lock off
+    Key    ${KEY_A}    1
+    Radio Should Get    ${SEL_DONGLE}
+    Key    ${KEY_A}    0
+    Run For    0.3
+    Should Be Stopped    ${False}
+
 In Stop Mode The Module's UART Wakes It
     [Documentation]    A frame from the module ends the stop (EXTI 11 on the
     ...    chip; the UART's interrupt in the sim); the radio reads it: the

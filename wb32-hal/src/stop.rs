@@ -66,12 +66,21 @@ fn pending() -> bool {
     nvic_pending || SCB::is_pendst_pending() || EXTI.pr().read().0 & EXTI.imr().read().0 != 0
 }
 
+/// How far a stop got, for [`enter`]'s `mark` (a diagnostic).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    /// Out of the WFI, before the clocks are back.
+    Woke,
+    /// The clocks and SysTick back.
+    Clocked,
+}
+
 /// Stops the chip until one of the EXTI lines the caller unmasked fires, and
 /// returns the pending lines (EXTI PR) on waking; `None`, without stopping,
 /// if an interrupt was already pending. Call with interrupts disabled
 /// (PRIMASK): the wake doesn't run a handler, the caller clears the lines
-/// it set up.
-pub fn enter() -> Option<u32> {
+/// it set up. `mark` is called as the wake gets past each [`Mark`].
+pub fn enter(mark: impl Fn(Mark)) -> Option<u32> {
     // SAFETY: the caller has interrupts off; SysTick, SCB and these
     // registers are only touched here meanwhile.
     let syst = unsafe { &*SYST::PTR };
@@ -97,6 +106,7 @@ pub fn enter() -> Option<u32> {
     unsafe { scb.scr.modify(|v| v | SLEEPDEEP) };
     cortex_m::asm::dsb();
     cortex_m::asm::wfi();
+    mark(Mark::Woke);
     post_lp();
     unsafe { scb.scr.modify(|v| v & !SLEEPDEEP) };
     let fired = EXTI.pr().read().0;
@@ -109,5 +119,6 @@ pub fn enter() -> Option<u32> {
     RCC.ahbenr2().write_value(ahb.2);
     TIM2.cr1().write_value(tim2);
     unsafe { syst.csr.modify(|v| v | SYST_ENABLE) };
+    mark(Mark::Clocked);
     Some(fired)
 }

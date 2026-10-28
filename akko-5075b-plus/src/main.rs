@@ -31,7 +31,8 @@
 //! saved with the lighting record. 0xD8 with argument 0x48 ('H') hangs the
 //! firmware, to test the watchdog. 0xD9, stop mode while asleep
 //! (src/power.rs, off at reset, not saved): argument 0 reads, 1 turns it
-//! off, 0x53 ('S') on; byte 3 of the answer is 1 if on, bytes 4-7 and 8-11
+//! off, 0x53 ('S') on, 0x44 ('D') on with its progress shown on the Caps
+//! and Win-lock LEDs (src/stop.rs); byte 3 of the answer is 1 if on, bytes 4-7 and 8-11
 //! (little-endian) the stops so far and those a key, the knob or the cable
 //! ended, 12-15 the tries that didn't stop (an interrupt was pending).
 //!
@@ -105,6 +106,7 @@ const HANG_CONFIRM: u8 = b'H';
 const CHANNEL_STOP: u8 = 0xD9;
 const STOP_OFF: u8 = 1;
 const STOP_CONFIRM: u8 = b'S';
+const STOP_DIAG: u8 = b'D';
 const DEBOUNCE_EAGER: u8 = 1;
 const DEBOUNCE_DEFER: u8 = 2;
 const CRASH_CONFIRM: u8 = b'P';
@@ -241,6 +243,7 @@ fn custom_value(buf: &mut [u8]) {
             match buf[2] {
                 STOP_OFF => power::set_stop_mode(false),
                 STOP_CONFIRM => power::set_stop_mode(true),
+                STOP_DIAG => power::set_stop_diag(),
                 _ => {}
             }
             let (stops, wakes, aborts) = power::stop_counts();

@@ -92,6 +92,7 @@ static FLAT: AtomicBool = AtomicBool::new(false);
 static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 /// Stop mode allowed (Vial 0xD9; off at reset).
 static STOP_ON: AtomicBool = AtomicBool::new(false);
+static STOP_DIAG: AtomicBool = AtomicBool::new(false);
 /// Stops so far, and those a key, the knob or the cable ended (the rest:
 /// the UART, or nothing that was armed).
 static STOPS: AtomicU32 = AtomicU32::new(0);
@@ -105,6 +106,13 @@ pub fn stop_mode() -> bool {
 
 pub fn set_stop_mode(on: bool) {
     STOP_ON.store(on, Ordering::Relaxed);
+    STOP_DIAG.store(false, Ordering::Relaxed);
+}
+
+/// Stop mode on, with its progress on the LEDs (`stop::stop`'s `diag`).
+pub fn set_stop_diag() {
+    STOP_ON.store(true, Ordering::Relaxed);
+    STOP_DIAG.store(true, Ordering::Relaxed);
 }
 
 /// (stops, those ended by a key, the knob or the cable, tries that didn't
@@ -292,7 +300,7 @@ impl Power {
     }
 
     fn stop(&mut self) {
-        let Some(fired) = stop::stop(lower()) else {
+        let Some(fired) = stop::stop(lower(), STOP_DIAG.load(Ordering::Relaxed)) else {
             STOP_ABORTS.fetch_add(1, Ordering::Relaxed);
             return;
         };
