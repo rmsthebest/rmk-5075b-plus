@@ -418,7 +418,7 @@ async fn main(_spawner: Spawner) {
             pid: 0xE4F6,
             manufacturer: "AKKO",
             product_name: "AKKO 5075B Plus (RMK)",
-            serial_number: SERIAL,
+            serial_number: heapless::String::try_from(SERIAL).unwrap(),
         },
         vial_config: VialConfig { insecure: true, ..VialConfig::new(&VIAL_KEYBOARD_ID, &VIAL_KEYBOARD_DEF, &[]) },
         // start_addr 0: the last num_sectors of the window, here all 16 of

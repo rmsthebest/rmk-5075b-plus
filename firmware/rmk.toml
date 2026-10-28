@@ -5,8 +5,9 @@
 [rmk]
 # Only layers and lighting are used: no combos, key overrides (forks),
 # tap dance (morse) or macros from Vial. Each slot costs RAM in the keymap's
-# behaviour config, the keyboard and the storage messages. Changing these
-# changes stored items: bump RMK_BUILD_HASH (.cargo/config.toml) with them.
+# behaviour config, the keyboard and the storage messages. rmk's storage
+# schema hash covers the combo, morse and macro sizes (a change resets the
+# keymap); for the others, bump RMK_COMMIT (.cargo/config.toml) with them.
 combo_max_num = 0
 fork_max_num = 0
 morse_max_num = 0

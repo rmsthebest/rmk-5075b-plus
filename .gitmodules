@@ -1,7 +1,7 @@
 [submodule "third_party/rmk"]
 	path = third_party/rmk
 	url = https://github.com/rmsthebest/rmk.git
-	branch = akko-0.9
+	branch = akko-main
 [submodule "third_party/musb"]
 	path = third_party/musb
 	url = https://github.com/rmsthebest/musb.git

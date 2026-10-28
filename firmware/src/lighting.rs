@@ -100,7 +100,7 @@ use akko_lighting::vialrgb;
 
 use crate::{power, radio};
 use akko_lighting::{Board, Key};
-use rmk::event::{ActionEvent, ConnectionStatusChangeEvent, KeyboardEvent, KeyboardEventPos};
+use rmk::event::{ActionEvent, ConnectionStatusChangeEvent, KeyboardEvent, KeyboardEventSource};
 use rmk::macros::processor;
 use rmk::processor::DeadlineProcessor;
 use rmk::types::action::{Action, KeyboardAction, LightAction};
@@ -556,7 +556,7 @@ impl Lighting {
     }
 
     async fn on_keyboard_event(&mut self, e: KeyboardEvent) {
-        if let KeyboardEventPos::Key(k) = e.pos {
+        if let KeyboardEventSource::Key(k) = e.source {
             if (k.row, k.col) != SWITCH_WIN && (k.row, k.col) != SWITCH_MAC {
                 self.board.engine.key_event(k.row, k.col, e.pressed);
             }
@@ -575,8 +575,8 @@ impl Lighting {
             self.board.confirm_blink(now_ms());
         }
         // Encoder turns have no key; the board records nothing for them.
-        let (row, col) = match e.keyboard_event.pos {
-            KeyboardEventPos::Key(k) => (k.row, k.col),
+        let (row, col) = match e.keyboard_event.source {
+            KeyboardEventSource::Key(k) => (k.row, k.col),
             _ => (u8::MAX, u8::MAX),
         };
         let key = board_key(&e.action);

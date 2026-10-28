@@ -16,10 +16,13 @@ rustflags = [
 
 [env]
 KEYBOARD_TOML_PATH = { value = "firmware/rmk.toml", relative = true }
-# RMK's storage keeps the keymap (Vial edits) while this matches what it
-# was saved with (third_party/rmk/rmk/README-akko.md). Change it only when the
-# stored layout changes (rows, columns, layers, encoders): that resets the
-# keymap to src/keymap.rs. 0x6025ede8 was image ec155e856040's (on the
-# board 2026-10-27); 0x6025ede9 came with 16 storage sectors and the smaller
-# behaviour slots in rmk.toml (one keymap reset, agreed with the user).
-RMK_BUILD_HASH = "0x6025ede9"
+# RMK's storage keeps the keymap (Vial edits) while its schema hash matches
+# what it was saved with. The hash covers rmk's version, features, macro/
+# combo/morse sizes and RMK_COMMIT, which rmk otherwise takes from git, so
+# every commit on our fork would reset the keymap (third_party/rmk/rmk/
+# README-akko.md). Bump this only when a fork change alters what's stored;
+# that resets the keymap to src/keymap.rs. A changed src/keymap.rs doesn't:
+# stored keys (each by layer, row and column) win over the compiled ones
+# until EE_CLR or StorageConfig's clear_layout. akko-main-1: the move to rmk
+# main (one keymap reset, agreed with the user 2026-10-28).
+RMK_COMMIT = "akko-main-1"

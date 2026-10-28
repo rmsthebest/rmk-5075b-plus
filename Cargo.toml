@@ -21,7 +21,7 @@ panic = "abort"
 opt-level = "s"
 panic = "abort"
 
-# rmk 0.9.0 with our hooks: submodule of github.com/rmsthebest/rmk, branch
-# akko-0.9 (third_party/rmk/rmk/README-akko.md).
+# rmk main with our hooks: submodule of github.com/rmsthebest/rmk, branch
+# akko-main (third_party/rmk/rmk/README-akko.md).
 [patch.crates-io]
 rmk = { path = "third_party/rmk/rmk" }

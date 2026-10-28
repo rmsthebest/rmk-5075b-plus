@@ -290,15 +290,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
 
 [[package]]
-name = "crc32fast"
-version = "1.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ba106e844045ddc02c20768ac4b0b7cb45f2cc2ecbd833ac9f5dacb183c2055"
-dependencies = [
- "cfg-if",
-]
-
-[[package]]
 name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1279,7 +1270,6 @@ version = "0.9.0"
 dependencies = [
  "byteorder",
  "cortex-m",
- "crc32fast",
  "document-features",
  "embassy-embedded-hal",
  "embassy-futures",
