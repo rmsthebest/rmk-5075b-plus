@@ -14,16 +14,23 @@
 //! - the link down (DISCONNECTED) for 30 s, or 2 min after a pairing
 //!   key's hold; pairing (PAIRING) for 2 min. The module is told first
 //!   (devctrl USB, as the vendor's wls.c). Not with the setting "never":
-//!   unlike the vendor's, never means never;
+//!   unlike the vendor's, never means never. As the vendor's, typing
+//!   doesn't put this off, but a device key restarts it (`link_kick`);
 //! - the host suspending (the module's host state frame, `host_state`);
 //! - the battery at 0% for a minute (the lighting's `shutdown_requested`):
 //!   "lower sleep", which keys and the knob don't wake; the columns stay
 //!   released.
 //!
+//! Going to sleep idle with the link up, the keys are released to the host
+//! (the vendor's clear_keyboard; not when the host suspends, where a report
+//! might wake it). Any sleep ends a pairing key's longer link timeout
+//! (hs_pairing_flag, cleared in the vendor's stop_hook_pre).
+//!
 //! Waking: a key, a knob edge, the cable going in (A7, polled every
-//! 250 ms), or the host resuming. The radio re-selects the device (as the
-//! vendor's suspend_wakeup_init_kb), and the key that woke it is read and
-//! sent as usual.
+//! 250 ms), or the host resuming (whatever put it to sleep, as the vendor's
+//! lowpower.c, but the flat battery). The radio re-selects the device (as
+//! the vendor's suspend_wakeup_init_kb), and the key that woke it is read
+//! and sent as usual.
 //!
 //! The sleep timeout is the vendor's setting (`record::SLEEP_*`: never, 1,
 //! 3, 5, 10, 20, 30 minutes, default 2), set over Vial channel 0xD7
@@ -73,6 +80,13 @@ static LOWER: AtomicBool = AtomicBool::new(false);
 static LAST_INPUT: AtomicU32 = AtomicU32::new(0);
 /// Asked to sleep now: the host suspended, or the battery is flat.
 static HOST_SUSPENDED: AtomicBool = AtomicBool::new(false);
+/// The host resumed since it last slept (the module's frame).
+static RESUMED: AtomicBool = AtomicBool::new(false);
+/// A device key: the link timers start again.
+static LINK_KICK: AtomicBool = AtomicBool::new(false);
+/// USB is configured and not suspended (QMK's USB_DRIVER.state ==
+/// USB_ACTIVE).
+static USB_ACTIVE: AtomicBool = AtomicBool::new(false);
 static FLAT: AtomicBool = AtomicBool::new(false);
 /// Wakes the task: input while asleep, the host's state, a flat battery.
 static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -139,7 +153,24 @@ pub fn input() {
 /// The module's host state frame: the host suspended (false) or resumed.
 pub fn host_state(resume: bool) {
     HOST_SUSPENDED.store(!resume, Ordering::Relaxed);
+    if resume {
+        RESUMED.store(true, Ordering::Relaxed);
+    }
     POKE.signal(());
+}
+
+/// A device key (BT1-3, 2.4G, USB) was pressed: the link timeouts start
+/// again (the vendor's hs_rgb_blink_set_timer in WLS_KEYCODE_WAKEUP).
+pub fn link_kick() {
+    LINK_KICK.store(true, Ordering::Relaxed);
+    POKE.signal(());
+}
+
+/// USB's state (RMK's): configured or not. On USB the Caps Lock LED is
+/// off unless it is, as the vendor's housekeeping.
+pub fn set_usb_active(active: bool) {
+    USB_ACTIVE.store(active, Ordering::Relaxed);
+    refresh_caps();
 }
 
 /// The battery sat at 0% for a minute.
@@ -187,12 +218,10 @@ impl Power {
             self.state = state;
             self.state_since = now;
         }
-        // Input restarts the link timers too (as a key restarts the
-        // vendor's hs_rgb_blink_hook timer).
-        let last = LAST_INPUT.load(Ordering::Relaxed);
-        if now.wrapping_sub(last) < now.wrapping_sub(self.state_since) {
-            self.state_since = last;
+        if LINK_KICK.swap(false, Ordering::Relaxed) {
+            self.state_since = now;
         }
+        let last = LAST_INPUT.load(Ordering::Relaxed);
         if FLAT.swap(false, Ordering::Relaxed) && radio::wireless() {
             return Some(Why::Flat);
         }
@@ -219,6 +248,11 @@ impl Power {
     }
 
     async fn sleep(&mut self, why: Why) {
+        if why == Why::Idle {
+            radio::release_keys();
+        }
+        radio::end_pairing();
+        RESUMED.store(false, Ordering::Relaxed);
         if matches!(why, Why::Link | Why::Flat) {
             radio::module_sleep();
             Timer::after_millis(MODULE_SLEEP_WAIT_MS).await;
@@ -236,7 +270,10 @@ impl Power {
         let cable = self.cable.is_high();
         let plugged = cable && !self.cable_was;
         self.cable_was = cable;
-        let resumed = self.asleep == Some(Why::Host) && !HOST_SUSPENDED.load(Ordering::Relaxed);
+        // Not the flat battery's: only the cable ends that.
+        let resumed = (RESUMED.swap(false, Ordering::Relaxed)
+            || self.asleep == Some(Why::Host) && !HOST_SUSPENDED.load(Ordering::Relaxed))
+            && self.asleep != Some(Why::Flat);
         if plugged || resumed {
             SLEEPING.store(false, Ordering::Relaxed);
         }
@@ -302,8 +339,9 @@ impl rmk::core_traits::Runnable for Power {
     }
 }
 
-/// The Caps Lock LED's pin for RMK's indicator: off while asleep, back to
-/// what RMK last set on waking (`refresh_caps`).
+/// The Caps Lock LED's pin for RMK's indicator: off while asleep, and on
+/// USB while it isn't configured or is suspended; back to what RMK last set
+/// after (`refresh_caps`).
 pub struct CapsPin(Output);
 
 static CAPS_ON: AtomicBool = AtomicBool::new(false);
@@ -314,11 +352,16 @@ impl CapsPin {
     }
 }
 
-/// Applies the Caps Lock LED's state (active low): off while asleep.
+/// Whether the Caps Lock LED may be on (5075b_plus.c's housekeeping).
+fn caps_allowed() -> bool {
+    !sleeping() && (radio::wireless() || USB_ACTIVE.load(Ordering::Relaxed))
+}
+
+/// Applies the Caps Lock LED's state (active low): see `CapsPin`.
 pub fn refresh_caps() {
     // SAFETY: C5 is only ever written as the Caps Lock LED's output.
     let pin = unsafe { AnyPin::steal(Port::C, 5) };
-    let on = CAPS_ON.load(Ordering::Relaxed) && !sleeping();
+    let on = CAPS_ON.load(Ordering::Relaxed) && caps_allowed();
     pin.set_level((!on).into());
 }
 
@@ -329,7 +372,7 @@ impl embedded_hal::digital::ErrorType for CapsPin {
 impl embedded_hal::digital::OutputPin for CapsPin {
     fn set_low(&mut self) -> Result<(), Infallible> {
         CAPS_ON.store(true, Ordering::Relaxed);
-        if !sleeping() {
+        if caps_allowed() {
             self.0.set_low();
         }
         Ok(())

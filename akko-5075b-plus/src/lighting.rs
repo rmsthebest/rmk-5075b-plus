@@ -14,7 +14,9 @@
 //! keyboard calls first (third_party/rmk: set_action_hook), keeps from the
 //! keyboard what the board takes: key presses while recording colours, and
 //! EE_CLR, whose release RMK only sees once its 3 s hold has reset the
-//! lighting (RMK then erases its storage and reboots; QMK reset in place).
+//! settings (RMK then erases its storage, the keymap's, and reboots; QMK
+//! resets in place). As QMK's, the reset keeps the selected device: the
+//! defaults are saved with it, so the keyboard comes back on it.
 //! Unlike QMK, recording lets key releases through, so a key held when it
 //! starts doesn't stick.
 //!
@@ -39,8 +41,8 @@
 //! its own two sectors of the SPI flash, after RMK's window, written in
 //! turn: each save erases the older one, so a power cut mid-write leaves
 //! the other. A save waits until `SAVE_AFTER` without a key, and is
-//! skipped when nothing changed (the CRC). EE_CLR's reset erases both
-//! before RMK sees the release. A save holds up this task (a sector erase
+//! skipped when nothing changed (the CRC). EE_CLR's reset saves the
+//! defaults before RMK sees the release. A save holds up this task (a sector erase
 //! and three page programs, about 50 ms on a typical part); since RMK's
 //! action channel waits rather than drops, more than its 16 actions in that
 //! time would delay the keyboard, never lose keys.
@@ -58,6 +60,8 @@
 //!   active low) on. As on QMK, Mac mode ignores it.
 //! - HS_CT_A held 3 s makes Right Ctrl send App, or back, with a black
 //!   blink; `action_hook` swaps the action.
+//! - HS_DIR (Fn+W) swaps WASD and the arrows, wherever they are in the
+//!   keymap, with a black blink; `action_hook` swaps the action.
 //!
 //! - Whether key presses wait out the debounce (src/scan.rs), set over
 //!   Vial channel 0xD6 (src/main.rs).
@@ -66,7 +70,9 @@
 //!   pairing key, whose action also starts this record's save timer.
 //!
 //! The aux LED (B9) is high while the lighting is on (RGB_TOG) and no
-//! cable is in (A7, the cable sense, low), as 5075b_plus.c sets it.
+//! cable is in (A7, the cable sense, low), as 5075b_plus.c sets it. The
+//! Win-lock LED is off while USB is suspended, as the vendor's
+//! usb_suspend_flag keeps it.
 //!
 //! The connection indicator (LEDs 37-41) follows the radio (src/radio.rs):
 //! its device changes and the module's state go to the board before each
@@ -76,8 +82,10 @@
 //! level and charge state from the radio (`radio::battery`) before each
 //! frame.
 //!
-//! Not yet: NK_TOGG (RMK has no NKRO toggle), the factory LED test (LCtrl
-//! held at power-up), and the Win-lock LED's suspend rule.
+//! The factory LED test (Left Ctrl held at power-up: red, green, blue,
+//! white, 4 s each) is the board's; src/main.rs reads the key.
+//!
+//! Not yet: NK_TOGG (RMK has no NKRO).
 
 use core::cell::Cell;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -120,6 +128,8 @@ static MAC: AtomicBool = AtomicBool::new(false);
 static NO_GUI: AtomicBool = AtomicBool::new(false);
 /// HS_CT_A's state (the vendor's confinfo.ctrl_app_flag).
 static CTRL_APP: AtomicBool = AtomicBool::new(false);
+/// HS_DIR's state (the vendor's confinfo.dir_flag).
+static DIR: AtomicBool = AtomicBool::new(false);
 
 /// The lighting's sectors on the SPI flash: two, after RMK's window
 /// (src/main.rs).
@@ -188,12 +198,12 @@ impl Store {
     /// Writes `board`'s settings if they changed since the last save.
     async fn save(&mut self, board: &Board) {
         self.save_at = None;
-        record::encode(board, flags(), crate::power::setting(), self.seq, self.buf);
+        record::encode(board, flags(), flags2(), crate::power::setting(), self.seq, self.buf);
         if self.current.is_some() && record::stored_crc(self.buf) == self.crc {
             return;
         }
         let seq = self.seq.wrapping_add(1);
-        record::encode(board, flags(), crate::power::setting(), seq, self.buf);
+        record::encode(board, flags(), flags2(), crate::power::setting(), seq, self.buf);
         let to = match self.current {
             Some(0) => 1,
             _ => 0,
@@ -205,14 +215,6 @@ impl Store {
         self.current = Some(to);
         self.seq = seq;
         self.crc = record::stored_crc(self.buf);
-    }
-
-    /// Erases both sectors: the next start-up finds the defaults.
-    async fn erase(&mut self) {
-        let _ = self.flash.erase(0, STORE_LEN).await;
-        self.current = None;
-        self.seq = 0;
-        self.save_at = None;
     }
 }
 
@@ -261,6 +263,7 @@ const USER_RP_P0: u8 = 5;
 const USER_RP_END: u8 = 8;
 const USER_RL_MOD: u8 = 9;
 const USER_HS_BATQ: u8 = 10;
+const USER_HS_DIR: u8 = 11;
 const USER_HS_CT_A: u8 = 14;
 const USER_KC_ENCW: u8 = 15;
 /// GU_TOGG, QMK's magic keycode 0x700B.
@@ -324,11 +327,34 @@ fn flags() -> u8 {
     f
 }
 
+/// The second flags byte (`record::FLAG2_*`).
+fn flags2() -> u8 {
+    if DIR.load(Ordering::Relaxed) { record::FLAG2_DIR } else { 0 }
+}
+
 /// The saved keyboard flags at start-up, before `action_hook` is set.
-pub fn set_flags(f: u8) {
+pub fn set_flags(f: u8, f2: u8) {
     NO_GUI.store(f & record::FLAG_NO_GUI != 0, Ordering::Relaxed);
     CTRL_APP.store(f & record::FLAG_CTRL_APP != 0, Ordering::Relaxed);
     crate::scan::set_defer_press(f & record::FLAG_DEFER_PRESS != 0);
+    DIR.store(f2 & record::FLAG2_DIR != 0, Ordering::Relaxed);
+}
+
+/// HS_DIR's swap: WASD for the arrows and back (5075b_plus.c's KC_A..KC_UP
+/// cases).
+fn dir_swap(k: HidKeyCode) -> Option<HidKeyCode> {
+    use HidKeyCode::*;
+    Some(match k {
+        W => Up,
+        A => Left,
+        S => Down,
+        D => Right,
+        Up => W,
+        Left => A,
+        Down => S,
+        Right => D,
+        _ => return None,
+    })
 }
 
 /// The board is recording colours.
@@ -358,6 +384,12 @@ pub fn action_hook(a: &mut Action, e: &KeyboardEvent, mods: ModifierCombination)
             }
             return true;
         }
+        Action::User(USER_HS_DIR) => {
+            if e.pressed {
+                DIR.fetch_xor(true, Ordering::Relaxed);
+            }
+            return true;
+        }
         // keycode_config(): no GUI in Windows mode. Releases pass, so a GUI
         // held across GU_TOGG doesn't stick.
         Action::Key(KeyCode::Hid(HidKeyCode::LGui | HidKeyCode::RGui))
@@ -367,6 +399,11 @@ pub fn action_hook(a: &mut Action, e: &KeyboardEvent, mods: ModifierCombination)
         }
         Action::Key(KeyCode::Hid(HidKeyCode::RCtrl)) if CTRL_APP.load(Ordering::Relaxed) => {
             *a = Action::Key(KeyCode::Hid(HidKeyCode::Application));
+        }
+        Action::Key(KeyCode::Hid(k)) if DIR.load(Ordering::Relaxed) => {
+            if let Some(to) = dir_swap(k) {
+                *a = Action::Key(KeyCode::Hid(to));
+            }
         }
         _ => {}
     }
@@ -448,7 +485,8 @@ impl Lighting {
     /// The Win-lock and aux LEDs, as 5075b_plus.c's housekeeping sets them.
     fn update_leds(&mut self) {
         let asleep = power::sleeping();
-        let locked = NO_GUI.load(Ordering::Relaxed) && !MAC.load(Ordering::Relaxed) && !asleep;
+        let usb_suspended = !radio::wireless() && self.usb_suspended_at.is_some();
+        let locked = NO_GUI.load(Ordering::Relaxed) && !MAC.load(Ordering::Relaxed) && !asleep && !usb_suspended;
         self.win_lock_led.set_level((!locked).into());
         let aux = self.board.vendor.conf.rgb_enable && self.cable.is_low() && !asleep;
         self.aux_led.set_level(aux.into());
@@ -477,19 +515,8 @@ impl Lighting {
     /// setters.
     fn apply_vial(&mut self, now: u32) {
         if let Some(m) = VIAL_SET.lock(|c| c.take()) {
-            let e = &mut self.board.engine;
             let id = u16::from_le_bytes([m[0], m[1]]);
-            if id == vialrgb::OFF {
-                e.disable();
-            } else {
-                e.enable();
-                // An unknown id: QMK's mode 0, which rgb_matrix ignores.
-                if let Some(mode) = vialrgb::from_vial(id) {
-                    e.set_mode(mode);
-                }
-            }
-            e.set_speed(m[2]);
-            e.sethsv(m[3], m[4], m[5]);
+            vialrgb::set_mode(&mut self.board.engine, id, m[2], m[3], m[4], m[5]);
             self.store.touch(now);
         }
         if VIAL_SAVE.swap(false, Ordering::Relaxed) {
@@ -508,7 +535,15 @@ impl Lighting {
         RECORDING.store(self.board.recording(), Ordering::Relaxed);
         if self.board.vendor.reset_requested {
             self.board.vendor.reset_requested = false;
-            self.store.erase().await;
+            // hs_reset_settings: the keyboard's settings too, but the
+            // selected device (eeconfig_confinfo_default).
+            NO_GUI.store(false, Ordering::Relaxed);
+            CTRL_APP.store(false, Ordering::Relaxed);
+            DIR.store(false, Ordering::Relaxed);
+            crate::scan::set_defer_press(false);
+            power::set_setting(record::SLEEP_DEFAULT);
+            radio::reset_saved();
+            self.store.save(self.board).await;
             EE_CLR_DONE.store(true, Ordering::Relaxed);
         }
     }
@@ -529,6 +564,9 @@ impl Lighting {
         if e.action == Action::User(USER_HS_CT_A) {
             self.ct_a_since = e.keyboard_event.pressed.then(now_ms);
         }
+        if e.action == Action::User(USER_HS_DIR) && e.keyboard_event.pressed {
+            self.board.confirm_blink(now_ms());
+        }
         // Encoder turns have no key; the board records nothing for them.
         let (row, col) = match e.keyboard_event.pos {
             KeyboardEventPos::Key(k) => (k.row, k.col),
@@ -547,6 +585,7 @@ impl Lighting {
 
     async fn on_connection_status_change_event(&mut self, e: ConnectionStatusChangeEvent) {
         self.board.vendor.usb_active = e.0.usb == UsbState::Configured;
+        power::set_usb_active(e.0.usb == UsbState::Configured);
         self.usb_suspended_at = match e.0.usb {
             UsbState::Suspended => self.usb_suspended_at.or(Some(now_ms())),
             _ => None,
@@ -558,6 +597,7 @@ impl Lighting {
             UsbState::Suspended => {}
             _ => (self.usb_configured_at, self.battery_sent) = (None, None),
         }
+        self.update_leds();
     }
 
     /// The battery report to the USB host (M7e): once the module has told

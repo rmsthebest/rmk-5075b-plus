@@ -3,9 +3,12 @@
 //! 0x08) with the command in byte 1 and its arguments from byte 2.
 //!
 //! Effects Vial has no id for (pixel flow, the board's RGBR_PLAY) read as
-//! Off, as vial-qmk reports a mode missing from its table.
+//! Off, as vial-qmk reports a mode missing from its table. Then a slider
+//! sends Off back with its value: `set_mode` keeps the effect (vial-qmk
+//! would turn the lighting off).
 
 use crate::effect;
+use crate::engine::Engine;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const GET_INFO: u8 = 0x40;
@@ -78,6 +81,25 @@ pub fn from_vial(id: u16) -> Option<u8> {
     *EFFECTS.get(id as usize)?
 }
 
+/// set_mode (vialrgb.c, with the _noeeprom setters): `id`, then speed, h,
+/// s, v. Off while an effect Vial has no id for is on can't be Vial's effect
+/// list (it already shows Off, so picking Off changes nothing): it's a
+/// slider, and the effect stays.
+pub fn set_mode(e: &mut Engine, id: u16, speed: u8, h: u8, s: u8, v: u8) {
+    let shown_off = e.config.enable && to_vial(e.config.mode) == OFF;
+    if id == OFF && !shown_off {
+        e.disable();
+    } else {
+        e.enable();
+        // An unknown id: QMK's mode 0, which rgb_matrix ignores.
+        if let Some(mode) = from_vial(id) {
+            e.set_mode(mode);
+        }
+    }
+    e.set_speed(speed);
+    e.sethsv(h, s, v);
+}
+
 /// get_supported: the ids above `gt`, u16 little-endian from the start
 /// of `out`, the rest 0xFF.
 pub fn supported_after(gt: u16, out: &mut [u8]) {
@@ -105,6 +127,27 @@ mod tests {
         assert_eq!(to_vial(effect::PIXEL_FRACTAL), 44);
         assert_eq!(from_vial(1), None);
         assert_eq!(from_vial(500), None);
+    }
+
+    #[test]
+    fn a_slider_keeps_an_effect_vial_lacks() {
+        use crate::Config;
+        let mut e = Engine::new(Config::default());
+        e.set_mode(effect::PIXEL_FLOW);
+        // A slider: Off (what Vial read), with the new brightness.
+        set_mode(&mut e, OFF, 100, 10, 20, 30);
+        assert!(e.config.enable);
+        assert_eq!(e.config.mode, effect::PIXEL_FLOW);
+        assert_eq!((e.config.speed, e.config.hsv.v), (100, 30));
+        // Another effect, then Off from the list: off.
+        set_mode(&mut e, to_vial(effect::BREATHING), 100, 10, 20, 30);
+        assert_eq!(e.config.mode, effect::BREATHING);
+        set_mode(&mut e, OFF, 100, 10, 20, 30);
+        assert!(!e.config.enable);
+        // Off, then an effect: on again.
+        set_mode(&mut e, to_vial(effect::SOLID_COLOR), 100, 10, 20, 30);
+        assert!(e.config.enable);
+        assert_eq!(e.config.mode, effect::SOLID_COLOR);
     }
 
     #[test]

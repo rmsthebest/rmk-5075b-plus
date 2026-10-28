@@ -116,6 +116,10 @@ const VIA_GET_VALUE: u8 = 0x08;
 /// in a D-Bus object path), so the battery never showed.
 const SERIAL: &str = "vial:f64c2b3c-akko-rmk";
 
+/// The keys hs_factory_scan looks for at power-up: (row, col).
+const LCTRL: (usize, usize) = (5, 0);
+const ESC: (usize, usize) = (0, 0);
+
 /// After this long without a panic, the next panic resets into this image
 /// again rather than going to DFU.
 const STABLE_AFTER: Duration = Duration::from_secs(60);
@@ -340,7 +344,7 @@ async fn main(_spawner: Spawner) {
     let cable = Input::new(p.PA7, Pull::None);
     let caps_led = Output::new(p.PC5, Level::High);
 
-    let scan = scan::Scan::new(
+    let mut scan = scan::Scan::new(
         [p.PA0.into(), p.PA1.into(), p.PA2.into(), p.PA3.into(), p.PA4.into(), p.PC13.into()],
         [
             AnyPin::from(p.PC0), p.PC1.into(), p.PC2.into(), p.PC3.into(), p.PA6.into(),
@@ -387,7 +391,6 @@ async fn main(_spawner: Spawner) {
         OwnFrame(initialize_keymap_and_storage(data, flash, &rmk_config.storage_config, behavior, positional)).await;
 
     rmk::host::set_custom_value_hook(custom_value);
-    let mut scan = scan;
     let mut knob = knob;
     let mut keyboard = Keyboard::new(&keymap);
     let host_service = HostService::new(&keymap, &rmk_config);
@@ -397,6 +400,9 @@ async fn main(_spawner: Spawner) {
     let mut boot = bootloader::Bootloader::new();
     // SAFETY: main runs once.
     let store = OwnFrame(lighting::Store::load(lighting_flash, unsafe { ram2_zeroed(&raw mut LIGHTING_RECORD) })).await;
+    // The factory LED test: Left Ctrl held at power-up, without Esc
+    // (hs_factory_scan; Esc held is boot-guard's, before this).
+    let led_test = scan.is_down(LCTRL.0, LCTRL.1) && !scan.is_down(ESC.0, ESC.1);
     // SAFETY: main runs once.
     let (frame, board) = unsafe {
         (
@@ -406,7 +412,7 @@ async fn main(_spawner: Spawner) {
                 &mut *&raw mut LIGHTING,
                 store.record(),
                 lighting::Lighting::recordings(),
-                false,
+                led_test,
                 0,
             ),
         )
@@ -414,7 +420,7 @@ async fn main(_spawner: Spawner) {
     // Not configured until RMK says so.
     board.vendor.usb_active = false;
     let flags = store.record().map_or(0, |r| r.flags());
-    lighting::set_flags(flags);
+    lighting::set_flags(flags, store.record().map_or(0, |r| r.flags2()));
     power::set_setting(store.record().map_or(lighting_crate::record::SLEEP_DEFAULT, |r| r.sleep()));
     radio::set_saved_flags(flags);
     let mut lights = lighting::Lighting::new(

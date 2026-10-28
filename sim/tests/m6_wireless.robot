@@ -345,6 +345,35 @@ The Selected Device Survives A Reset
     Run For    0.1
     USB Pull-up Should Be    ${False}
 
+Pressing The Current Device's Key Again Selects It Again
+    [Documentation]    As the vendor's WLS_KEYCODE_WAKEUP: Fn+Y on the dongle
+    ...    selects it again, so the module reconnects (a kick for a link
+    ...    that misbehaves).
+    Boot
+    On The Dongle
+    Run For    0.5
+    Fn Hold    ${DONGLE}
+    Radio Should Get    ${SEL_DONGLE}
+
+EE_CLR Keeps The Selected Device
+    [Documentation]    As the vendor's hs_reset_settings (confinfo.devs kept):
+    ...    Fn+` held 3 s on the dongle resets the settings, and after RMK's
+    ...    reboot the keyboard is back on the dongle, not on USB.
+    Boot
+    On The Dongle
+    Wait For Log Entry    flash: PP 0x02    timeout=4    pauseEmulation=true
+    Key    5 10    1
+    Run For    0.03
+    Key    1 0    1
+    Run For    3.05
+    Key    1 0    0
+    Run For    0.03
+    Key    5 10    0
+    Radio Should Get    ${VERSION_ASK}    timeout=6
+    Radio Should Get    ${SEL_DONGLE}
+    Run For    0.1
+    USB Pull-up Should Be    ${False}
+
 An Unanswered Frame Is Dropped After 41 Tries
     [Documentation]    Fixed-tree bug 2: with the module silent, a frame is sent
     ...    41 times (10 ms apart), dropped, and counted; Vial channel 0xD4
@@ -432,6 +461,26 @@ Never Means Never; Otherwise A Link Down For 30 s Sleeps
     Radio Should Get    ${SEL_USB}
     Run For    0.5
     Should Be Asleep    ${True}
+
+Typing Doesn't Hold Off The Link-Down Sleep; The Host Resuming Wakes It
+    [Documentation]    As the vendor's: with the link down, keys don't restart
+    ...    the 30 s (only a device key would), so it sleeps 30 s after the
+    ...    link went down. The host's resume frame wakes it from any sleep.
+    Boot
+    On The Dongle
+    Module Sends    ${DISCONNECTED}
+    Run For    10
+    Tap    ${KEY_A}
+    Run For    10
+    Tap    ${KEY_A}
+    Run For    10.5
+    Radio Should Get    ${SEL_USB}
+    Run For    0.5
+    Should Be Asleep    ${True}
+    Module Sends    ${HOST_RESUME}
+    Radio Should Get    ${SEL_DONGLE}
+    Run For    0.3
+    Should Be Asleep    ${False}
 
 The Host Suspending Sleeps It At Once, Its Resume Wakes It
     [Documentation]    The module's host state frame (0x60): 0 the host

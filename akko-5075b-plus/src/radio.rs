@@ -158,6 +158,36 @@ pub fn module_sleep() {
     POKE.signal(());
 }
 
+/// Going to sleep: the keys released to the host, if the link is up (the
+/// vendor's clear_keyboard).
+pub fn release_keys() {
+    if !wireless() {
+        return;
+    }
+    let now = now_ms();
+    LINK.lock(|l| {
+        let mut l = l.borrow_mut();
+        if l.connected() {
+            l.send_keyboard([0; 8], now);
+            // A system release goes out as consumer 0 too (send_system).
+            l.send_consumer(0, now);
+        }
+    });
+    POKE.signal(());
+}
+
+/// Going to sleep: a pairing key's longer link timeout ends (the vendor's
+/// stop_hook_pre clears hs_pairing_flag).
+pub fn end_pairing() {
+    PAIRING.store(false, Ordering::Relaxed);
+}
+
+/// EE_CLR's reset: the last BT device back to BT1, the selected device kept
+/// (eeconfig_confinfo_default).
+pub fn reset_saved() {
+    LAST_BT.store(1, Ordering::Relaxed);
+}
+
 /// On waking: the current device selected again
 /// (wireless_devs_change(cur, cur, false)), and its indicator restarted.
 pub fn reselect() {
@@ -314,9 +344,14 @@ impl Radio {
         }
         board_event(BoardEvent::Key(dev as u8));
         PAIRING.store(false, Ordering::Relaxed);
+        crate::power::link_kick();
         let current = LINK.lock(|l| l.borrow().device());
         if current != dev {
             self.change(dev, false).await;
+        } else if dev.is_wireless() {
+            // The current device again: selected again, so the module
+            // reconnects (WLS_KEYCODE_WAKEUP's suspend_wakeup_init).
+            LINK.lock(|l| l.borrow_mut().select(dev, false));
         }
         if dev != Device::Usb && self.hold.is_none() {
             self.hold = Some((dev, now_ms().wrapping_add(PAIR_HOLD_MS)));
@@ -341,6 +376,7 @@ impl Radio {
         if wireless {
             rmk::channel::release_usb_reports();
             WIRELESS.store(true, Ordering::Relaxed);
+            crate::power::refresh_caps();
             Timer::after_millis(USB_RELEASE_MS).await;
             self.usb_power.set_high();
         } else {
@@ -352,6 +388,7 @@ impl Radio {
                 }
             });
             WIRELESS.store(false, Ordering::Relaxed);
+            crate::power::refresh_caps();
             self.usb_power.set_low();
             self.set_leds(0);
         }

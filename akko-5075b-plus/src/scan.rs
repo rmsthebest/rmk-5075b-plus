@@ -212,6 +212,12 @@ impl Scan {
         }
     }
 
+    /// Whether key (row, col) is down now, read once (for start-up checks,
+    /// before the scan runs).
+    pub fn is_down(&mut self, row: usize, col: usize) -> bool {
+        self.read()[row] & 1 << col != 0
+    }
+
     /// Reads all keys once: bit c of word r = key (r, c) down.
     fn read(&mut self) -> [u16; ROW] {
         let mut raw = [0; ROW];

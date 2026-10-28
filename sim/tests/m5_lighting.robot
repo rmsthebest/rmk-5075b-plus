@@ -29,6 +29,8 @@ ${GPIO_KEY}         0x40000FF0
 ${GPIOA_ODR}        0x40000014
 ${GPIOB_ODR}        0x40000414
 ${GPIO_DRIVE}       0x40000FF4
+${GPIOC_ODR}        0x40000814
+${CAPS_LED}         0x20
 ${WIN_LOCK_LED}     0x1
 ${AUX_LED}          0x200
 ${LED_POWER}        0x100
@@ -95,6 +97,12 @@ Saved To Sector
     [Arguments]    ${n}
     Wait For Log Entry    flash: PP 0x02${n}200    timeout=4    pauseEmulation=true
     Should Not Be In Log    flash: (CE|BE|(SE|PP) 0x0[03-7])    timeout=0    treatAsRegex=true
+
+Pin C Should Be
+    [Arguments]    ${mask}    ${high}
+    ${v}=    Execute Command    sysbus ReadDoubleWord ${GPIOC_ODR}
+    ${is_high}=    Evaluate    bool(int($v.strip(), 0) & ${mask})
+    Should Be Equal    ${is_high}    ${high}
 
 Pin B Should Be
     [Arguments]    ${mask}    ${high}
@@ -526,8 +534,9 @@ A Torn Lighting Save Keeps The One Before
     Should Be Equal As Integers    ${v}    63
     No LED Errors
 
-EE_CLR Erases The Saved Lighting
-    [Documentation]    A saved dimmer setting is gone after EE_CLR's reboot.
+EE_CLR Resets The Saved Lighting
+    [Documentation]    A saved dimmer setting is gone after EE_CLR's reboot:
+    ...    the defaults are saved in its place (into the other sector).
     Boot To Lighting
     Fn Tap And Wait    ${RGB_VAD}
     Saved To Sector    0
@@ -541,6 +550,55 @@ EE_CLR Erases The Saved Lighting
     Key    5    10    0
     Wait For Log Entry    HOST: configured    timeout=6    pauseEmulation=true
     Run For    2.1
+    ${v}=    Brightest Key LED
+    Should Be Equal As Integers    ${v}    84
+    No LED Errors
+
+Fn W Swaps WASD And The Arrows, And It's Kept
+    [Documentation]    HS_DIR (Fn+W), as the vendor's: A types Left and Left
+    ...    types A, Up types W; saved, so it survives a reset; Fn+W again
+    ...    undoes it.
+    Boot To Lighting
+    Fn Tap And Wait    2 2
+    Key    3    1    1
+    HID Should Show    1    00 00 50 00 00 00 00 00
+    Key    3    1    0
+    Run For    0.05
+    Key    5    12    1
+    HID Should Show    1    00 00 04 00 00 00 00 00
+    Key    5    12    0
+    Saved To Sector    0
+    Reset And Boot
+    Key    4    13    1
+    HID Should Show    1    00 00 1a 00 00 00 00 00
+    Key    4    13    0
+    Run For    0.05
+    Fn Tap And Wait    2 2
+    Key    3    3    1
+    HID Should Show    1    00 00 07 00 00 00 00 00
+    Key    3    3    0
+    No LED Errors
+
+Left Ctrl At Power-Up Runs The LED Test
+    [Documentation]    hs_factory_scan: Left Ctrl held as the keyboard starts
+    ...    lights every LED red, then green, blue and white (80), 4 s each;
+    ...    then the lighting is as before.
+    Create Log Tester    3
+    Execute Command    include @${SIM}/akko.resc
+    Execute Command    qspi WriteDoubleWord ${FLASH_ERASE} 1
+    Execute Command    sysbus LoadELF @${RMK}
+    Execute Command    machine Reset
+    Key    5    0    1
+    Run For    2.5
+    All LEDs Should Be    0x500000
+    Key    5    0    0
+    Run For    3.5
+    All LEDs Should Be    0x005000
+    Run For    4
+    All LEDs Should Be    0x000050
+    Run For    4
+    All LEDs Should Be    0x505050
+    Run For    4
     ${v}=    Brightest Key LED
     Should Be Equal As Integers    ${v}    84
     No LED Errors
@@ -732,6 +790,25 @@ With The Lights Off A Low Battery Flashes LED 0
     Should Be True    len($red) < ${powered} <= 24    ${powered} powered samples
     Should Be True    $red[-1] - $red[0] > 200    one flash only
     No LED Errors
+
+On USB Caps Lock And Win-Lock Are Off While The Host Is Suspended
+    [Documentation]    As the vendor's housekeeping: on USB the Caps Lock LED
+    ...    is off unless USB is active, the Win-lock LED off while suspended;
+    ...    both come back when the host resumes.
+    Boot To Lighting
+    Fn Tap    5 1
+    Pin B Should Be    ${WIN_LOCK_LED}    ${False}
+    Execute Command    usb WriteDoubleWord ${HOST_CMD} ${{ 0x03 | (2 << 8) }}
+    Run For    0.1
+    Pin C Should Be    ${CAPS_LED}    ${False}
+    Execute Command    usb WriteDoubleWord ${HOST_CMD} 0x04
+    Run For    0.5
+    Pin B Should Be    ${WIN_LOCK_LED}    ${True}
+    Pin C Should Be    ${CAPS_LED}    ${True}
+    Execute Command    usb WriteDoubleWord ${HOST_CMD} 0x05
+    Run For    0.5
+    Pin B Should Be    ${WIN_LOCK_LED}    ${False}
+    Pin C Should Be    ${CAPS_LED}    ${False}
 
 On USB The Lights Go Off 7 s After The Host Suspends
     [Documentation]    QMK's suspend_power_down after USB_POWER_DOWN_DELAY:
