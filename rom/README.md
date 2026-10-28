@@ -41,7 +41,7 @@ The peek reads only 0x1FFFE000–0x1FFFEFFF and 0x1FFFF000–0x1FFFF7FF. Everyth
 | `tools/ghidra.sh`, `ghidra/scripts/` | Headless Ghidra 12: memory map, vectors, labels, then the decompiled C, call graph, MMIO access map and outside-ROM references |
 | `notes.md` | What the ROM does, with ROM addresses for every claim |
 | `sim/` | The real ROM in Renode: models, suites, write traces (`sim/README.md`) |
-| `rust/` | `wb32-rom-dfu`, the translation (step 4) |
+| `rust/` | `wb32-rom-dfu`, the ROM rewritten in Rust; the same write traces as the ROM (`rust/README.md`) |
 
 ## Working on it
 
@@ -51,6 +51,7 @@ python3 -I rom/tools/disasm.py         # $ROM_WORK/out/rom.lst
 python3 -I rom/tools/info.py
 rom/tools/ghidra.sh                    # $ROM_WORK/out/decomp.c etc.
 rom/sim/run.sh                         # the ROM suites (and the peek test)
+rom/sim/run.sh --rust                  # the ROM suites on the Rust translation
 python3 -I rom/sim/trace.py boot       # write traces → rom/sim/traces/
 ```
 

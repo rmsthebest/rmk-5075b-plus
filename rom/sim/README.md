@@ -7,8 +7,12 @@ The real ROM (`$ROM_WORK/dump/rom.bin`, ../README.md) runs on the Akko machine. 
 
 ```fish
 rom/sim/run.sh                                  # the suites, about 2.5 min in parallel
+rom/sim/run.sh --rust                           # the ROM suites on rom/rust's build
 python3 -I rom/sim/trace.py boot|download|leave # write traces → rom/sim/traces/
+python3 -I rom/sim/trace.py boot --image rom/rust/target/thumbv7m-none-eabi/release/wb32-rom-dfu
 ```
+
+With `ROM_IMAGE` set to an ELF linked at 0x1FFFE000 (`--rust` sets it), the suites load that over the ROM and enter it through its own vector table.
 
 Suites (10 tests):
 - `enumerate.robot`: 342d:dfa0 with its strings and the vendor interface; GET_INFO answers `01 00 0d 04 80 e9 50 3a 00 00 04 00 00 90 00 00`; an unknown command gets INVALID.
@@ -16,7 +20,7 @@ Suites (10 tests):
 - `leave.robot`: GO ends in the app with VTOR = 0 and SP from the app; GO outside flash is refused; RESET boots the app.
 - `peek.robot`: the firmware's `rom-peek` channel on the board sim (run.sh builds that image into `target/rom-peek`).
 
-Traces, in `traces/`: `boot` 347 writes, `download` 605, `leave` 634. Writes only, in order, with no PCs. A rerun gives the same trace (checked on `download`). These are step 4's reference.
+Traces, in `traces/`: `boot` 347 writes, `download` 605, `leave` 634. Writes only, in order, with no PCs. A rerun gives the same trace (checked on `download`). These are step 4's reference: rom/rust's build gives the same three traces.
 
 Differences from the board:
 - SysTick runs at 96 MHz in this platform, so the ROM's delays are half as long. The host sees the device at 0.75 s, not 1.5 s.

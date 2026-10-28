@@ -1,0 +1,9 @@
+# Cargo merges this with the repo's .cargo/config.toml, whose rustflags
+# (arrays add up) already pass -Tlink.x: build.rs puts this crate's link.x
+# first on the search path. The linker is plain rust-lld: flip-link would
+# move the stack, and the layout has to be the ROM's.
+[build]
+target = "thumbv7m-none-eabi"
+
+[target.thumbv7m-none-eabi]
+linker = "rust-lld"

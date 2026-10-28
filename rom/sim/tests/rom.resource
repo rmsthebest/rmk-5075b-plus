@@ -10,6 +10,8 @@ Library             Collections
 *** Variables ***
 ${ROMSIM}           ${CURDIR}/..
 ${DUMP}             %{ROM_WORK=${CURDIR}/../../../../wb32-rom-re}/dump
+# An ELF linked at 0x1FFFE000 to run instead of the ROM (rom/sim/run.sh --rust).
+${IMAGE}            %{ROM_IMAGE=}
 ${HOST_CMD}         0xF00
 ${HOST_STATE}       0xF04
 ${HOST_OUT_BYTE}    0xF0C
@@ -19,10 +21,21 @@ ${APP}              0x08000000
 *** Keywords ***
 Start The ROM
     [Documentation]    Reset, then the ROM's SP and PC, as boot-guard's jump does.
+    ...    With ${IMAGE} set, that image is loaded over the ROM and entered
+    ...    through its own vector table.
     Create Log Tester    3
     Execute Command    $dump=@${DUMP}
     Execute Command    include @${ROMSIM}/rom.resc
-    Execute Command    runMacro $enter_rom
+    IF    "${IMAGE}"
+        Execute Command    sysbus LoadELF @${IMAGE}
+        Execute Command    machine Reset
+        ${sp}=    Execute Command    sysbus ReadDoubleWord 0x1FFFE000
+        ${pc}=    Execute Command    sysbus ReadDoubleWord 0x1FFFE004
+        Execute Command    cpu SP ${sp.strip()}
+        Execute Command    cpu PC ${pc.strip()}
+    ELSE
+        Execute Command    runMacro $enter_rom
+    END
 
 Wait For Enumeration
     Wait For Log Entry    HOST: configured: if 0 class ff eps [81 01]    timeout=3    pauseEmulation=true

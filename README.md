@@ -59,4 +59,4 @@ The workbench refuses to flash anything else.
 ## License
 
 GPL-2.0-or-later (`LICENSE`). Much of this code is a port of QMK and of the vendor's QMK keyboard
-code. `third_party/` keeps its upstream licenses: rmk is MIT OR Apache-2.0, musb is Apache-2.0.
+code. `third_party/` keeps its upstream licenses: rmk is MIT OR Apache-2.0, musb is Apache-2.0. `rom/rust/` (the ROM bootloader rewritten in Rust) is MIT OR Apache-2.0.

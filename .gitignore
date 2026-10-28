@@ -1,3 +1,4 @@
 /target
 __pycache__/
 /rom/sim/results/
+/rom/rust/target/

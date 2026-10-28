@@ -6,12 +6,21 @@
 # target/, which the board sim uses).
 #   rom/sim/run.sh                          all suites
 #   rom/sim/run.sh rom/sim/tests/x.robot    one suite
+#   rom/sim/run.sh --rust [suites]          the ROM suites on rom/rust's
+#                                           build instead of the ROM
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 tools=$(cd "$root/.." && pwd)/tools
 RENODE=${RENODE:-$tools/renode}
 VENV=${RENODE_VENV:-$tools/renode-venv}
+if [ "${1:-}" = --rust ]; then
+    shift
+    # Its own target dir, rom/rust/target.
+    (cd "$root/rom/rust" && cargo build --release)
+    export ROM_IMAGE=$root/rom/rust/target/thumbv7m-none-eabi/release/wb32-rom-dfu
+    [ $# -gt 0 ] || set -- $(ls "$here"/tests/*.robot | grep -v '/peek\.robot$')
+fi
 [ $# -gt 0 ] || set -- "$here"/tests/*.robot
 suites=()
 for s in "$@"; do suites+=("$(realpath "$s")"); done

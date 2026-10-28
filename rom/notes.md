@@ -59,7 +59,7 @@ From main 0x1FFFE940, in order. The register names are pointer + offset resolved
     - clears its state (0x20000238, 0x14 bytes);
     - AHBENR1 |= 0x100|2, and a pulse of AHBRSTR1 bit 1;
     - USBFIFOCLKSRC = 1, USBFIFOCLKENR = 1, **SFM_USBPCON = 2** (the internal D+ pull-up, so no board pull-up is needed), USBCLKENR = 1, USBPRE = 8;
-    - USB registers cleared, 0x10 written at USB+0x400, then NVIC_ISER0 = 1<<14 (the USB IRQ).
+    - USB interrupt enables cleared, the USB IRQ's priority byte (NVIC_IPR byte 14, 0xE000E40E) = 0x10, then NVIC_ISER0 = 1<<14.
 13. 0x1FFFE63C: PA11/PA12 to AF3 (AFRH 0x33000, MODER 0x2800000), so USB is on the pins. USB+0xB = 6. Then the command loop.
 
 Leaving (RESET/GO), 0x1FFFE678 undoes the USB set-up: NVIC_ICER0 = 1<<14, USBPRE/USBCLKENR/USBFIFOCLKENR = 0, AHBENR1 bit 1 off. Then 0x1FFFE6B8 holds the pins again, so the host sees a disconnect before the reset or jump.
@@ -71,6 +71,13 @@ Leaving (RESET/GO), 0x1FFFE678 undoes the USB set-up: NVIC_ICER0 = 1<<14, USBPRE
 - Strings: 0 = 0x0409, 1 = "Westberry Tech.", 2 = "WB Device in DFU Mode" (pointer table at 0x1FFFEFF4: 0x1FFFEF77, 0x1FFFEF7B, 0x1FFFEF9B). No serial string.
 - Packets: a command is one or more 64-byte bulk OUT transfers. A short packet ends it, and the total is at most 0x110 bytes (0x1FFFED60). The reply goes back on EP1 IN in 64-byte chunks (0x1FFFEDD8). Both loops feed the IWDG, and they give up when the USB state (0x2000024A) leaves 2 (configured).
 - The USB IRQ handler 0x1FFFE838 calls 0x1FFFE1A0 (the EP0 state machine: setup/data/status via USB_CSR0, USB_INDEX) and helpers at 0x1FFFE6F0, 0x1FFFE6FC and 0x1FFFE7DC.
+- Standard requests (0x1FFFE330, a table branch on bRequest 0-9; rust/src/ep0.rs). Answered: GET_STATUS, CLEAR_FEATURE and SET_FEATURE (DEVICE_REMOTE_WAKEUP, ENDPOINT_HALT), SET_ADDRESS, GET_DESCRIPTOR (device, configuration index 0, strings 0-2), GET_CONFIGURATION, SET_CONFIGURATION (only 1). Stalled: SET_DESCRIPTOR, GET_INTERFACE, SET_INTERFACE, SYNCH_FRAME, and every class or vendor request (bmRequestType & 0x60 isn't 0).
+- Quirks, all harmless to a normal host:
+  - SET_ADDRESS writes FADDR at once, before the status stage, and is refused once configured.
+  - GET_STATUS(device) finds bmAttributes by looking up the configuration descriptor with the *current configuration* as the index. Once configured (1) the lookup fails, and the ROM reads byte 7 of the null pointer, address 0x00000007 (the boot alias).
+  - CLEAR_FEATURE(ENDPOINT_HALT) resets the data toggle but doesn't clear SendStall, so a halted endpoint stays halted until SET_CONFIGURATION.
+  - The string language ID isn't checked.
+  - No request has an OUT data stage, so the ROM's OUT data path is never reached. Its last packet would write 0x68 to CSR0, which includes SendStall.
 
 ## DFU state machine
 
@@ -81,9 +88,9 @@ Commands. All fields are little-endian, `addr` is at +4 and `n` at +8:
 | Byte | Name | Request | What the ROM does |
 |---|---|---|---|
 | 0x01 | GET_INFO | `01 00` | Replies 16 bytes: `01 00 0d <ver> <SYS_ID 0x40016400> <flash bytes> <sram bytes>`. ver = the byte at 0x1FFFE01C (vector slot 7: **0x04**, the bootloader version). The sizes come from SYS_MEMSZ (0x40016404) through the byte table at 0x1FFFEE44, x 4 KB. Sub-id other than 0: ARGERR. |
-| 0x5E | ERASE | `5e 00 .. addr n` | Not if read-protected (0x1A). Page erase: addr rounded down to 256 bytes, n pages; every page must be in flash (0x1FFFE8CC = 1). FMC op 0x08 per page, feeding the IWDG. |
+| 0x5E | ERASE | `5e 00 .. addr n` | Not if read-protected (0x1A), chip erase included. Page erase: addr rounded down to 256 bytes, n pages; every page must be in flash (0x1FFFE8CC = 1). FMC op 0x08 per page, feeding the IWDG. |
 | | | `5e f0` | Chip erase: FMC op 0x1B on address 0. |
-| 0x6A | WRITE_PAGE | `6a .. addr n data` | addr rounded down to 256 bytes, n bytes of data at +12. Allowed in flash (region 1), or in **information blocks 4-7, 0x1FFFF400-0x1FFFF7FF** (region 2: addr + 0xE0000C00 < 0x400). For region 2 the ROM erases the page first (op 0x08). Then op 0x04 (clear the page latch), the data words into the latch at 0x40017900, and op 0x0C (program). Failure: 0x12. The protection test on this path needs another look; the updater writes block 4 *because* the chip is protected, so region 2 must be allowed then. |
+| 0x6A | WRITE_PAGE | `6a .. addr n data` | addr rounded down to 256 bytes, n bytes of data at +12. Allowed in flash (region 1), or in **information blocks 4-7, 0x1FFFF400-0x1FFFF7FF** (region 2: addr + 0xE0000C00 < 0x400). n <= 0x100; only the start address is checked. Read protection refuses region 1 (0x1A) but **not region 2**, which is what lets the updater lift protection by writing block 4 (0x1FFFEBEC). For region 2 the ROM erases the page first (op 0x08). Then op 0x04 (clear the page latch), the data words into the latch at 0x40017900, and op 0x0C (program). Failure: 0x12. |
 | 0x72 | READ | `72 .. addr n` | n <= 0x100. Not if read-protected (0x1A). addr and addr+n-1 must be in flash or blocks 4-7. Replies `72 00` + n bytes. |
 | 0x83 | RESET | `83 .. ms` | Acks, waits 10 ms, takes USB and GPIOA down (0x1FFFE678, 0x1FFFE6B8), waits `ms` (at +4) x 1 ms (48000 SysTick ticks each, so HCLK is 48 MHz by then; inferred), then AIRCR = 0x05FA0004 (SYSRESETREQ). The updater's `-R` sends this. |
 | 0x9B | GO | `9b .. addr ms` | addr must be in flash. Acks, takes USB and GPIOA down, waits `ms` (at +8), MAINCLKSRC back to MHSI, **VTOR = 0** (0xE000ED08), MSP = [addr], then jumps to [addr+4]. Clocks/PLL otherwise stay as the ROM left them. |
@@ -96,7 +103,7 @@ Address check 0x1FFFE8CC: 1 if `addr - 0x08000000 < table[SYS_MEMSZ & 0xF] << 12
 ## Flash erase and program (FMC)
 
 0x1FFFE104(addr, op) runs one FMC operation:
-1. It calls 0x1FFFEE54, the timing set-up, which reads 0x1FFFF340. **QMK's `pre_op_code` (hal_efl_lld.c) is byte-for-byte this function**: 228 bytes, identical.
+1. It calls 0x1FFFEE54, an FHSI check, which reads 0x1FFFF340. **QMK's `pre_op_code` (hal_efl_lld.c) is byte-for-byte this function**: 228 bytes, identical. It restarts FHSI and enables a block at 0x4000B800, which the RM lists as reserved but which RCC_RNGCLKENR clocks (likely an undocumented RNG). It reads 0x4000B800 twenty times. If more than two of the ten even-numbered samples equal the one before, FHSI counts as stuck: its trim (ANCTL+0x34 bits 20-27, from 0x1FFFF340 bits 20-27) is lowered by 16 per try and FHSI restarted, up to five tries. It leaves the analog registers unlocked.
 2. FMC_ADDR = addr, RCC_PCLKENR = 1, FMC_CON = 0x7F5F0D40 | op, and the keys 0x5188DA08, 0x12586590 go to FMC_KEY.
 3. It copies a 12-byte routine from 0x1FFFEF38 to the stack and runs it there: `str r0,[r1]; nop; ldr r0,[r1]; lsls r0,#24; bmi` (CON = 0x800080 to start, then wait for bit 7 to clear). The ROM is itself in the flash macro (RM 26.1: "stored in the System memory area in the Flash memory module"), so it can't run from there while the flash is busy. **QMK's `FLASH_OP_RAM_CODE` is the same 12 bytes.**
 4. RCC_PCLKENR = 0, FMC_CON = 0x005F0000, then the result is FMC_STAT bit 2 (error).
@@ -133,5 +140,19 @@ The real ROM in Renode enumerated as decoded. GET_INFO gave the predicted 16 byt
 
 - What sets RCC+0x104 (0x40010D04), the IWDG flag? It needs the board.
 - The real SYS_MEMSZ value (the sim assumes 0x03).
-- The protection test on the WRITE_PAGE path to blocks 4-7 (decomp is unclear). Read 0x1FFFEB2C onwards by hand.
-- The EP0 standard requests (0x1FFFE1A0 and below): which ones it answers and which it stalls.
+- What 0x0D in GET_INFO's reply stands for.
+- What the block at 0x4000B800 is (the FMC preparation's FHSI check).
+
+## The Rust translation (rust/, step 4)
+
+`rust/` rewrites the whole ROM in Rust, one function per ROM function, each naming its range. Built for 0x1FFFE000 (3.9 KB) with the ROM's SRAM layout, it gives **the same write traces as the ROM in all three scenarios** (boot 347 writes, download 605, leave 634: `diff` empty), and the ROM suites pass on it (`sim/run.sh --rust`, 9/9).
+
+Matching the traces corrected two readings of the decompiled C:
+- The FHSI retrim in 0x1FFFEE54 lowers the trim by 16 on *every* try, not by 16 from the original each time.
+- The EP1 OUT byte count (0x1FFFE3F8) is two byte reads, OUTCOUNTL and OUTCOUNTH. Ghidra had shown one halfword read; the sim's USB model rejects that.
+
+Where the translation differs from the ROM. None of these shows in a write trace:
+- Reset: the ROM zeroes 0x438 bytes from 0x20000018, up to its stack top, stack included. Its init can do that because it never pushes. The translation zeroes .bss (0x20000018-0x2000024B) only.
+- GO: if the app returns, the ROM goes back to its command loop on the app's stack. The translation's call doesn't return.
+- Exceptions: the ROM has a separate `b .` per handler (all IRQs but USB share one). The translation uses one shared handler; HardFault still resets.
+- Timing: the delay loops are the same SysTick periods. The `for (i = 0; i < 1000; i++)` spins in the FHSI check run at Rust's speed.

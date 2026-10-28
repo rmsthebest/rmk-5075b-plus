@@ -1,0 +1,32 @@
+# The WB32FQ95 ROM bootloader rewritten in Rust (README.md). Not a member of
+# the repo's workspace: it never goes on the board, only into the Renode sim.
+[package]
+name = "wb32-rom-dfu"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "The WB32FQ95 ROM DFU bootloader, reconstructed in Rust for reading and for the Renode sim"
+
+[[bin]]
+name = "wb32-rom-dfu"
+test = false
+bench = false
+
+[dependencies]
+wb32-pac = { path = "../../crates/wb32-pac" }
+
+[profile.release]
+# It has to fit in the ROM's 4 KB, below the information blocks at 0x1FFFF000.
+opt-level = "z"
+lto = true
+codegen-units = 1
+debug = 2
+panic = "abort"
+
+[profile.dev]
+opt-level = "z"
+panic = "abort"
+
+# Its own workspace, so cargo doesn't take the repo root's.
+[workspace]
