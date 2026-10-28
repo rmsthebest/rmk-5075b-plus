@@ -1,8 +1,0 @@
-block/USB:
-  inherits: peri_std
-  items:
-  - name: USBCFG
-    description: Vender-specified USB configuration register.
-    byte_offset: 0x370
-    bit_size: 8
-    fieldset: vendor/USBCFG_sf32.yaml

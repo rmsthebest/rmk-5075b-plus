@@ -1,3 +1,0 @@
-_fixed-fifo-size
-_ep-shared-fifo
-_gen-usb-instance

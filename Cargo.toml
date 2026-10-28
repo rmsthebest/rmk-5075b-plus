@@ -21,6 +21,7 @@ panic = "abort"
 opt-level = "s"
 panic = "abort"
 
-# Vendored rmk 0.9.0 with our hooks (third_party/rmk/README-akko.md).
+# rmk 0.9.0 with our hooks: submodule of github.com/rmsthebest/rmk, branch
+# akko-0.9 (third_party/rmk/rmk/README-akko.md).
 [patch.crates-io]
-rmk = { path = "third_party/rmk" }
+rmk = { path = "third_party/rmk/rmk" }

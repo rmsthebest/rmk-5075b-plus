@@ -17,7 +17,7 @@ rustflags = [
 [env]
 KEYBOARD_TOML_PATH = { value = "firmware/rmk.toml", relative = true }
 # RMK's storage keeps the keymap (Vial edits) while this matches what it
-# was saved with (third_party/rmk/README-akko.md). Change it only when the
+# was saved with (third_party/rmk/rmk/README-akko.md). Change it only when the
 # stored layout changes (rows, columns, layers, encoders): that resets the
 # keymap to src/keymap.rs. 0x6025ede8 was image ec155e856040's (on the
 # board 2026-10-27); 0x6025ede9 came with 16 storage sectors and the smaller

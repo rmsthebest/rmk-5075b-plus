@@ -22,8 +22,8 @@ There was no Rust support for the WB32, so this repo also carries a PAC and a HA
 | `crates/akko-boot-guard` | `akko-boot-guard` | Reset-time escape into ROM DFU, crash record and crash policy | This board |
 | `crates/akko-lighting` | `akko-lighting` | QMK rgb_matrix port plus this board's lights and indicators | This board (the rgb_matrix part is generic in nature, but tied to this layout) |
 | `firmware` | `firmware` | The `akko-rmk` image and the bring-up images `m1a-bounce`, `m1b-stub`, `m2-blink`, `m3-usb` | This board |
-| `third_party/rmk` | `rmk` | RMK 0.9.0 with our hooks and fixes (`README-akko.md`) | |
-| `third_party/musb` | `musb` | musb 0.3.1 with WB32 support and fixes (`README-wb32.md`) | |
+| `third_party/rmk` | `rmk` | Submodule: [our fork](https://github.com/rmsthebest/rmk), branch `akko-0.9`: RMK 0.9.0 with our hooks and fixes (`rmk/README-akko.md`) | |
+| `third_party/musb` | `musb` | Submodule: [our fork](https://github.com/rmsthebest/musb), branch `wb32`: musb 0.3.1 with WB32 support and fixes (`README-wb32.md`) | |
 | `sim/` | | Renode simulation of the board and the test suites (`sim/README.md`) | |
 | `tools/` | | Generators (PAC, keymap, LED layout, Vial JSON), checks (precheck, rgbref, PAC vs manual), the workbench | |
 
@@ -33,6 +33,7 @@ written for this board.
 ## Build, test, flash
 
 ```fish
+git submodule update --init              # third_party/rmk and third_party/musb
 cargo build --release --bin akko-rmk     # target thumbv7m-none-eabi (needs flip-link)
 sim/run.sh                               # every sim suite (about 20 min); SIM_CHANGED=1 for the affected ones
 cargo test -p qmk-wireless --target x86_64-unknown-linux-gnu
