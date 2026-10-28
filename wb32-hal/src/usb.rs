@@ -37,6 +37,9 @@ const AF_USB: u8 = 3;
 /// cycles. `asm::delay` takes at least this many.
 const DISCONNECT_CYCLES: u32 = crate::rcc::HCLK_HZ / 1000 * 50;
 /// How long remote wakeup drives resume signalling (QMK `mcuconf.h`).
+/// RM2905025 asks for about 10 ms (2-15, pp. 266/285) and ChibiOS's default
+/// is 10; 2 is the manual's minimum. Kept at QMK's value, which its builds for
+/// this board ship with. If a host misses remote wakeups, try 10 first.
 const WAKEUP_TIME: Duration = Duration::from_millis(2);
 
 /// RCC USBPRE: SRCEN, then ratio 0 (/2) with the divider enabled.

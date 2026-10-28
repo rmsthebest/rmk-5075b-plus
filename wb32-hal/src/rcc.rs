@@ -132,12 +132,14 @@ fn setup(pll_polls: Option<u32>) {
 
 /// Read-modify-write of RCC APB1ENR (ChibiOS `rccEnableAPB1`), written only
 /// when it changes: `gpio::set_mode` calls this for every column the scan
-/// switches.
+/// switches. In a critical section, so it is safe from interrupts too.
 pub fn enable_apb1(f: impl FnOnce(&mut rcc::regs::Apb1enr)) {
-    let was = RCC.apb1enr().read();
-    let mut v = was;
-    f(&mut v);
-    if v.0 != was.0 {
-        RCC.apb1enr().write_value(v);
-    }
+    critical_section::with(|_| {
+        let was = RCC.apb1enr().read();
+        let mut v = was;
+        f(&mut v);
+        if v.0 != was.0 {
+            RCC.apb1enr().write_value(v);
+        }
+    });
 }

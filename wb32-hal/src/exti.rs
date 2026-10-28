@@ -16,7 +16,7 @@ use core::task::{Context, Poll};
 use embassy_sync::waitqueue::AtomicWaker;
 use wb32_pac::{AFIO, EXTI, Interrupt, interrupt};
 
-use crate::gpio::{AnyPin, Input, Level, Pull};
+use crate::gpio::{AnyPin, Input, Level, Port, Pull};
 use crate::rcc;
 
 const LINES: usize = 16;
@@ -48,6 +48,8 @@ impl ExtiInput {
     pub fn new(pin: impl Into<AnyPin>, pull: Pull, prio: u8) -> Self {
         let pin = Input::new(pin, pull);
         let line = pin.pin().pin();
+        // Port D has only pins 0-2 on EXTI (RM2905025 §10.4, Table 10-1).
+        assert!(pin.pin().port() != Port::D || line <= 2, "no EXTI line for this port D pin");
         let mask = 1u16 << line;
         let prev = USED.fetch_or(mask, Ordering::AcqRel);
         assert!(prev & mask == 0, "EXTI line already in use");
@@ -158,6 +160,7 @@ impl Drop for ExtiFuture {
             EXTI.imr().modify(|w| w.set_line(line, false));
             EXTI.rtsr().modify(|w| w.set_line(line, false));
             EXTI.ftsr().modify(|w| w.set_line(line, false));
+            EXTI.pr().write_value(wb32_pac::exti::regs::Pr(1 << line));
         });
     }
 }

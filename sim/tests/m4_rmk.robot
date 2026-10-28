@@ -341,6 +341,19 @@ Odd Host Requests Don't Crash USB
     HID Should Show    1    00 00 04 00 00 00 00 00
     No Panic Since Start-Up
 
+A Short SETUP Is Dropped
+    [Documentation]    A SETUP that isn't 8 bytes: musb's setup() looped on it
+    ...    without acking RxPktRdy, so the CPU spun until the watchdog reset.
+    ...    Now it is acked and stalled, and the next request is answered.
+    ...    The host waits 2.5 s before that request, past the watchdog.
+    Boot And Enumerate
+    Host    0x0D
+    Wait For Log Entry    HOST: GET_DESCRIPTOR(device, after a short SETUP) -> 18 bytes    timeout=4    pauseEmulation=true
+    Host State Should Be    2
+    Tap    3    1
+    HID Should Show    1    00 00 04 00 00 00 00 00
+    No Panic Since Start-Up
+
 Esc At A Cold Start Enters DFU
     Boot
     Key    0    0    1

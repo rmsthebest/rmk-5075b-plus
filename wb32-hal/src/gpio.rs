@@ -175,8 +175,10 @@ pub struct Output {
 
 impl Output {
     /// Sets the level before switching the pin to output, so it never glitches.
+    /// The port clock goes on first: BSRR writes are lost while it is off.
     pub fn new(pin: impl Into<AnyPin>, initial: Level) -> Self {
         let pin = pin.into();
+        pin.port.enable_clock();
         pin.set_level(initial);
         pin.set_mode(Mode::output());
         Output { pin }

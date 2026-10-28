@@ -147,6 +147,10 @@ impl Ws2812 {
         if let Either::Second(()) = select(done, Timer::after(WRITE_TIMEOUT)).await {
             critical_section::with(|cs| {
                 SPIM2.ier().write_value(spi::regs::Ier(0));
+                // Disabling empties both FIFOs. Otherwise bytes left in RX
+                // count towards the next frame, which then ends early.
+                SPIM2.spienr().write_value(spi::regs::Spienr(0));
+                SPIM2.spienr().write_value(spi::regs::Spienr(1));
                 XFER.borrow(cs).set(IDLE);
                 BUSY.store(false, Ordering::Release);
             });

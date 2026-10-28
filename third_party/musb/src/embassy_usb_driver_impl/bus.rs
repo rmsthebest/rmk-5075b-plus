@@ -24,8 +24,6 @@ impl<'d, T: MusbInstance> driver::Bus for Bus<'d, T> {
         poll_fn(move |cx| {
             BUS_WAKER.register(cx.waker());
 
-            let regs = T::regs();
-
             // TODO: implement VBUS detection.
             if !self.inited {
                 self.init();
@@ -36,18 +34,10 @@ impl<'d, T: MusbInstance> driver::Bus for Bus<'d, T> {
             if IRQ_RESET.load(Ordering::Acquire) {
                 IRQ_RESET.store(false, Ordering::Relaxed);
 
-                regs.index().write(|w| w.set_index(0));
-                #[cfg(not(feature = "_lite"))]
-                regs.csr0h().modify(|w| w.set_flush_fifo(true));
-                regs.csr0l().modify(|w| w.set_serviced_rx_pkt_rdy(true));
-                for index in 1..ENDPOINTS.len() {
-                    regs.index().write(|w| w.set_index(index as _));
-                    // Plain writes, as everywhere else on WB32 (and as
-                    // ChibiOS): a read-modify-write would write back
-                    // whatever the status bits read.
-                    regs.txcsrl().write(|w| w.set_flush_fifo(true));
-                    regs.txcsrl().write(|w| w.set_flush_fifo(true));
-                }
+                // No EP0 ack or FIFO flush here: the reset itself flushes
+                // every FIFO (RM2905025 §21.5, as ChibiOS's usb_lld_reset
+                // assumes), and by the time this runs the host's first SETUP
+                // may already be in EP0's FIFO.
 
                 // A bus reset disables every endpoint but EP0 until the host
                 // configures the device again.

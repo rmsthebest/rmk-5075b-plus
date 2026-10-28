@@ -41,8 +41,7 @@ sim by `m4_rmk.robot` "Odd Host Requests Don't Crash USB"):
 - `bus.rs`: `endpoint_set_stalled`/`endpoint_is_stalled` ignore endpoint
   numbers the chip doesn't have. The number comes straight from the host's
   `SET/CLEAR_FEATURE(ENDPOINT_HALT)` wIndex, and indexed the waker arrays
-  (a panic). Stalling an OUT endpoint wakes its RX waiter only. The reset
-  flush uses plain `txcsrl` writes.
+  (a panic). Stalling an OUT endpoint wakes its RX waiter only.
 - `control_pipe.rs`, EP0 as ChibiOS's `usb_serve_ep0_handler`: `setup()`
   clears SentStall and a stale SetupEnd; `data_in`/`data_out` return
   `Disabled` when the host abandoned the transfer (SetupEnd, a new SETUP
@@ -51,6 +50,14 @@ sim by `m4_rmk.robot` "Odd Host Requests Don't Crash USB"):
   interrupt counts bus resets (`RESET_GEN`) and wakes EP0, because
   embassy-usb doesn't poll the bus during a control transfer. Before, an
   abandoned control read left EP0 wedged.
+
+Later still (review against the reference manual RM2905025):
+
+- `bus.rs`: the bus reset no longer acks EP0 or flushes EP1-3. The hardware
+  flushes every FIFO on a reset (§21.5) and ChibiOS's `usb_lld_reset` does
+  neither; a late `poll()` could discard the host's first SETUP.
+- `control_pipe.rs`: a SETUP that isn't 8 bytes is acked and stalled. Before,
+  `setup()` looped on it without clearing RxPktRdy until the watchdog reset.
 
 ## Not here (in `wb32-hal/src/usb.rs`)
 

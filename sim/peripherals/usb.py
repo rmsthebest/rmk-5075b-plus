@@ -636,6 +636,20 @@ if request.IsInit:
             got = result["data"]
             if not isinstance(got, list) or got[:2] != [18, 1]:
                 err("no device descriptor after an aborted transfer: %r" % (got,))
+        elif op == 0x0D:
+            # A SETUP of 5 bytes (no real host sends one; the device must
+            # drop it, not spin on it), then an ordinary request.
+            if tok_setup(h.addr, [0x80, 6, 0, 1, 0]) != "ACK":
+                err("short SETUP not ACKed"); return
+            log("short SETUP (5 bytes)")
+            # A host gives up on a control transfer after seconds, so wait
+            # past the 2 s software watchdog before the next SETUP (which
+            # would end a spin by refilling the FIFO).
+            for x in wait_ms(2500): yield
+            for x in get_descriptor("device, after a short SETUP", 1, 0, 18): yield
+            got = result["data"]
+            if not isinstance(got, list) or got[:2] != [18, 1]:
+                err("no device descriptor after a short SETUP: %r" % (got,))
         elif op == 0x0C:
             # GET_REPORT(input, id = arg) on interface bits 16-23, 4 bytes
             # asked, as Linux's battery query (hidinput_query_battery_capacity).

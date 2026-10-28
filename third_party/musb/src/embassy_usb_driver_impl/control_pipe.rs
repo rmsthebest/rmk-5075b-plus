@@ -56,6 +56,12 @@ impl<'d, T: MusbInstance> driver::ControlPipe for ControlPipe<'d, T> {
             regs.index().write(|w| w.set_index(0));
             if regs.count0().read().count() != 8 {
                 trace!("musb/setup: read failed, read count: {:?}", regs.count0().read().count());
+                // Drop the packet and stall the request; without the ack,
+                // RxPktRdy stays set and this loop spins.
+                regs.csr0l().modify(|w| {
+                    w.set_serviced_rx_pkt_rdy(true);
+                    w.set_send_stall(true);
+                });
                 continue;
             }
 

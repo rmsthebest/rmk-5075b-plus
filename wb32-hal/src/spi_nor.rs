@@ -21,7 +21,7 @@ use embedded_storage::nor_flash::{ErrorType, NorFlashError, NorFlashErrorKind};
 use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
 
 use crate::gpio::{Level, Output};
-use crate::qspi::Qspi;
+use crate::qspi::{Qspi, Stalled};
 
 const RDID: u8 = 0x9F;
 const RDSR: u8 = 0x05;
@@ -54,6 +54,14 @@ pub enum Error {
     WriteEnable,
     /// WIP still set after the timeout.
     Timeout,
+    /// The SPI controller stopped returning bytes.
+    Bus,
+}
+
+impl From<Stalled> for Error {
+    fn from(_: Stalled) -> Self {
+        Error::Bus
+    }
 }
 
 impl NorFlashError for Error {
@@ -79,8 +87,10 @@ impl SpiNor {
     pub fn new(spi: Qspi, cs: Output) -> Self {
         let mut f = SpiNor { spi, cs, jedec_id: [0; 3], last_yield: Instant::from_ticks(0) };
         let mut id = [0; 3];
-        f.command(&[RDID], &mut id);
-        f.jedec_id = id;
+        // A stalled bus leaves the id zero: no capacity, so no storage.
+        if f.command(&[RDID], &mut id).is_ok() {
+            f.jedec_id = id;
+        }
         f
     }
 
@@ -99,25 +109,23 @@ impl SpiNor {
     }
 
     /// One command: chip select low, send `tx`, then read `rx.len()` bytes.
-    fn command(&mut self, tx: &[u8], rx: &mut [u8]) {
+    fn command(&mut self, tx: &[u8], rx: &mut [u8]) -> Result<(), Error> {
         self.cs.set_level(Level::Low);
-        self.spi.write(tx);
-        if !rx.is_empty() {
-            self.spi.read(rx);
-        }
+        let r = self.spi.write(tx).and_then(|()| if rx.is_empty() { Ok(()) } else { self.spi.read(rx) });
         self.cs.set_level(Level::High);
+        Ok(r?)
     }
 
-    fn status(&mut self) -> u8 {
+    fn status(&mut self) -> Result<u8, Error> {
         let mut s = [0];
-        self.command(&[RDSR], &mut s);
-        s[0]
+        self.command(&[RDSR], &mut s)?;
+        Ok(s[0])
     }
 
     async fn wait_idle(&mut self, poll: Duration, timeout: Duration) -> Result<(), Error> {
         let deadline = Instant::now() + timeout;
         loop {
-            if self.status() & WIP == 0 {
+            if self.status()? & WIP == 0 {
                 return Ok(());
             }
             if Instant::now() > deadline {
@@ -128,8 +136,8 @@ impl SpiNor {
     }
 
     fn write_enable(&mut self) -> Result<(), Error> {
-        self.command(&[WREN], &mut []);
-        if self.status() & WEL == 0 {
+        self.command(&[WREN], &mut [])?;
+        if self.status()? & WEL == 0 {
             return Err(Error::WriteEnable);
         }
         Ok(())
@@ -151,14 +159,17 @@ impl SpiNor {
         self.pause().await;
         self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT).await?;
         self.cs.set_level(Level::Low);
-        self.spi.write(&Self::header(READ, addr));
+        let mut r = self.spi.write(&Self::header(READ, addr));
         for chunk in buf.chunks_mut(READ_CHUNK) {
-            self.spi.read(chunk);
+            if r.is_err() {
+                break;
+            }
+            r = self.spi.read(chunk);
             // Chip select stays low: the chip just waits for more clocks.
             self.pause().await;
         }
         self.cs.set_level(Level::High);
-        Ok(())
+        Ok(r?)
     }
 
     async fn program_at(&mut self, mut addr: u32, mut data: &[u8]) -> Result<(), Error> {
@@ -169,9 +180,9 @@ impl SpiNor {
             self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT).await?;
             self.write_enable()?;
             self.cs.set_level(Level::Low);
-            self.spi.write(&Self::header(PP, addr));
-            self.spi.write(now);
+            let r = self.spi.write(&Self::header(PP, addr)).and_then(|()| self.spi.write(now));
             self.cs.set_level(Level::High);
+            r?;
             self.wait_idle(Duration::from_micros(100), PROGRAM_TIMEOUT).await?;
             addr += now.len() as u32;
             data = rest;
@@ -182,7 +193,7 @@ impl SpiNor {
     async fn erase_sector_at(&mut self, addr: u32) -> Result<(), Error> {
         self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT).await?;
         self.write_enable()?;
-        self.command(&Self::header(SE, addr), &mut []);
+        self.command(&Self::header(SE, addr), &mut [])?;
         self.wait_idle(Duration::from_millis(1), ERASE_TIMEOUT).await
     }
 }
