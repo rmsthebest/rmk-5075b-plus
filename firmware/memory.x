@@ -11,7 +11,9 @@ MEMORY
      crash counter 0x20007100-0x2000710B), to the end of the 36K: buffers
      that need no start-up initialisation, in section .ram2 (src/main.rs
      `ram2`). flip-link puts the stack at the bottom of RAM, so every byte
-     of .bss is a byte of stack; big buffers go here instead. */
+     of .bss is a byte of stack; big buffers go here instead. When this is
+     full, a buffer goes in .bss: the limit is the stack's headroom (the
+     sim's "The Stack Has Headroom"), not this region. */
   RAM2  : ORIGIN = 0x20007110, LENGTH = 36K - 0x7110
 }
 

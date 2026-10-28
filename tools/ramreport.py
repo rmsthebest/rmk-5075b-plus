@@ -81,7 +81,12 @@ def main():
     print(f"flash  .text {sec['.text'][0]}  .rodata {sec['.rodata'][0]}")
     print(f"RAM    .data {data}  .bss {bss}  (main future POOL {pool})")
     print(f"stack  {stack}")
-    print(f"RAM2   .ram2 {ram2} of {RAM2[1] - RAM2[0]}")
+    free2 = RAM2[1] - RAM2[0] - ram2
+    print(f"RAM2   .ram2 {ram2} of {RAM2[1] - RAM2[0]} ({free2} free; a new buffer can go in .bss instead, out of the stack)")
+    # RAM and RAM2 are one SRAM; the limit is how much of the stack the
+    # firmware actually uses, which only a run can tell.
+    print(f"budget the stack ({stack} B) less its peak: the sim's \"The Stack Has Headroom\" needs"
+          " 12 KB spare; on the board Vial 0xD5 reads the peak")
 
     print(f"\nbiggest statics:")
     ram = [s for s in syms if s[2] in "bBdD" and s[1] >= RAM_START]
