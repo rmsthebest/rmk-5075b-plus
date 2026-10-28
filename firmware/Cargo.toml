@@ -32,6 +32,10 @@ lzma-rs = "0.3"
 
 [features]
 always-dfu = ["akko-boot-guard/always-dfu"]
+# Vial channel 0xDA reads the ROM bootloader and the information blocks out
+# (src/main.rs `peek`, rom/tools/rompeek.py). Read-only; only for studying
+# the ROM (rom/README.md).
+rom-peek = []
 
 [[bin]]
 name = "m1a-bounce"

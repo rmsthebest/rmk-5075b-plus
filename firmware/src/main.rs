@@ -35,7 +35,9 @@
 //! and Win-lock LEDs and byte 3 its variant bits (src/stop.rs); byte 3 of the answer is 1 if on, bytes 4-7 and 8-11
 //! (little-endian) the stops so far and those a key, the knob or the cable
 //! ended, 12-15 the tries that didn't stop (an interrupt was pending), 16
-//! the diagnostic's variant bits (0xFF: off).
+//! the diagnostic's variant bits (0xFF: off). With the `rom-peek` feature,
+//! 0xDA, a read-only peek at the ROM bootloader and the information blocks
+//! (`peek`, rom/tools/rompeek.py), for reading the ROM out (rom/README.md).
 //!
 //! Crash policy (boot-guard): a panic resets into this image; a second one
 //! before the image has run `STABLE_AFTER` goes to DFU. The software
@@ -108,6 +110,15 @@ const CHANNEL_STOP: u8 = 0xD9;
 const STOP_OFF: u8 = 1;
 const STOP_CONFIRM: u8 = b'S';
 const STOP_DIAG: u8 = b'D';
+#[cfg(feature = "rom-peek")]
+const CHANNEL_PEEK: u8 = 0xDA;
+/// What CHANNEL_PEEK may read: the ROM bootloader (system memory) and the
+/// information blocks (RM 3.2.2-3.2.3). Nothing else, so a bad address
+/// can't fault, and nothing is ever written.
+#[cfg(feature = "rom-peek")]
+const PEEK_RANGES: [(u32, u32); 2] = [(0x1FFF_E000, 0x1FFF_F000), (0x1FFF_F000, 0x1FFF_F800)];
+#[cfg(feature = "rom-peek")]
+const PEEK_MAX: usize = 24;
 const DEBOUNCE_EAGER: u8 = 1;
 const DEBOUNCE_DEFER: u8 = 2;
 const CRASH_CONFIRM: u8 = b'P';
@@ -254,6 +265,8 @@ fn custom_value(buf: &mut [u8]) {
             buf[12..16].copy_from_slice(&aborts.to_le_bytes());
             buf[16] = power::stop_diag().unwrap_or(0xFF);
         }
+        #[cfg(feature = "rom-peek")]
+        CHANNEL_PEEK if buf.len() >= 32 => peek(buf),
         CHANNEL_STACK => {
             let (used, size) = stack_peak();
             buf[2..6].copy_from_slice(&used.to_le_bytes());
@@ -261,6 +274,28 @@ fn custom_value(buf: &mut [u8]) {
         }
         _ => {}
     }
+}
+
+/// CHANNEL_PEEK: 08 da <address, 4 bytes LE> answers 08 da <address>
+/// <status> <count> and `count` bytes from the address. Status 0 is read,
+/// 1 refused: the address isn't word-aligned or not in `PEEK_RANGES`. A
+/// read stops at the end of its range.
+#[cfg(feature = "rom-peek")]
+fn peek(buf: &mut [u8]) {
+    let addr = u32::from_le_bytes([buf[2], buf[3], buf[4], buf[5]]);
+    buf[6..32].fill(0);
+    let Some(&(_, end)) = PEEK_RANGES.iter().find(|&&(start, end)| addr % 4 == 0 && (start..end).contains(&addr)) else {
+        buf[6] = 1;
+        return;
+    };
+    let n = ((end - addr) as usize).min(PEEK_MAX);
+    for i in (0..n).step_by(4) {
+        // SAFETY: an aligned word inside PEEK_RANGES, which is always mapped
+        // and read-only.
+        let w = unsafe { core::ptr::read_volatile((addr as usize + i) as *const u32) };
+        buf[8 + i..12 + i].copy_from_slice(&w.to_le_bytes());
+    }
+    buf[7] = n as u8;
 }
 
 /// What `paint_stack` fills the free stack with.
