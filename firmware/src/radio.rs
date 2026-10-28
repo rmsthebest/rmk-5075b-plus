@@ -25,7 +25,7 @@
 //! The selected device and the last BT device are saved with the lighting
 //! record's flags (src/lighting.rs).
 //!
-//! The connection LEDs (37-41) are the lighting's (lighting_crate's
+//! The connection LEDs (37-41) are the lighting's (akko_lighting's
 //! board): it takes the device changes from `take_board_event` and the
 //! module's state from `module_state` before each frame.
 //!
@@ -46,7 +46,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Instant, Timer};
-use lighting_crate::record;
+use akko_lighting::record;
 use rmk::event::{ActionEvent, EventSubscriber};
 use rmk::hid::Report;
 use rmk::macros::processor;
@@ -55,8 +55,8 @@ use rmk::types::action::Action;
 use rmk::types::led_indicator::LedIndicator;
 use wb32_hal::gpio::{AnyPin, Input, Output, Port, Pull};
 use wb32_hal::uart::Uart3;
-use wireless::frame::{devctrl, utf16z};
-use wireless::{Device, DeviceStrings, Event, Link};
+use qmk_wireless::frame::{devctrl, utf16z};
+use qmk_wireless::{Device, DeviceStrings, Event, Link};
 
 pub const BAUD: u32 = 115_200;
 
@@ -104,7 +104,7 @@ static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static DEVS: AtomicU8 = AtomicU8::new(Device::Usb as u8);
 static LAST_BT: AtomicU8 = AtomicU8::new(1);
 static UART_ERRORS: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU16::new(0);
-/// The module's state as QMK's MD_STATE_* (`wireless::ModuleState` has
+/// The module's state as QMK's MD_STATE_* (`qmk_wireless::ModuleState` has
 /// the same order), for the lighting.
 static MODULE_STATE: AtomicU8 = AtomicU8::new(0);
 /// The charge pins as housekeeping last read them: CHARGE_CABLE, CHARGE_FULL.
@@ -266,7 +266,7 @@ fn report_hook(report: &Report) -> bool {
     true
 }
 
-/// Vial channel 0xD4: the link counters (`wireless::Stats`, 16 bytes from
+/// Vial channel 0xD4: the link counters (`qmk_wireless::Stats`, 16 bytes from
 /// buf[2]), then the UART's receive errors (u16), the module's state,
 /// battery %, firmware version, and the selected device.
 pub fn fill_diag(buf: &mut [u8]) {

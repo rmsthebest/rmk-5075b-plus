@@ -1,5 +1,5 @@
 [package]
-name = "wireless"
+name = "qmk-wireless"
 version = "0.1.0"
 edition = "2024"
 description = "The Akko 5075B Plus radio module's UART protocol (QMK's linker/wireless), with the fixed tree's retry and resync rules"

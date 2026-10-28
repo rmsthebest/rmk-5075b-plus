@@ -33,21 +33,21 @@ RULES = [
     (r"sim/tests/(\w+)\.robot$", None),  # the suite itself
     (r"sim/tests/leds\.py$", ["m5_lighting"]),
     (r"sim/(affected\.py|shard\.py|run\.sh)$", []),  # the runner
-    (r"(tools/(?!precheck)|lighting/examples/|.*\.md$|.*README)", []),  # host-only
-    (r"lighting/", ["m5_lighting"]),
-    (r"wireless/", ["m6_wireless"]),
-    (r"akko-5075b-plus/src/lighting\.rs$", ["m5_lighting"]),
-    (r"akko-5075b-plus/src/radio\.rs$", ["m6_wireless"]),
-    (r"akko-5075b-plus/src/bin/m1", ["boot_guard"]),
-    (r"akko-5075b-plus/src/bin/m2", ["m2_hal"]),
-    (r"akko-5075b-plus/src/bin/m3", ["m3_usb"]),
-    (r"akko-5075b-plus/(src/|rmk\.toml|keyboard\.toml)", RMK),
+    (r"(tools/(?!precheck)|crates/akko-lighting/examples/|.*\.md$|.*README)", []),  # host-only
+    (r"crates/akko-lighting/", ["m5_lighting"]),
+    (r"crates/qmk-wireless/", ["m6_wireless"]),
+    (r"firmware/src/lighting\.rs$", ["m5_lighting"]),
+    (r"firmware/src/radio\.rs$", ["m6_wireless"]),
+    (r"firmware/src/bin/m1", ["boot_guard"]),
+    (r"firmware/src/bin/m2", ["m2_hal"]),
+    (r"firmware/src/bin/m3", ["m3_usb"]),
+    (r"firmware/(src/|rmk\.toml|keyboard\.toml)", RMK),
     (r"third_party/rmk/", RMK),
     (r"third_party/musb/", ["m3_usb", "m4_rmk"]),
-    (r"wb32-hal/src/ws2812", ["m5_lighting"]),
-    (r"wb32-hal/src/(uart|stop)", ["m6_wireless"]),
-    (r"wb32-hal/src/usb", ["m3_usb", "m4_rmk"]),
-    (r"wb32-hal/src/(spi_nor|qspi)", ["m4_rmk", "m5_lighting"]),
+    (r"crates/wb32-hal/src/ws2812", ["m5_lighting"]),
+    (r"crates/wb32-hal/src/(uart|stop)", ["m6_wireless"]),
+    (r"crates/wb32-hal/src/usb", ["m3_usb", "m4_rmk"]),
+    (r"crates/wb32-hal/src/(spi_nor|qspi)", ["m4_rmk", "m5_lighting"]),
 ]
 
 

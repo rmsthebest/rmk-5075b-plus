@@ -3,7 +3,7 @@
 
 use std::io::{BufRead, Write};
 
-use lighting::{Config, Engine, Hsv, NoHooks};
+use akko_lighting::{Config, Engine, Hsv, NoHooks};
 
 fn main() {
     let mut e = Engine::new(Config {

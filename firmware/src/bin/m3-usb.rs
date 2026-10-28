@@ -23,7 +23,7 @@
 use core::fmt::Write as _;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use boot_guard as _;
+use akko_boot_guard as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::select::{Either3, select3};
@@ -147,9 +147,9 @@ async fn main(_spawner: Spawner) {
     time_driver::init(PRIO_TIME);
     let p = Pins::take().unwrap();
 
-    let mut panic_buf = [0; boot_guard::PANIC_MSG_MAX];
+    let mut panic_buf = [0; akko_boot_guard::PANIC_MSG_MAX];
     log!("m3-usb: boot");
-    match boot_guard::take_panic_message(&mut panic_buf) {
+    match akko_boot_guard::take_panic_message(&mut panic_buf) {
         Some(msg) => log!("previous run panicked: {}", msg),
         None => log!("no panic record from the previous run"),
     }
@@ -304,7 +304,7 @@ async fn main(_spawner: Spawner) {
     let watchdog = async {
         Timer::after(CONFIGURE_TIMEOUT).await;
         if !CONFIGURED.load(Ordering::Relaxed) {
-            boot_guard::request_bootloader();
+            akko_boot_guard::request_bootloader();
         }
         core::future::pending::<()>().await
     };
@@ -312,7 +312,7 @@ async fn main(_spawner: Spawner) {
     let usb_side = join(join(join(device.run(), log_out), port_watch), join(commands, typing));
     let app_side = join(join(host_leds, state_led), watchdog);
     match select3(usb_side, app_side, esc.wait_for_falling_edge()).await {
-        Either3::First(_) | Either3::Second(_) | Either3::Third(()) => boot_guard::request_bootloader(),
+        Either3::First(_) | Either3::Second(_) | Either3::Third(()) => akko_boot_guard::request_bootloader(),
     }
 }
 
@@ -340,7 +340,7 @@ fn run_command(line: &[u8], type_request: &Signal<CriticalSectionRawMutex, ()>) 
         }
         b"type" => type_request.signal(()),
         b"panic" => panic!("requested over USB"),
-        b"dfu" => boot_guard::request_bootloader(),
+        b"dfu" => akko_boot_guard::request_bootloader(),
         _ => log!("unknown command \"{}\" (info, type, panic, dfu)", line.escape_ascii()),
     }
 }

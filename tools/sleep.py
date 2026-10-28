@@ -46,7 +46,7 @@ CHANNEL = 0xD7
 STOP_CHANNEL = 0xD9
 PANIC_CHANNEL = 0xD2
 STOP_ARG = {None: 0, "off": 1, "on": ord("S"), "diag": ord("D")}
-# The firmware's index for each setting (lighting/src/record.rs SLEEP_*).
+# The firmware's index for each setting (crates/akko-lighting/src/record.rs SLEEP_*).
 INDEX = {"never": 0, "1": 1, "3": 2, "5": 3, "10": 4, "20": 5, "30": 6, "default": 7}
 NAMES = {0: "never", 1: "1 min", 2: "3 min", 3: "5 min", 4: "10 min", 5: "20 min", 6: "30 min",
          7: "2 min (default)"}

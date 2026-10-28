@@ -17,7 +17,7 @@ impl Bootloader {
 
     async fn on_action_event(&mut self, e: ActionEvent) {
         if e.action == Action::KeyboardControl(KeyboardAction::Bootloader) && e.keyboard_event.pressed {
-            boot_guard::request_bootloader();
+            akko_boot_guard::request_bootloader();
         }
     }
 }

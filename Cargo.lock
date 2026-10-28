@@ -18,29 +18,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "akko-5075b-plus"
+name = "akko-boot-guard"
 version = "0.1.0"
-dependencies = [
- "boot-guard",
- "cortex-m",
- "cortex-m-rt",
- "embassy-executor",
- "embassy-futures",
- "embassy-sync",
- "embassy-time",
- "embassy-usb",
- "embedded-hal 1.0.0",
- "embedded-hal-async",
- "embedded-storage-async",
- "heapless 0.9.3",
- "lighting",
- "lzma-rs",
- "rmk",
- "serde_json",
- "wb32-hal",
- "wb32-pac",
- "wireless",
-]
+
+[[package]]
+name = "akko-lighting"
+version = "0.1.0"
 
 [[package]]
 name = "arraydeque"
@@ -134,10 +117,6 @@ checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
 dependencies = [
  "serde_core",
 ]
-
-[[package]]
-name = "boot-guard"
-version = "0.1.0"
 
 [[package]]
 name = "byteorder"
@@ -739,6 +718,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
+name = "firmware"
+version = "0.1.0"
+dependencies = [
+ "akko-boot-guard",
+ "akko-lighting",
+ "cortex-m",
+ "cortex-m-rt",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-sync",
+ "embassy-time",
+ "embassy-usb",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "embedded-storage-async",
+ "heapless 0.9.3",
+ "lzma-rs",
+ "qmk-wireless",
+ "rmk",
+ "serde_json",
+ "wb32-hal",
+ "wb32-pac",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -980,10 +984,6 @@ name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
-
-[[package]]
-name = "lighting"
-version = "0.1.0"
 
 [[package]]
 name = "litrs"
@@ -1241,6 +1241,10 @@ checksum = "200b9ff220857e53e184257720a14553b2f4aa02577d2ed9842d45d4b9654810"
 dependencies = [
  "cc",
 ]
+
+[[package]]
+name = "qmk-wireless"
+version = "0.1.0"
 
 [[package]]
 name = "quote"
@@ -1975,10 +1979,6 @@ checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 dependencies = [
  "memchr",
 ]
-
-[[package]]
-name = "wireless"
-version = "0.1.0"
 
 [[package]]
 name = "yaml-rust2"

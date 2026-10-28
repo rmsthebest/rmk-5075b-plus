@@ -5,7 +5,7 @@
 
 Builds QMK's rgb_matrix.c, color.c and lib8tion (with tools/rgbref/stubs
 for the rest of QMK, and g_led_config from the board's keyboard.json) into
-target/rgbref/qmk-rgb, and the Rust side (lighting/examples/rgbref.rs) for
+target/rgbref/qmk-rgb, and the Rust side (crates/akko-lighting/examples/rgbref.rs) for
 the host. Then runs the same scripts through both (see harness.c for the
 format): every effect under several configs, with key presses, effect
 changes, enable/flag toggles, suspend, and the timer near its 16-bit wrap.
@@ -73,7 +73,7 @@ def build(qmk):
            str(HERE / "harness.c"), str(OUT / "led_config.c"), str(q / "rgb_matrix/rgb_matrix.c"),
            str(q / "color.c"), str(qmk / "lib/lib8tion/lib8tion.c")]
     subprocess.run(cmd, check=True)
-    subprocess.run(["cargo", "build", "-q", "-p", "lighting", "--example", "rgbref",
+    subprocess.run(["cargo", "build", "-q", "-p", "akko-lighting", "--example", "rgbref",
                     "--target", "x86_64-unknown-linux-gnu"], cwd=ROOT, check=True)
     return OUT / "qmk-rgb", ROOT / "target/x86_64-unknown-linux-gnu/debug/examples/rgbref"
 

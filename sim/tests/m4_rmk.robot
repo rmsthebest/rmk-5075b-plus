@@ -511,7 +511,7 @@ The Last Run's Panic Message Is Readable Over Vial
     ...    the previous run's panic (record at 0x20007000), 28 bytes per request.
     Load Machine
     Execute Command    qspi WriteDoubleWord ${FLASH_ERASE} 1
-    ${msg}=    Set Variable    akko-5075b-plus/src/scan.rs:1:1: a simulated panic
+    ${msg}=    Set Variable    firmware/src/scan.rs:1:1: a simulated panic
     ${record}=    Evaluate    (lambda m: (lambda h: [0x43, 0x49, 0x4E, 0x50] + list(len(m).to_bytes(4, "little")) + list(h.to_bytes(4, "little")) + list(m))(__import__("functools").reduce(lambda h, b: ((h ^ b) * 0x01000193) & 0xFFFFFFFF, len(m).to_bytes(4, "little") + m, 0x811C9DC5)))($msg.encode())
     FOR    ${i}    ${b}    IN ENUMERATE    @{record}
         Execute Command    sysbus WriteByte ${{ 0x20007000 + ${i} }} ${b}
@@ -539,8 +539,8 @@ A Panic Resets Into The Keyboard, A Second One Enters DFU
     Wait For Log Entry    HOST: configured    timeout=4    pauseEmulation=true
     Run For    0.05
     Raw HID Send    0x08    0xD2    0
-    # "akko-5075b-plus/src/main.rs:" is the first 28 bytes.
-    Wait For Log Entry    HOST HID 3: 08 d2 00 [0-9a-f]{2} ${{ b"akko-5075b-plus/src/main.rs:".hex(" ") }}    timeout=1    treatAsRegex=true    pauseEmulation=true
+    # The message starts "firmware/src/main.rs:".
+    Wait For Log Entry    HOST HID 3: 08 d2 00 [0-9a-f]{2} ${{ b"firmware/src/main.rs:".hex(" ") }}    timeout=1    treatAsRegex=true    pauseEmulation=true
     Key    3    1    1
     HID Should Show    1    00 00 04 00 00 00 00 00
     Key    3    1    0
@@ -564,10 +564,11 @@ A Hang Trips The Watchdog: A Reset, Then DFU
     Wait For Log Entry    HOST: configured    timeout=4    pauseEmulation=true
     Run For    0.05
     Raw HID Send    0x08    0xD2    0
-    # The message starts "akko-5075b-plus/src/watchdog.rs:".
-    Wait For Log Entry    HOST HID 3: 08 d2 00 [0-9a-f]{2} ${{ b"akko-5075b-plus/src/watchdog".hex(" ") }}    timeout=1    treatAsRegex=true    pauseEmulation=true
+    # The message starts "firmware/src/watchdog.rs:LL:" (28 bytes with a
+    # two-digit line), and the second part is "CC: watchdog: ...".
+    Wait For Log Entry    HOST HID 3: 08 d2 00 [0-9a-f]{2} ${{ b"firmware/src/watchdog.rs:".hex(" ") }}    timeout=1    treatAsRegex=true    pauseEmulation=true
     Raw HID Send    0x08    0xD2    28
-    Wait For Log Entry    HOST HID 3: 08 d2 1c [0-9a-f]{2} ${{ b".rs:".hex(" ") }}    timeout=1    treatAsRegex=true    pauseEmulation=true
+    Wait For Log Entry    HOST HID 3: 08 d2 1c [0-9a-f]{2} (3[0-9] )+${{ b": watchdog: ".hex(" ") }}    timeout=1    treatAsRegex=true    pauseEmulation=true
     Key    3    1    1
     HID Should Show    1    00 00 04 00 00 00 00 00
     Key    3    1    0

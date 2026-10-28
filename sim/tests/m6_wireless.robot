@@ -296,7 +296,7 @@ A Release While The Link Is Down Reaches The Host On Reconnect
 
 Fn Y Held 3 s Pairs The Dongle Anew
     [Documentation]    The dongle's strings, VID/PID, clear, pair: the bytes of
-    ...    wireless/tests/wire_board.txt. A shorter hold doesn't pair.
+    ...    crates/qmk-wireless/tests/wire_board.txt. A shorter hold doesn't pair.
     Boot
     Run For    0.2
     Fn Hold    ${DONGLE}    2.5

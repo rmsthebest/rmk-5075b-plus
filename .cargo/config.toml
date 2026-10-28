@@ -9,10 +9,13 @@ rustflags = [
     # those strings are ~2.7 KB shorter. (Only matches this machine's cargo
     # home; elsewhere it does nothing.)
     "--remap-path-prefix=/home/tony/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/=",
+    # Library crates' panic locations without the "crates/" prefix: the
+    # message has to fit boot-guard's 120-byte record.
+    "--remap-path-prefix=crates/=",
 ]
 
 [env]
-KEYBOARD_TOML_PATH = { value = "akko-5075b-plus/rmk.toml", relative = true }
+KEYBOARD_TOML_PATH = { value = "firmware/rmk.toml", relative = true }
 # RMK's storage keeps the keymap (Vial edits) while this matches what it
 # was saved with (third_party/rmk/README-akko.md). Change it only when the
 # stored layout changes (rows, columns, layers, encoders): that resets the

@@ -1,10 +1,10 @@
 """Robot helpers for the LED tests: QMK's colour maths, and the LED layout
-from lighting/src/layout.rs."""
+from crates/akko-lighting/src/layout.rs."""
 
 import re
 from pathlib import Path
 
-_LAYOUT = (Path(__file__).resolve().parent / "../../lighting/src/layout.rs").read_text()
+_LAYOUT = (Path(__file__).resolve().parent / "../../crates/akko-lighting/src/layout.rs").read_text()
 POINTS = [(int(x), int(y)) for x, y in
           re.findall(r"\((\d+), (\d+)\)", _LAYOUT.split("pub const POINTS")[1].split("];")[0])]
 _CO = _LAYOUT.split("pub const MATRIX_CO:")[1].split("=", 1)[1].split("];")[0]

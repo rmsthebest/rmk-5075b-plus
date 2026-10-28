@@ -2,7 +2,7 @@
 // tools/rgbref/board.py lifts out, and rgb_record/) on top of QMK's
 // rgb_matrix.c, rgblight.c and process_rgb.c, compiled for the host and
 // driven by a script on stdin. Prints, as the Rust side
-// (lighting/examples/boardref.rs) does:
+// (crates/akko-lighting/examples/boardref.rs) does:
 //     <ms> <hex r g b per LED>        each frame the driver flushes
 //     P <ms> <0|1>                    the LED power pin (A8) changing
 //     S <ms>                          a sleep for the flat battery

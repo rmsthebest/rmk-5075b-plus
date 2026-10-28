@@ -5,8 +5,8 @@
 
 use std::io::{BufRead, Write};
 
-use lighting::board::{CHANNELS, KEYS};
-use lighting::{Board, Key};
+use akko_lighting::board::{CHANNELS, KEYS};
+use akko_lighting::{Board, Key};
 
 fn key(name: &str) -> Key {
     match name {

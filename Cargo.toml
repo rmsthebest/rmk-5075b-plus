@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["boot-guard", "wb32-pac", "wb32-hal", "lighting", "wireless", "akko-5075b-plus"]
+members = ["crates/*", "firmware"]
 
 [profile.release]
 # "z": smallest code and stack frames. Speed isn't the limit: the image

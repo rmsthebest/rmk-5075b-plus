@@ -1,16 +1,16 @@
 [package]
-name = "akko-5075b-plus"
+name = "firmware"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.5"
-boot-guard = { path = "../boot-guard", features = ["panic-dfu"] }
-wb32-hal = { path = "../wb32-hal" }
-lighting_crate = { package = "lighting", path = "../lighting" }
-wireless = { path = "../wireless" }
-wb32-pac = { path = "../wb32-pac", features = ["rt"] }
+akko-boot-guard = { path = "../crates/akko-boot-guard", features = ["panic-dfu"] }
+wb32-hal = { path = "../crates/wb32-hal" }
+akko-lighting = { path = "../crates/akko-lighting" }
+qmk-wireless = { path = "../crates/qmk-wireless" }
+wb32-pac = { path = "../crates/wb32-pac", features = ["rt"] }
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
 embassy-time = "0.5.1"
 embassy-futures = "0.1.2"
@@ -27,7 +27,7 @@ serde_json = "1"
 lzma-rs = "0.3"
 
 [features]
-always-dfu = ["boot-guard/always-dfu"]
+always-dfu = ["akko-boot-guard/always-dfu"]
 
 [[bin]]
 name = "m1a-bounce"

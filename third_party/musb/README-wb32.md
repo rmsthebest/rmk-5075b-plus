@@ -59,7 +59,7 @@ Later still (review against the reference manual RM2905025):
 - `control_pipe.rs`: a SETUP that isn't 8 bytes is acked and stalled. Before,
   `setup()` looped on it without clearing RxPktRdy until the watchdog reset.
 
-## Not here (in `wb32-hal/src/usb.rs`)
+## Not here (in `crates/wb32-hal/src/usb.rs`)
 
 Clocks, PHY, the D+ attach and the `POWER.SUSEN` / `INTRUSBE.SUSIE`
 re-arm after each bus reset are chip glue, ported from ChibiOS-contrib.

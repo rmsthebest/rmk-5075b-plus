@@ -1,5 +1,5 @@
 [package]
-name = "boot-guard"
+name = "akko-boot-guard"
 version = "0.1.0"
 edition = "2024"
 description = "Reset-time escape hatch into the WB32 ROM DFU bootloader"

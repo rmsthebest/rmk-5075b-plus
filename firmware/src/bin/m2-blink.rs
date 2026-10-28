@@ -7,7 +7,7 @@
 #![no_std]
 #![no_main]
 
-use boot_guard as _;
+use akko_boot_guard as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Instant, Ticker};
@@ -48,6 +48,6 @@ async fn main(_spawner: Spawner) {
     };
 
     match select(blink, esc.wait_for_falling_edge()).await {
-        Either::First(()) | Either::Second(()) => boot_guard::request_bootloader(),
+        Either::First(()) | Either::Second(()) => akko_boot_guard::request_bootloader(),
     }
 }

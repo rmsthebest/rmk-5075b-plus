@@ -8,8 +8,8 @@
 //! - wire_board.txt (dump_board.c): the md_devs_change part with this
 //!   board's strings and ARM's 2-byte wchar_t.
 
-use wireless::frame::{self, DeviceStrings, MAX_FRAME, Msg, utf16z};
-use wireless::Device;
+use qmk_wireless::frame::{self, DeviceStrings, MAX_FRAME, Msg, utf16z};
+use qmk_wireless::Device;
 
 fn hex(msg: &Msg) -> Option<String> {
     let mut buf = [0; MAX_FRAME];

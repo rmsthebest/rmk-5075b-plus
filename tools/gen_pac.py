@@ -3,7 +3,7 @@
 
     tools/gen_pac.py <wb32fq95xx.h> [--review BLOCK ...]
 
-Writes wb32-pac/src/lib.rs and wb32-pac/device.x. The API follows chiptool's
+Writes crates/wb32-pac/src/lib.rs and crates/wb32-pac/device.x. The API follows chiptool's
 (as used by embassy-stm32): `pac::RCC.apb1enr().modify(|w| w.set_gpioaen(true))`.
 
 - Register blocks and offsets come from the `typedef struct ... X_TypeDef`
@@ -28,7 +28,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "wb32-pac"
+OUT = ROOT / "crates/wb32-pac"
 OVERRIDES = ROOT / "tools" / "pac-overrides.toml"
 
 TYPES = {"uint8_t": 1, "uint16_t": 2, "uint32_t": 4}

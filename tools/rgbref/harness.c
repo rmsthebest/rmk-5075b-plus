@@ -1,7 +1,7 @@
 // QMK's rgb_matrix.c (and through it every effect), compiled for the host,
 // driven by a script on stdin. Prints each frame the driver flushes:
 //     <ms> <318 hex digits pairs: r g b per LED>
-// The script (one command a line, same as the Rust side, lighting/examples/rgbref.rs):
+// The script (one command a line, same as the Rust side, crates/akko-lighting/examples/rgbref.rs):
 //     cfg <enable> <mode> <h> <s> <v> <speed> <flags>
 //     key <row> <col> <pressed>
 //     run <from_ms> <to_ms> <step_ms>     rgb_matrix_task() at each ms in [from, to)

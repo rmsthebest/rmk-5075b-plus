@@ -4,9 +4,9 @@
 
 use std::collections::VecDeque;
 
-use wireless::frame::{Msg, devctrl};
-use wireless::rx::{self, Event};
-use wireless::{Device, DeviceStrings, Link, ModuleState};
+use qmk_wireless::frame::{Msg, devctrl};
+use qmk_wireless::rx::{self, Event};
+use qmk_wireless::{Device, DeviceStrings, Link, ModuleState};
 
 static STRINGS: DeviceStrings = DeviceStrings {
     bt_names: [b"Test BT1", b"Test BT2", b"Test BT3", b"Test BT4", b"Test BT5"],

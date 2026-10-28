@@ -37,7 +37,7 @@
 //! configured, once the module has reported a level, and on each change
 //! (`report_battery`).
 //!
-//! Saving: what QMK keeps in its EEPROM (`lighting_crate::record`) goes to
+//! Saving: what QMK keeps in its EEPROM (`akko_lighting::record`) goes to
 //! its own two sectors of the SPI flash, after RMK's window, written in
 //! turn: each save erases the older one, so a power cut mid-write leaves
 //! the other. A save waits until `SAVE_AFTER` without a key, and is
@@ -47,7 +47,7 @@
 //! action channel waits rather than drops, more than its 16 actions in that
 //! time would delay the keyboard, never lose keys.
 //!
-//! Vial's lighting tab speaks VialRGB (`lighting_crate::vialrgb`) through
+//! Vial's lighting tab speaks VialRGB (`akko_lighting::vialrgb`) through
 //! RMK's custom value hook (src/main.rs). Its reads answer from a copy of
 //! the effect kept here; its changes go to the task, which applies them at
 //! the next frame. As with a key, a change is saved after `SAVE_AFTER`
@@ -93,13 +93,13 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
-use lighting_crate::board::{CHANNELS, KEYS};
-use lighting_crate::record::{self, Record};
-use lighting_crate::engine::MAX_BRIGHTNESS;
-use lighting_crate::vialrgb;
+use akko_lighting::board::{CHANNELS, KEYS};
+use akko_lighting::record::{self, Record};
+use akko_lighting::engine::MAX_BRIGHTNESS;
+use akko_lighting::vialrgb;
 
 use crate::{power, radio};
-use lighting_crate::{Board, Key};
+use akko_lighting::{Board, Key};
 use rmk::event::{ActionEvent, ConnectionStatusChangeEvent, KeyboardEvent, KeyboardEventPos};
 use rmk::macros::processor;
 use rmk::processor::DeadlineProcessor;

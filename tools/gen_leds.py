@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate lighting/src/layout.rs from the QMK board's keyboard.json.
+"""Generate crates/akko-lighting/src/layout.rs from the QMK board's keyboard.json.
 
-    python3 -I tools/gen_leds.py [qmk-keyboard-dir] > lighting/src/layout.rs
+    python3 -I tools/gen_leds.py [qmk-keyboard-dir] > crates/akko-lighting/src/layout.rs
 
 rgb_matrix.layout, in chain order: each LED's position (x 0-224, y 0-64),
 its flags, and its matrix position if it has one. Also the matrix -> LED

@@ -4,7 +4,7 @@
 #![no_std]
 #![no_main]
 
-use boot_guard as _;
+use akko_boot_guard as _;
 // Device interrupt vectors (all DefaultHandler -> DFU).
 use wb32_pac as _;
 use cortex_m_rt::entry;
@@ -39,5 +39,5 @@ fn main() -> ! {
         cortex_m::asm::delay(4_000_000);
     }
 
-    boot_guard::request_bootloader()
+    akko_boot_guard::request_bootloader()
 }

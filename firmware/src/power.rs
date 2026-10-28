@@ -52,8 +52,8 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Instant, Timer};
 use wb32_hal::uart;
-use lighting_crate::board::{MD_STATE_DISCONNECTED, MD_STATE_PAIRING};
-use lighting_crate::record;
+use akko_lighting::board::{MD_STATE_DISCONNECTED, MD_STATE_PAIRING};
+use akko_lighting::record;
 use wb32_hal::gpio::{AnyPin, Input, Output, Port, Pull};
 
 use crate::radio;

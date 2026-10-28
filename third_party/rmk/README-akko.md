@@ -5,8 +5,8 @@ Akko 5075B Plus port. Changes, all marked `akko-5075b-plus`:
 
 - `src/host/via/mod.rs`: `set_custom_value_hook` lets the firmware answer
   VIA's id_custom_set_value, get_value and save (0x07-0x09). The keyboard
-  uses them for live scan diagnostics (see akko-5075b-plus/src/scan.rs) and
-  Vial's lighting tab (VialRGB, akko-5075b-plus/src/lighting.rs).
+  uses them for live scan diagnostics (see firmware/src/scan.rs) and
+  Vial's lighting tab (VialRGB, firmware/src/lighting.rs).
 - `src/keyboard.rs`: `set_action_hook` lets the firmware see each action
   before the keyboard processes it, replace it (Right Ctrl as App), or keep
   it (the board's lighting recording mode takes key presses; EE_CLR waits
@@ -17,7 +17,7 @@ Akko 5075B Plus port. Changes, all marked `akko-5075b-plus`:
 - `src/boot.rs`: `set_bootloader_hook` gives `jump_to_bootloader` (VIA's
   bootloader jump) the board's way into DFU (boot-guard).
 - `src/channel.rs`: `set_report_hook` lets the firmware take reports before
-  any transport (the radio module on UART3, akko-5075b-plus/src/radio.rs,
+  any transport (the radio module on UART3, firmware/src/radio.rs,
   which RMK doesn't know), and `release_usb_reports` leaves USB an all-up
   report when the reports move to the radio.
 - `src/hid.rs`: `set_host_leds` sets the host's lock LEDs from outside a

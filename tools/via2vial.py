@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Write akko-5075b-plus/vial.json from the VIA definition.
+"""Write firmware/vial.json from the VIA definition.
 
-    python3 -I tools/via2vial.py [via.json] > akko-5075b-plus/vial.json
+    python3 -I tools/via2vial.py [via.json] > firmware/vial.json
 
 Default input: ../akko_5075b_plus_via.json. Keeps what Vial uses: the name,
 VID/PID, matrix, the KLE layout (with its encoder entries, "row,col\\n...\\ne")

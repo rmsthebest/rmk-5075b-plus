@@ -9,14 +9,14 @@ blink, indicator and battery functions of 5075b_plus.c (lifted out by name;
 the rest of that file is wireless code the harness doesn't model),
 rgb_record/ and keymaps/via/keymap.c's default recordings, on top of QMK's
 rgb_matrix.c, rgblight.c and process_rgb.c. The Rust side is
-lighting/examples/boardref.rs. Both run the same scripts (format in
+crates/akko-lighting/examples/boardref.rs. Both run the same scripts (format in
 board_harness.c): boots, the RGB keys, side lights, recording, EE_CLR,
 USB and the factory LED test, the connection and battery indicators, and
 random key sequences. Every flushed frame, power pin change, sleep request
 and state dump must match.
 
 The Rust changes a few of the vendor's battery behaviours on purpose (see
-lighting/src/board.rs); `FIXES` makes the same changes to the C. The Rust's
+crates/akko-lighting/src/board.rs); `FIXES` makes the same changes to the C. The Rust's
 lights-off battery flash has no C counterpart, so the Rust side runs
 without it.
 """
@@ -134,7 +134,7 @@ def gen(qmk):
     cfg += [f'#include "{board / "config.h"}"']
     # The Rust keeps fewer blink slots than the vendor's 99; compare the
     # logic at the same count.
-    blinks = re.search(r"const BLINKS: usize = (\d+);", (ROOT / "lighting/src/board.rs").read_text()).group(1)
+    blinks = re.search(r"const BLINKS: usize = (\d+);", (ROOT / "crates/akko-lighting/src/board.rs").read_text()).group(1)
     cfg += ["#undef HS_RGB_INDICATOR_COUNT", f"#define HS_RGB_INDICATOR_COUNT {blinks}"]
     (OUT / "config.h").write_text("\n".join(cfg) + "\n")
 
@@ -202,7 +202,7 @@ def build(qmk):
            str(OUT / "rgb_record.c"), str(board / "rgb_record/rgb_effect.c"),
            str(board / "rgb_record/rgb_rgblight.c")]
     subprocess.run(cmd, check=True)
-    subprocess.run(["cargo", "build", "-q", "-p", "lighting", "--example", "boardref",
+    subprocess.run(["cargo", "build", "-q", "-p", "akko-lighting", "--example", "boardref",
                     "--target", "x86_64-unknown-linux-gnu"], cwd=ROOT, check=True)
     return run.OUT / "qmk-board", ROOT / "target/x86_64-unknown-linux-gnu/debug/examples/boardref"
 

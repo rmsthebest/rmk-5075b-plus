@@ -226,7 +226,7 @@ A Panic Resets Into The Firmware, A Second One Enters DFU
     Run For    0.3
     Host State Should Be    2
     Host    0x01
-    CDC Should Show    previous run panicked: akko-5075b-plus/src/bin/m3-usb.rs:\\d+:\\d+: requested over USB
+    CDC Should Show    previous run panicked: firmware/src/bin/m3-usb.rs:\\d+:\\d+: requested over USB
     Send Line    panic
     Run For    0.01
     PC Should Be In ROM
@@ -235,7 +235,7 @@ A Panic Resets Into The Firmware, A Second One Enters DFU
     Run For    0.3
     Host State Should Be    2
     Host    0x01
-    CDC Should Show    previous run panicked: akko-5075b-plus/src/bin/m3-usb.rs:\\d+:\\d+: requested over USB
+    CDC Should Show    previous run panicked: firmware/src/bin/m3-usb.rs:\\d+:\\d+: requested over USB
     # Reported once only: the boot after that finds no record. And DFU
     # cleared the count: the next panic resets into the firmware again.
     Execute Command    sysbus WriteDoubleWord ${AIRCR} ${SYSRESETREQ}

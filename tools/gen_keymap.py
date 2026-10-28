@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate akko-5075b-plus/src/keymap.rs from the QMK VIA keymap.
+"""Generate firmware/src/keymap.rs from the QMK VIA keymap.
 
-    python3 -I tools/gen_keymap.py [qmk-keyboard-dir] > akko-5075b-plus/src/keymap.rs
+    python3 -I tools/gen_keymap.py [qmk-keyboard-dir] > firmware/src/keymap.rs
 
 Reads keymaps/via/keymap.c (the layers and the encoder map) and keyboard.json
 (LAYOUT_iso's key order -> matrix positions) from the QMK keyboard directory,

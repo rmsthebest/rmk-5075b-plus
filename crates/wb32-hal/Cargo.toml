@@ -20,4 +20,4 @@ embassy-usb-driver = "0.2.0"
 embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.1"
 # Vendored musb 0.3.1 plus our WB32 profile (third_party/musb/README-wb32.md).
-musb = { path = "../third_party/musb", default-features = false, features = ["prebuild", "builtin-wb32fq95", "embassy-usb-driver-impl"] }
+musb = { path = "../../third_party/musb", default-features = false, features = ["prebuild", "builtin-wb32fq95", "embassy-usb-driver-impl"] }

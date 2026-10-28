@@ -54,7 +54,7 @@ mod scan;
 mod stop;
 mod watchdog;
 
-use boot_guard as _;
+use akko_boot_guard as _;
 use embassy_executor::Spawner;
 use rmk::config::{BehaviorConfig, DeviceConfig, PositionalConfig, RmkConfig, StorageConfig, VialConfig};
 use rmk::host::HostService;
@@ -130,11 +130,11 @@ const STABLE_AFTER: Duration = Duration::from_secs(60);
 /// The LED chain's colours as sent (the WS2812 driver's), and the lighting
 /// state.
 #[unsafe(link_section = ".ram2")]
-static mut LED_FRAME: MaybeUninit<[[u8; 3]; lighting_crate::layout::LED_COUNT]> = MaybeUninit::uninit();
+static mut LED_FRAME: MaybeUninit<[[u8; 3]; akko_lighting::layout::LED_COUNT]> = MaybeUninit::uninit();
 #[unsafe(link_section = ".ram2")]
-static mut LIGHTING: MaybeUninit<lighting_crate::Board> = MaybeUninit::uninit();
+static mut LIGHTING: MaybeUninit<akko_lighting::Board> = MaybeUninit::uninit();
 #[unsafe(link_section = ".ram2")]
-static mut LIGHTING_RECORD: MaybeUninit<[u8; lighting_crate::record::LEN]> = MaybeUninit::uninit();
+static mut LIGHTING_RECORD: MaybeUninit<[u8; akko_lighting::record::LEN]> = MaybeUninit::uninit();
 /// The SPI flash, shared by RMK's storage and the lighting's.
 #[unsafe(link_section = ".ram2")]
 static mut NOR: MaybeUninit<SharedNor> = MaybeUninit::uninit();
@@ -191,7 +191,7 @@ fn keymap_parts() -> (
 /// The previous run's panic message and its length, taken from boot-guard
 /// at start-up, before `custom_get_value` is hooked in; read-only after.
 #[unsafe(link_section = ".ram2")]
-static mut PANIC_MSG: MaybeUninit<([u8; boot_guard::PANIC_MSG_MAX], usize)> = MaybeUninit::uninit();
+static mut PANIC_MSG: MaybeUninit<([u8; akko_boot_guard::PANIC_MSG_MAX], usize)> = MaybeUninit::uninit();
 
 /// VIA id_custom_set_value, get_value and save: `buf` is the 32-byte reply,
 /// pre-filled with the request <command> <channel> <arg>. Vial's lighting
@@ -320,9 +320,9 @@ impl<F: Future> Future for OwnFrame<F> {
 /// out of line, for main's frame (see `OwnFrame`).
 #[inline(never)]
 fn keep_panic_message() {
-    let mut msg = [0; boot_guard::PANIC_MSG_MAX];
-    let mut buf = [0; boot_guard::PANIC_MSG_MAX];
-    let len = boot_guard::take_panic_message(&mut buf).map_or(0, |text| {
+    let mut msg = [0; akko_boot_guard::PANIC_MSG_MAX];
+    let mut buf = [0; akko_boot_guard::PANIC_MSG_MAX];
+    let len = akko_boot_guard::take_panic_message(&mut buf).map_or(0, |text| {
         msg[..text.len()].copy_from_slice(text.as_bytes());
         text.len()
     });
@@ -413,7 +413,7 @@ async fn main(_spawner: Spawner) {
         (
             ram2_zeroed(&raw mut LED_FRAME),
             // Built in place: it's 2 KB.
-            lighting_crate::Board::new_in(
+            akko_lighting::Board::new_in(
                 &mut *&raw mut LIGHTING,
                 store.record(),
                 lighting::Lighting::recordings(),
@@ -426,7 +426,7 @@ async fn main(_spawner: Spawner) {
     board.vendor.usb_active = false;
     let flags = store.record().map_or(0, |r| r.flags());
     lighting::set_flags(flags, store.record().map_or(0, |r| r.flags2()));
-    power::set_setting(store.record().map_or(lighting_crate::record::SLEEP_DEFAULT, |r| r.sleep()));
+    power::set_setting(store.record().map_or(akko_lighting::record::SLEEP_DEFAULT, |r| r.sleep()));
     radio::set_saved_flags(flags);
     let mut lights = lighting::Lighting::new(
         board,
@@ -442,11 +442,11 @@ async fn main(_spawner: Spawner) {
     let mut power = power::Power::new();
     let mut radio = radio::Radio::new(Uart3::new(p.PC10, p.PC11, radio::BAUD, PRIO_UART), usb_power);
     // Vial's "bootloader" button: DFU, as QK_BOOT (src/bootloader.rs).
-    rmk::boot::set_bootloader_hook(boot_guard::request_bootloader);
+    rmk::boot::set_bootloader_hook(akko_boot_guard::request_bootloader);
 
     let stable = async {
         Timer::after(STABLE_AFTER).await;
-        boot_guard::mark_stable();
+        akko_boot_guard::mark_stable();
     };
     // As run_all!, but each one polled from its own frame (`OwnFrame`):
     // inlined, a join's poll frame is the sum of its children's, and it is
