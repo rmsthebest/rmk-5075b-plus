@@ -148,6 +148,8 @@ pub struct Store {
     seq: u32,
     crc: u32,
     save_at: Option<u32>,
+    /// A save asked for (Vial's), which keys don't put off.
+    asked: bool,
 }
 
 impl Store {
@@ -165,7 +167,7 @@ impl Store {
             [None, Some(_)] => Some(1),
             [None, None] => None,
         };
-        let mut s = Store { flash, buf, current, seq: 0, crc: 0, save_at: None };
+        let mut s = Store { flash, buf, current, seq: 0, crc: 0, save_at: None, asked: false };
         if let Some(c) = current {
             // The second read left sector 1 in `buf`.
             if c == 0 && s.flash.read(0, s.buf).await.is_err() {
@@ -188,6 +190,9 @@ impl Store {
     }
 
     fn touch(&mut self, now: u32) {
+        if self.asked {
+            return;
+        }
         self.save_at = Some(now.wrapping_add(SAVE_AFTER));
     }
 
@@ -198,6 +203,7 @@ impl Store {
     /// Writes `board`'s settings if they changed since the last save.
     async fn save(&mut self, board: &Board) {
         self.save_at = None;
+        self.asked = false;
         record::encode(board, flags(), flags2(), crate::power::setting(), self.seq, self.buf);
         if self.current.is_some() && record::stored_crc(self.buf) == self.crc {
             return;
@@ -521,6 +527,7 @@ impl Lighting {
         }
         if VIAL_SAVE.swap(false, Ordering::Relaxed) {
             self.store.save_at = Some(now);
+            self.store.asked = true;
         }
     }
 
