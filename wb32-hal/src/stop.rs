@@ -182,7 +182,6 @@ pub fn enter(opts: Opts, mark: impl Fn(Mark)) -> Option<u32> {
     mark(Mark::Woke);
     post_lp(opts.settle);
     unsafe { scb.scr.modify(|v| v & !SLEEPDEEP) };
-    let fired = EXTI.pr().read().0;
 
     if opts.restart_clocks {
         rcc::clocks_off();
@@ -194,6 +193,9 @@ pub fn enter(opts: Opts, mark: impl Fn(Mark)) -> Option<u32> {
     RCC.ahbenr1().write_value(ahb.1);
     RCC.ahbenr2().write_value(ahb.2);
     usb.restore();
+    // Only now: EXTI's clock is among those a stop resets (on the board,
+    // read before this it said no line fired).
+    let fired = EXTI.pr().read().0;
     TIM2.cr1().write_value(tim2);
     unsafe { syst.csr.modify(|v| v | SYST_ENABLE) };
     mark(Mark::Clocked);
