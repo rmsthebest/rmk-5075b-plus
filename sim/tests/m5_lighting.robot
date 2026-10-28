@@ -750,6 +750,28 @@ On USB The Lights Go Off 7 s After The Host Suspends
     LED Power Should Be    ${True}
     No LED Errors
 
+Before The Module Tells The Level, The Host Reads 100%
+    [Documentation]    M7e: a GET_REPORT of the battery before the module has
+    ...    told the level gets a stand-in, 100% and not charging, not a stall
+    ...    (a failed first read makes upower ignore the battery until it
+    ...    restarts); the first real level replaces it. The module here ACKs
+    ...    nothing at first, so the inquiry never goes out.
+    Create Log Tester    3
+    Execute Command    include @${SIM}/akko.resc
+    Execute Command    uart3 WriteDoubleWord ${RADIO_FLAGS} ${{ 1 | (57 << 8) }}
+    Execute Command    qspi WriteDoubleWord ${FLASH_ERASE} 1
+    Execute Command    sysbus LoadELF @${RMK}
+    Execute Command    machine Reset
+    Wait For Log Entry    HOST: configured    timeout=4    pauseEmulation=true
+    Run For    0.5
+    Execute Command    usb WriteDoubleWord ${HOST_CMD} ${{ 0x0C | (5 << 8) | (1 << 16) }}
+    Wait For Log Entry    HOST: GET_REPORT\\(input 5\\) -> 3 bytes: 05 64 00    timeout=1    treatAsRegex=true    pauseEmulation=true
+    Should Not Be In Log    HOST HID 2: 05    timeout=0
+    Set Battery    57
+    Wait For Log Entry    HOST HID 2: 05 39 0[01]    timeout=4    treatAsRegex=true    pauseEmulation=true
+    Execute Command    usb WriteDoubleWord ${HOST_CMD} ${{ 0x0C | (5 << 8) | (1 << 16) }}
+    Wait For Log Entry    HOST: GET_REPORT\\(input 5\\) -> 3 bytes: 05 39 0[01]    timeout=1    treatAsRegex=true    pauseEmulation=true
+
 On USB The Battery Is Reported To The Host
     [Documentation]    M7e: report 0x05 on the composite interface (RMK's
     ...    hid.rs BatteryReport): the level the module reports, 0-100, and

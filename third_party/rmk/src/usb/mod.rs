@@ -624,14 +624,16 @@ pub(crate) use usb_hid_state_and_config;
 pub(crate) struct UsbRequestHandler {}
 
 impl RequestHandler for UsbRequestHandler {
-    /// akko-5075b-plus: the battery report (id 0x05), once known; anything
-    /// else stalls, as before.
+    /// akko-5075b-plus: the battery report (id 0x05); anything else stalls,
+    /// as before. Before the level is known, 100% and not charging: a stall
+    /// fails Linux's first read and upower then ignores the battery until it
+    /// restarts, while a stand-in is replaced by the first real report.
     fn get_report(&mut self, id: ReportId, buf: &mut [u8]) -> Option<usize> {
         let ReportId::In(id) = id else { return None };
         if id != CompositeReportType::Battery as u8 {
             return None;
         }
-        let report = crate::hid::battery_now()?;
+        let report = crate::hid::battery_now().unwrap_or(crate::hid::BatteryReport { level: 100, charging: false });
         let (first, rest) = buf.split_first_mut()?;
         *first = id;
         Some(1 + report.serialize(rest).ok()?)

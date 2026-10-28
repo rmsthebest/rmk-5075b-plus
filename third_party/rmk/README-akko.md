@@ -30,9 +30,10 @@ Akko 5075B Plus port. Changes, all marked `akko-5075b-plus`:
   sends it only while configured (it must not wake a suspended host) and
   drops it after 20 ms if the host isn't reading, as steno's reports, so it
   can't hold up the keys. The BLE report map is unchanged. `UsbRequestHandler`
-  answers a GET_REPORT of it from `set_battery_now` (stalls before it's
-  known): Linux reads the battery as soon as it appears, and upower ignores
-  a battery whose first read failed until it restarts.
+  answers a GET_REPORT of it from `set_battery_now` (100% and not charging
+  before it's known, not a stall): Linux reads the battery as soon as it
+  appears, and upower ignores a battery whose first read failed until it
+  restarts.
 - `build.rs`: `RMK_BUILD_HASH` in the environment (set in .cargo/config.toml)
   replaces the storage build hash, which was the commit and the build time.
   Storage reinitialises (the keymap back to the default) when the hash
