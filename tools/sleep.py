@@ -25,11 +25,15 @@ replug.
                      stops anyway, 4 the knob doesn't wake it, 8 the lines
                      are EXTI events too, 16 100x the delay after waking,
                      32 the PLL turned off before the clocks restart
+  panic              print why the previous run ended, if it panicked (a
+                     stop that can't get its clocks back panics and
+                     restarts the keyboard; channel 0xD2)
   stop               print whether it's on, and how many stops so far
                      (and how many a key, the knob or the cable ended)
 
 Usage: python3 -I tools/sleep.py [never|1|3|5|10|20|30|default]
        python3 -I tools/sleep.py stop [on|off|diag [N]]
+       python3 -I tools/sleep.py panic
 """
 
 import os
@@ -40,6 +44,7 @@ from pathlib import Path
 
 CHANNEL = 0xD7
 STOP_CHANNEL = 0xD9
+PANIC_CHANNEL = 0xD2
 STOP_ARG = {None: 0, "off": 1, "on": ord("S"), "diag": ord("D")}
 # The firmware's index for each setting (lighting/src/record.rs SLEEP_*).
 INDEX = {"never": 0, "1": 1, "3": 2, "5": 3, "10": 4, "20": 5, "30": 6, "default": 7}
@@ -81,8 +86,26 @@ def ask(channel, arg, more=0):
         os.close(fd)
 
 
+def last_panic():
+    """The previous run's panic message over 0xD2 (as tools/bench.py reads
+    it): 28 bytes at a time from offset byte 2; byte 3 is the length."""
+    msg, off, total = b"", 0, None
+    while total is None or off < total:
+        data = ask(PANIC_CHANNEL, off)
+        total = data[3]
+        part = data[4:4 + min(28, total - off)]
+        if not part:
+            break
+        msg, off = msg + part, off + len(part)
+    return msg.decode(errors="replace")
+
+
 def main():
     args = sys.argv[1:]
+    if args == ["panic"]:
+        msg = last_panic()
+        print(f"previous run panicked: {msg}" if msg else "no panic in the previous run")
+        return
     if args[:1] == ["stop"] and (args[1:] or [None])[0] in STOP_ARG:
         variant = 0
         if args[1:2] == ["diag"] and len(args) == 3 and args[2].isdigit() and int(args[2]) < 64:
