@@ -19,11 +19,12 @@ replug.
   stop diag [N]      stop mode on, with the Caps and Win-lock LEDs showing
                      how far the last stop got: Caps alone, it never
                      woke; both, it woke but its clocks didn't come back;
-                     Win-lock alone, it got out of the stop. N (0-31, 0 by
+                     Win-lock alone, it got out of the stop. N (0-63, 0 by
                      default) adds variants, summed: 1 rows and UART wake
                      on both edges, 2 pending interrupts cleared and it
                      stops anyway, 4 the knob doesn't wake it, 8 the lines
-                     are EXTI events too, 16 100x the delay after waking
+                     are EXTI events too, 16 100x the delay after waking,
+                     32 the PLL turned off before the clocks restart
   stop               print whether it's on, and how many stops so far
                      (and how many a key, the knob or the cable ended)
 
@@ -84,7 +85,7 @@ def main():
     args = sys.argv[1:]
     if args[:1] == ["stop"] and (args[1:] or [None])[0] in STOP_ARG:
         variant = 0
-        if args[1:2] == ["diag"] and len(args) == 3 and args[2].isdigit() and int(args[2]) < 32:
+        if args[1:2] == ["diag"] and len(args) == 3 and args[2].isdigit() and int(args[2]) < 64:
             variant = int(args[2])
         elif len(args) > 2:
             sys.exit(__doc__.strip())

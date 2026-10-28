@@ -10,7 +10,7 @@
 //! 3. SLEEPDEEP, WFI;
 //! 4. POST_LP: the window again; ANCTL+0x004 back to the trim in the info
 //!    page (`*(u8 *)0x1FFF_F310 & 0xF`) if it differs; a 35-loop delay;
-//! 5. SLEEPDEEP off, the clocks back up (`rcc::init`, as the vendor's
+//! 5. SLEEPDEEP off, the clocks back up (`rcc::reinit`, as the vendor's
 //!    `__early_init`), the peripheral clock enables as they were, SysTick on.
 //!
 //! The caller sets up the EXTI lines to wake on. Where the vendor clears
@@ -66,11 +66,18 @@ pub struct Opts {
     pub clear_pending: bool,
     /// POST_LP's delay loop count (the vendor's 35).
     pub settle: u32,
+    /// Not the vendor's: back on the internal clock with the PLL off before
+    /// the clocks are set up again (`rcc::clocks_off`).
+    pub restart_clocks: bool,
 }
 
 impl Opts {
-    pub const VENDOR: Opts = Opts { clear_pending: false, settle: 35 };
+    pub const VENDOR: Opts = Opts { clear_pending: false, settle: 35, restart_clocks: false };
 }
+
+/// Reads of PLLSR out of a stop before giving up (`rcc::reinit`): well
+/// over a second at the 8 MHz the chip wakes on.
+const PLL_POLLS: u32 = 1_000_000;
 
 /// Clears what would end a WFI at once, as the vendor's wb32_stop_mode:
 /// every EXTI line, every NVIC line and SysTick's.
@@ -140,7 +147,10 @@ pub fn enter(opts: Opts, mark: impl Fn(Mark)) -> Option<u32> {
     unsafe { scb.scr.modify(|v| v & !SLEEPDEEP) };
     let fired = EXTI.pr().read().0;
 
-    rcc::init();
+    if opts.restart_clocks {
+        rcc::clocks_off();
+    }
+    rcc::reinit(PLL_POLLS);
     RCC.apb1enr().write_value(apb1);
     RCC.apb2enr().write_value(apb2);
     RCC.ahbenr0().write_value(ahb.0);

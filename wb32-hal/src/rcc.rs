@@ -21,6 +21,7 @@ const HSE_STARTUP_TIMEOUT: u32 = 48_000;
 /// PLLCR.PLLMUL encoding: 0 = x24, 1 = x20, 2 = x16, 3 = x12.
 const PLLMUL_X16: u8 = 2;
 /// RCC.MAINCLKSRC / RCC.PLLSRC values.
+const MAINCLKSRC_MHSI: u32 = 0;
 const MAINCLKSRC_PLL: u32 = 2;
 const PLLSRC_HSE: u32 = 1;
 
@@ -40,6 +41,32 @@ fn anctl_lock() {
 /// Call once, first thing in `main`. Panics (and so resets into DFU) if the
 /// crystal doesn't start, where ChibiOS would hang.
 pub fn init() {
+    setup(None);
+}
+
+/// [`init`] again, out of stop mode: the same, but a PLL that doesn't lock
+/// in `pll_polls` reads of PLLSR panics (a reset, with the reason kept for
+/// Vial 0xD2) where `init` would wait for ever, as ChibiOS does.
+pub fn reinit(pll_polls: u32) {
+    setup(Some(pll_polls));
+}
+
+/// Back on the 8 MHz internal clock with the PLL off (a diagnostic, before
+/// [`reinit`]: a PLL left on through a stop gets a fresh start).
+pub fn clocks_off() {
+    anctl_unlock();
+    RCC.mainclksrc().write_value(rcc::regs::Mainclksrc(MAINCLKSRC_MHSI));
+    RCC.mainclkuen().write_value(rcc::regs::Mainclkuen(1));
+    ANCTL.pllenr().write(|w| w.set_pllon(false));
+    for _ in 0..10_000 {
+        if ANCTL.pllsr().read().0 & 0x03 == 0 {
+            break;
+        }
+    }
+    anctl_lock();
+}
+
+fn setup(pll_polls: Option<u32>) {
     // Turn off the power-on-reset circuit, as ChibiOS does.
     anctl_unlock();
     ANCTL.porcr().write_value(anctl::regs::Porcr(0x7BE));
@@ -83,7 +110,15 @@ pub fn init() {
     RCC.pllpre().modify(|w| w.set_diven(true));
     ANCTL.pllcr().write(|w| w.set_pllmul(PLLMUL_X16));
     ANCTL.pllenr().write(|w| w.set_pllon(true));
-    while ANCTL.pllsr().read().0 != 0x03 {}
+    let mut polls = 0u32;
+    while ANCTL.pllsr().read().0 != 0x03 {
+        if let Some(max) = pll_polls {
+            polls += 1;
+            if polls >= max {
+                panic!("stop: PLL didn't lock, PLLSR {:#x} HSESR {:#x}", ANCTL.pllsr().read().0, ANCTL.hsesr().read().0);
+            }
+        }
+    }
 
     RCC.mainclksrc().write_value(rcc::regs::Mainclksrc(MAINCLKSRC_PLL));
     RCC.mainclkuen().write_value(rcc::regs::Mainclkuen(1));

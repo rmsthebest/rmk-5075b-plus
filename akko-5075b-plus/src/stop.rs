@@ -72,7 +72,9 @@ pub const VARIANT_NO_KNOB: u8 = 1 << 2;
 pub const VARIANT_EVENTS: u8 = 1 << 3;
 /// Not the vendor's: 100 times POST_LP's delay.
 pub const VARIANT_SLOW_SETTLE: u8 = 1 << 4;
-pub const VARIANTS: u8 = (1 << 5) - 1;
+/// Not the vendor's: the PLL turned off before the clocks are set up again.
+pub const VARIANT_RESTART_CLOCKS: u8 = 1 << 5;
+pub const VARIANTS: u8 = (1 << 6) - 1;
 
 const CAPS_LED: u32 = 1 << 5;
 const WIN_LOCK_LED: u32 = 1 << 0;
@@ -98,6 +100,7 @@ pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
     let opts = wb32_hal::stop::Opts {
         clear_pending: v & VARIANT_CLEAR_PENDING != 0,
         settle: wb32_hal::stop::Opts::VENDOR.settle * if v & VARIANT_SLOW_SETTLE != 0 { 100 } else { 1 },
+        restart_clocks: v & VARIANT_RESTART_CLOCKS != 0,
     };
     let emr_was = EXTI.emr().read().0;
     // SAFETY: C11 is UART3's RX; it's an input only while stopped.
