@@ -446,18 +446,30 @@ def rmk_raw_hid():
 def do_crash(job):
     """One deliberate panic (Vial channel 0xD3): RMK should reset into itself
     and report it. A second within 60 s would go to DFU, so this sends one."""
+    provoke(job, 0xD3, "P", "Panic requested", "requested over Vial")
+
+
+def do_hang(job):
+    """One deliberate hang (Vial channel 0xD8): the software watchdog should
+    panic within about 2 s, and RMK reset into itself and report it. As a
+    crash, a second within 60 s would go to DFU."""
+    provoke(job, 0xD8, "H", "Hang requested (the keys stop for about 2 s)", "src/watchdog.rs")
+
+
+def provoke(job, channel, confirm, said, expect):
     path = rmk_raw_hid()
     if not path:
         raise RuntimeError("akko-rmk isn't connected")
     fd = os.open(path, os.O_RDWR)
     try:
-        os.write(fd, bytes([0x00, 0x08, 0xD3, ord("P")]) + bytes(29))
+        os.write(fd, bytes([0x00, 0x08, channel, ord(confirm)]) + bytes(29))
     except OSError:
         pass  # it may reset before the write returns
     finally:
         os.close(fd)
-    job.say("Panic requested. Waiting for the keyboard to come back...")
-    time.sleep(1.0)
+    job.say(f"{said}. Waiting for the keyboard to come back...")
+    # A hang keeps the old device on the bus until the watchdog resets it.
+    time.sleep(3.0 if channel == 0xD8 else 1.0)
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if job.cancel.is_set():
@@ -472,7 +484,7 @@ def do_crash(job):
                 msg = read_panic_message(fd)
             finally:
                 os.close(fd)
-            if msg and "requested over Vial" in msg:
+            if msg and expect in msg:
                 job.say(f"Back in RMK, which reports: {msg}")
                 return
             raise RuntimeError(f"back in RMK, but the panic report was {msg!r}")
@@ -490,6 +502,7 @@ ACTIONS = {
     "flash-qmk": ("Flash QMK", do_flash_qmk),
     "capture": ("Capture 60 s", do_capture),
     "crash": ("Test crash recovery", do_crash),
+    "hang": ("Test watchdog", do_hang),
     "reset": ("Leave DFU", do_reset),
 }
 
