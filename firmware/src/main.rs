@@ -64,7 +64,9 @@ use rmk::keyboard::Keyboard;
 use rmk::processor::builtin::led_indicator::KeyboardIndicatorProcessor;
 use rmk::types::led_indicator::LedIndicatorType;
 use rmk::usb::UsbTransport;
-use rmk::{KeymapData, initialize_keymap_and_storage};
+use rmk::KeymapData;
+use rmk::keymap::KeyMap;
+use rmk::storage::Storage;
 use core::future::Future;
 use core::mem::MaybeUninit;
 use core::pin::Pin;
@@ -73,7 +75,7 @@ use embassy_time::{Duration, Timer};
 use wb32_hal::exti::ExtiInput;
 use wb32_hal::gpio::{AnyPin, Input, Level, Output, Pins, Pull};
 use wb32_hal::qspi::Qspi;
-use wb32_hal::spi_nor::{SharedNor, SpiNor};
+use wb32_hal::spi_nor::{Partition, SharedNor, SpiNor};
 use wb32_hal::uart::Uart3;
 use wb32_hal::ws2812::Ws2812;
 use wb32_hal::{rcc, time_driver, usb};
@@ -179,6 +181,23 @@ static mut KEYMAP_DATA: MaybeUninit<KeymapData<ROW, COL, NUM_LAYER, NUM_ENCODER>
 static mut BEHAVIOR: MaybeUninit<BehaviorConfig> = MaybeUninit::uninit();
 #[unsafe(link_section = ".ram2")]
 static mut POSITIONAL: MaybeUninit<PositionalConfig<ROW, COL>> = MaybeUninit::uninit();
+
+/// RMK's storage (about 1 KB with its buffer and caches), built in place by
+/// `init_storage`. Returned by value, as rmk's initialize_keymap_and_storage
+/// does, it was copied through main's poll frame and the start-up one, which
+/// with the first layout write made the stack's deepest point.
+#[unsafe(link_section = ".ram2")]
+static mut STORAGE: MaybeUninit<Storage<Partition<'static>>> = MaybeUninit::uninit();
+
+/// Opens RMK's storage into STORAGE (rmk's initialize_keymap_and_storage,
+/// without returning it). Poll it from an `OwnFrame`.
+///
+/// # Safety
+/// Once.
+async unsafe fn init_storage(flash: Partition<'static>, config: &StorageConfig) -> &'static mut Storage<Partition<'static>> {
+    let storage = Storage::new(flash, config).await;
+    unsafe { (*&raw mut STORAGE).write(storage) }
+}
 
 /// Builds the keymap's data and settings in their .ram2 slots; out of line,
 /// so the 3.3 KB `KeymapData` is built in a frame that's gone after
@@ -427,8 +446,9 @@ async fn main(_spawner: Spawner) {
     };
 
     let (data, behavior, positional) = keymap_parts();
-    let (keymap, mut storage) =
-        OwnFrame(initialize_keymap_and_storage(data, flash, &rmk_config.storage_config, behavior, positional)).await;
+    // SAFETY: main runs once.
+    let storage = OwnFrame(unsafe { init_storage(flash, &rmk_config.storage_config) }).await;
+    let keymap = OwnFrame(KeyMap::new_from_storage(data, Some(&mut *storage), behavior, positional)).await;
 
     rmk::host::set_custom_value_hook(custom_value);
     let mut knob = knob;

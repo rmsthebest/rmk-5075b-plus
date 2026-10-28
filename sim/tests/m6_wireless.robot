@@ -261,7 +261,7 @@ Start-up Talks To The Module As QMK Does
     ...    a battery inquiry, which the module answers. UART3 is set up as
     ...    QMK's (uart3.py checks the divider and line settings).
     Start
-    # On a blank flash RMK writes the default keymap first (~2.8 s).
+    # RMK opens its storage first.
     Radio Should Get    a6 70 16    timeout=5
     Radio Should Get    a6 55 fb
     Radio Should Get    a6 57 fd

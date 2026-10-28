@@ -544,6 +544,11 @@ impl Radio {
             if charging { CHARGE_CABLE } else { 0 } | if full { CHARGE_FULL } else { 0 },
             Ordering::Relaxed,
         );
+        // The module hears nothing before the post-init (version, sleep,
+        // device), as QMK's start-up order has it.
+        if self.post_init_at.is_some() {
+            return;
+        }
         let state = match (charging, full) {
             (true, true) => devctrl::CHARGING_DONE,
             (true, false) => devctrl::CHARGING,
