@@ -275,6 +275,23 @@ pub fn set_battery(report: BatteryReport) {
     BATTERY.signal(report);
 }
 
+/// akko-5075b-plus: the battery as it is now, for a GET_REPORT of report
+/// 0x05 (`battery_now`): bit 15 once known, bit 8 charging, bits 0-7 the
+/// level.
+static BATTERY_NOW: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU16::new(0);
+
+/// akko-5075b-plus: the battery as it is now, whether or not USB is up. The
+/// host may ask for it before the first report (Linux does, as soon as it
+/// sees the battery; failing that, upower ignores the battery for good).
+pub fn set_battery_now(report: BatteryReport) {
+    BATTERY_NOW.store(0x8000 | (report.charging as u16) << 8 | report.level as u16, Ordering::Relaxed);
+}
+
+pub(crate) fn battery_now() -> Option<BatteryReport> {
+    let v = BATTERY_NOW.load(Ordering::Relaxed);
+    (v & 0x8000 != 0).then_some(BatteryReport { level: v as u8, charging: v & 0x100 != 0 })
+}
+
 /// The BLE report map: everything in one HID service, distinguished by report id.
 ///
 /// Android's HID host only attaches to the first HID service instance (AOSP

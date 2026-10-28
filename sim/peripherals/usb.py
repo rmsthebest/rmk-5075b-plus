@@ -50,6 +50,8 @@
 #   0x07 / 0x08          unplug the cable / plug it back in (immediate)
 #   0x09 | ep << 8       send the bytes queued at 0xF0C as one packet on
 #                        interrupt OUT endpoint ep (raw HID, e.g. Vial)
+#   0x0C | id << 8 | iface << 16
+#                        GET_REPORT(input, id) on interface iface
 # 0xF0C write: queue one byte (value & 0xFF) for command 0x09.
 # 0xF04 reads back the host state: 0 detached, 1 enumerating, 2 configured,
 # 3 suspended, 4 failed. 0xF08 reads the host's step count (100 us each).
@@ -634,6 +636,11 @@ if request.IsInit:
             got = result["data"]
             if not isinstance(got, list) or got[:2] != [18, 1]:
                 err("no device descriptor after an aborted transfer: %r" % (got,))
+        elif op == 0x0C:
+            # GET_REPORT(input, id = arg) on interface bits 16-23, 4 bytes
+            # asked, as Linux's battery query (hidinput_query_battery_capacity).
+            num = (cmd >> 16) & 0xFF
+            for x in control("GET_REPORT(input %d)" % arg, 0xA1, 0x01, 0x0100 | arg, num, 4): yield
         elif op == 0x09:
             if not any(e[0] == arg for i in h.ifaces for e in i[4]):
                 err("no EP%d OUT" % arg); return

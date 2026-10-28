@@ -563,13 +563,18 @@ impl Lighting {
     /// The battery report to the USB host (M7e): once the module has told
     /// the level, BATTERY_REPORT_DELAY_MS after USB is configured, and on
     /// each change. RMK drops it while suspended; it's sent again then.
+    /// The host's GET_REPORT is answered from `set_battery_now` at once.
     fn report_battery(&mut self, now: u32) {
-        let Some(at) = self.usb_configured_at else { return };
-        if now.wrapping_sub(at) < BATTERY_REPORT_DELAY_MS || !radio::battery_known() {
+        if !radio::battery_known() {
             return;
         }
         let v = &self.board.vendor;
         let report = BatteryReport { level: v.bat, charging: v.charging && !v.full };
+        rmk::hid::set_battery_now(report);
+        let Some(at) = self.usb_configured_at else { return };
+        if now.wrapping_sub(at) < BATTERY_REPORT_DELAY_MS {
+            return;
+        }
         if self.usb_suspended_at.is_some() {
             self.battery_sent = None;
         } else if self.battery_sent != Some(report) {

@@ -624,6 +624,19 @@ pub(crate) use usb_hid_state_and_config;
 pub(crate) struct UsbRequestHandler {}
 
 impl RequestHandler for UsbRequestHandler {
+    /// akko-5075b-plus: the battery report (id 0x05), once known; anything
+    /// else stalls, as before.
+    fn get_report(&mut self, id: ReportId, buf: &mut [u8]) -> Option<usize> {
+        let ReportId::In(id) = id else { return None };
+        if id != CompositeReportType::Battery as u8 {
+            return None;
+        }
+        let report = crate::hid::battery_now()?;
+        let (first, rest) = buf.split_first_mut()?;
+        *first = id;
+        Some(1 + report.serialize(rest).ok()?)
+    }
+
     fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
         info!("Set report for {:?}: {:?}", id, data);
         OutResponse::Accepted
