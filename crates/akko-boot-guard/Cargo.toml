@@ -1,8 +1,12 @@
 [package]
 name = "akko-boot-guard"
 version = "0.1.0"
-edition = "2024"
-description = "Reset-time escape hatch into the WB32 ROM DFU bootloader"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme = "README.md"
+publish = false
+description = "Akko 5075B Plus: reset-time escape into the WB32 ROM DFU bootloader (RAM magic or Esc held), crash record and crash-loop policy"
 
 [features]
 # Bring-up only: enter the ROM bootloader on every boot.

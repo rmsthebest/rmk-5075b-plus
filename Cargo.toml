@@ -2,6 +2,11 @@
 resolver = "3"
 members = ["crates/*", "firmware"]
 
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "GPL-2.0-or-later"
+
 [profile.release]
 # "z": smallest code and stack frames. Speed isn't the limit: the image
 # idles ~70% of the time in the sim, and opt-level 2 for the lighting

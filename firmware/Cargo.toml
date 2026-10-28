@@ -1,7 +1,11 @@
 [package]
 name = "firmware"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RMK firmware for the Akko 5075B Plus (WB32FQ95): the akko-rmk image and the bring-up images"
+publish = false
 
 [dependencies]
 cortex-m = "0.7.7"

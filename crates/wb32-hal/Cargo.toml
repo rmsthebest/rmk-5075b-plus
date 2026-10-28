@@ -1,8 +1,13 @@
 [package]
 name = "wb32-hal"
 version = "0.1.0"
-edition = "2024"
-description = "Embassy HAL pieces for the WB32FQ95 on the Akko 5075B Plus"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme = "README.md"
+keywords = ["wb32", "wb32fq95", "embedded", "no-std", "embassy"]
+categories = ["embedded", "hardware-support", "no-std"]
+description = "Embassy drivers for the WestberryTech WB32FQ95: GPIO, EXTI, clocks, time driver, UART3, QSPI, SPI NOR, WS2812, USB, stop mode"
 
 [dependencies]
 wb32-pac = { path = "../wb32-pac", features = ["rt"] }
@@ -21,3 +26,7 @@ embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.1"
 # Vendored musb 0.3.1 plus our WB32 profile (third_party/musb/README-wb32.md).
 musb = { path = "../../third_party/musb", default-features = false, features = ["prebuild", "builtin-wb32fq95", "embassy-usb-driver-impl"] }
+
+[package.metadata.docs.rs]
+default-target = "thumbv7m-none-eabi"
+targets = ["thumbv7m-none-eabi"]
