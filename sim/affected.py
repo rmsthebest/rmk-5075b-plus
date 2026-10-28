@@ -33,6 +33,7 @@ RULES = [
     (r"sim/tests/(\w+)\.robot$", None),  # the suite itself
     (r"sim/tests/leds\.py$", ["m5_lighting"]),
     (r"sim/(affected\.py|shard\.py|run\.sh)$", []),  # the runner
+    (r"rom/", []),  # the ROM study: its own suites (rom/sim/run.sh)
     (r"(tools/(?!precheck)|crates/akko-lighting/examples/|.*\.md$|.*README)", []),  # host-only
     (r"crates/akko-lighting/", ["m5_lighting"]),
     (r"crates/qmk-wireless/", ["m6_wireless"]),

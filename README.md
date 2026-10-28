@@ -25,6 +25,7 @@ There was no Rust support for the WB32, so this repo also carries a PAC and a HA
 | `third_party/rmk` | `rmk` | Submodule: [our fork](https://github.com/rmsthebest/rmk), branch `akko-0.9`: RMK 0.9.0 with our hooks and fixes (`rmk/README-akko.md`) | |
 | `third_party/musb` | `musb` | Submodule: [our fork](https://github.com/rmsthebest/musb), branch `wb32`: musb 0.3.1 with WB32 support and fixes (`README-wb32.md`) | |
 | `sim/` | | Renode simulation of the board and the test suites (`sim/README.md`) | |
+| `rom/` | | The chip's ROM bootloader, studied: read-out (`rom-peek` feature), disassembly tools, the ROM in Renode, write-up (`rom/README.md`). The ROM itself isn't in the repo | |
 | `tools/` | | Generators (PAC, keymap, LED layout, Vial JSON), checks (precheck, rgbref, PAC vs manual), the workbench | |
 
 Naming: a chip or protocol name means the crate is meant to be reusable. An `akko-` prefix means it's
