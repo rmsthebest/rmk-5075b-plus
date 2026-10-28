@@ -11,7 +11,8 @@
 //! 4. POST_LP: the window again; ANCTL+0x004 back to the trim in the info
 //!    page (`*(u8 *)0x1FFF_F310 & 0xF`) if it differs; a 35-loop delay;
 //! 5. SLEEPDEEP off, the clocks back up (`rcc::reinit`, as the vendor's
-//!    `__early_init`), the peripheral clock enables as they were, SysTick on.
+//!    `__early_init`), the peripheral clock enables as they were and (not
+//!    the vendor's) the USB clocks, SysTick on.
 //!
 //! The caller sets up the EXTI lines to wake on. Where the vendor clears
 //! every pending interrupt first (or the WFI would return at once), [`enter`]
@@ -91,6 +92,41 @@ fn clear_pending() {
     SCB::clear_pendst();
 }
 
+/// The USB clock setup (`usb.rs` `init_block`), which a stop resets: the
+/// reference manual (RM2905025, 5.3.4) has every clock configuration back
+/// at its reset value out of a stop. The vendor's firmware has USB stopped
+/// in its wireless modes; ours keeps the driver, and a USB register read
+/// with no USB clock would hang the bus.
+struct UsbClocks {
+    fifo_src: wb32_pac::rcc::regs::Usbfifoclksrc,
+    fifo_en: wb32_pac::rcc::regs::Usbfifoclkenr,
+    en: wb32_pac::rcc::regs::Usbclkenr,
+    pre: wb32_pac::rcc::regs::Usbpre,
+}
+
+impl UsbClocks {
+    fn save() -> Self {
+        UsbClocks {
+            fifo_src: RCC.usbfifoclksrc().read(),
+            fifo_en: RCC.usbfifoclkenr().read(),
+            en: RCC.usbclkenr().read(),
+            pre: RCC.usbpre().read(),
+        }
+    }
+
+    /// In `init_block`'s order: the pre-divider's input, then its ratio,
+    /// then the divider.
+    fn restore(&self) {
+        RCC.usbfifoclksrc().write_value(self.fifo_src);
+        RCC.usbfifoclkenr().write_value(self.fifo_en);
+        RCC.usbclkenr().write_value(self.en);
+        let p = self.pre;
+        RCC.usbpre().write(|w| w.set_srcen(p.srcen()));
+        RCC.usbpre().modify(|w| w.set_ratio(p.ratio()));
+        RCC.usbpre().modify(|w| w.set_diven(p.diven()));
+    }
+}
+
 /// True if an interrupt or exception is pending that would end a WFI at
 /// once: an enabled NVIC line, SysTick, or an EXTI line that's unmasked.
 fn pending() -> bool {
@@ -132,6 +168,7 @@ pub fn enter(opts: Opts, mark: impl Fn(Mark)) -> Option<u32> {
     let apb1 = RCC.apb1enr().read();
     let apb2 = RCC.apb2enr().read();
     let ahb = (RCC.ahbenr0().read(), RCC.ahbenr1().read(), RCC.ahbenr2().read());
+    let usb = UsbClocks::save();
     let tim2 = TIM2.cr1().read();
     TIM2.cr1().modify(|w| w.set_cen(false));
 
@@ -156,6 +193,7 @@ pub fn enter(opts: Opts, mark: impl Fn(Mark)) -> Option<u32> {
     RCC.ahbenr0().write_value(ahb.0);
     RCC.ahbenr1().write_value(ahb.1);
     RCC.ahbenr2().write_value(ahb.2);
+    usb.restore();
     TIM2.cr1().write_value(tim2);
     unsafe { syst.csr.modify(|v| v | SYST_ENABLE) };
     mark(Mark::Clocked);
