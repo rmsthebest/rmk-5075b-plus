@@ -92,7 +92,9 @@ static FLAT: AtomicBool = AtomicBool::new(false);
 static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 /// Stop mode allowed (Vial 0xD9; off at reset).
 static STOP_ON: AtomicBool = AtomicBool::new(false);
-static STOP_DIAG: AtomicBool = AtomicBool::new(false);
+/// Stop's diagnostic, with its variant bits (`stop::VARIANT_*`); 0xFF off.
+static STOP_DIAG: AtomicU8 = AtomicU8::new(DIAG_OFF);
+const DIAG_OFF: u8 = 0xFF;
 /// Stops so far, and those a key, the knob or the cable ended (the rest:
 /// the UART, or nothing that was armed).
 static STOPS: AtomicU32 = AtomicU32::new(0);
@@ -106,13 +108,19 @@ pub fn stop_mode() -> bool {
 
 pub fn set_stop_mode(on: bool) {
     STOP_ON.store(on, Ordering::Relaxed);
-    STOP_DIAG.store(false, Ordering::Relaxed);
+    STOP_DIAG.store(DIAG_OFF, Ordering::Relaxed);
 }
 
-/// Stop mode on, with its progress on the LEDs (`stop::stop`'s `diag`).
-pub fn set_stop_diag() {
+/// Stop mode on, with its progress on the LEDs and the variant bits
+/// `variant` (`stop::stop`'s `diag`; unknown bits ignored).
+pub fn set_stop_diag(variant: u8) {
     STOP_ON.store(true, Ordering::Relaxed);
-    STOP_DIAG.store(true, Ordering::Relaxed);
+    STOP_DIAG.store(variant & stop::VARIANTS, Ordering::Relaxed);
+}
+
+/// The diagnostic's variant bits, if it's on.
+pub fn stop_diag() -> Option<u8> {
+    Some(STOP_DIAG.load(Ordering::Relaxed)).filter(|&v| v != DIAG_OFF)
 }
 
 /// (stops, those ended by a key, the knob or the cable, tries that didn't
@@ -300,7 +308,7 @@ impl Power {
     }
 
     fn stop(&mut self) {
-        let Some(fired) = stop::stop(lower(), STOP_DIAG.load(Ordering::Relaxed)) else {
+        let Some(fired) = stop::stop(lower(), stop_diag()) else {
             STOP_ABORTS.fetch_add(1, Ordering::Relaxed);
             return;
         };

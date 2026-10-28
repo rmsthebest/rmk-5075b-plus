@@ -622,6 +622,26 @@ With Stop Diag On, Caps Shows A Stop In Progress
     Run For    0.3
     Should Be Stopped    ${False}
 
+Every Stop Diag Variant At Once Still Stops And Wakes On A Key
+    [Documentation]    0xD9 'D' 31: both edges, pending cleared, no knob, EXTI
+    ...    events, the long settle (src/stop.rs VARIANT_*). Byte 16 of the
+    ...    answer echoes the bits.
+    Boot
+    Raw HID Send    0x08    0xD9    0x44    31
+    Wait For Log Entry    HOST HID 3: 08 d9 44 01    timeout=1    pauseEmulation=true
+    On The Dongle
+    Module Sends    ${HOST_SUSPEND}
+    Run For    1.7
+    Should Be Stopped    ${True}
+    Key    ${KEY_A}    1
+    Radio Should Get    ${SEL_DONGLE}
+    Radio Should Get    ${A_DOWN}
+    Key    ${KEY_A}    0
+    Run For    0.3
+    Should Be Stopped    ${False}
+    Raw HID Send    0x08    0xD9    0x00
+    Wait For Log Entry    HOST HID 3: 08 d9 00 01 01 00 00 00 01 00 00 00 00 00 00 00 1f    timeout=1    pauseEmulation=true
+
 In Stop Mode The Module's UART Wakes It
     [Documentation]    A frame from the module ends the stop (EXTI 11 on the
     ...    chip; the UART's interrupt in the sim); the radio reads it: the

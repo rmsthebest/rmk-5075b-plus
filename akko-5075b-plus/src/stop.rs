@@ -16,6 +16,7 @@
 //! the last stop got, for a stop that never comes back: Caps alone, it
 //! never woke; both, it woke but the clocks didn't come back; Win-lock
 //! alone, it got out of the stop (until the firmware sets them again).
+//! `diag`'s variant bits (`VARIANT_*`) try what the vendor does otherwise.
 //!
 //! The EXTI setup is put back as it was after; a knob edge that woke it is
 //! left pending for the knob's `ExtiInput` (line 6, if armed). The turn
@@ -60,6 +61,19 @@ pub fn rows_high() -> bool {
     GPIOA.idr().read().0 & 0x1F == 0x1F && GPIOC.idr().read().0 & 1 << 13 != 0
 }
 
+/// Diagnostic variants (`diag`'s bits), each as the vendor's does it.
+/// The rows and the UART wake on both edges.
+pub const VARIANT_BOTH_EDGES: u8 = 1 << 0;
+/// Pending interrupts are cleared and it stops anyway.
+pub const VARIANT_CLEAR_PENDING: u8 = 1 << 1;
+/// The knob doesn't wake it.
+pub const VARIANT_NO_KNOB: u8 = 1 << 2;
+/// Not the vendor's: the lines are events too (EXTI EMR).
+pub const VARIANT_EVENTS: u8 = 1 << 3;
+/// Not the vendor's: 100 times POST_LP's delay.
+pub const VARIANT_SLOW_SETTLE: u8 = 1 << 4;
+pub const VARIANTS: u8 = (1 << 5) - 1;
+
 const CAPS_LED: u32 = 1 << 5;
 const WIN_LOCK_LED: u32 = 1 << 0;
 
@@ -71,12 +85,21 @@ fn diag_leds(caps: bool, win_lock: bool) {
 }
 
 /// Stops until a wake line fires; returns those that fired, or None if it
-/// didn't stop (an interrupt was pending: try again later). With `diag`,
-/// the LEDs mark its progress (see the top of this file).
-pub fn stop(lower: bool, diag: bool) -> Option<u32> {
-    let lines = CABLE_LINE | UART_LINE | if lower { 0 } else { ROW_LINES | KNOB_LINE };
-    let rising = CABLE_LINE | KNOB_LINE;
+/// didn't stop (an interrupt was pending: try again later). With `diag`
+/// (its variant bits), the LEDs mark its progress (see the top of this
+/// file).
+pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
+    let v = diag.unwrap_or(0);
+    let knob = if v & VARIANT_NO_KNOB != 0 { 0 } else { KNOB_LINE };
+    let lines = CABLE_LINE | UART_LINE | if lower { 0 } else { ROW_LINES | knob };
+    let both = if v & VARIANT_BOTH_EDGES != 0 { ROW_LINES | UART_LINE } else { 0 };
+    let rising = CABLE_LINE | KNOB_LINE | both;
     let falling = ROW_LINES | KNOB_LINE | UART_LINE;
+    let opts = wb32_hal::stop::Opts {
+        clear_pending: v & VARIANT_CLEAR_PENDING != 0,
+        settle: wb32_hal::stop::Opts::VENDOR.settle * if v & VARIANT_SLOW_SETTLE != 0 { 100 } else { 1 },
+    };
+    let emr_was = EXTI.emr().read().0;
     // SAFETY: C11 is UART3's RX; it's an input only while stopped.
     let rx = unsafe { AnyPin::steal(Port::C, 11) };
     cortex_m::interrupt::free(|_| {
@@ -108,14 +131,18 @@ pub fn stop(lower: bool, diag: bool) -> Option<u32> {
             unsafe { cortex_m::peripheral::NVIC::unmask(irq) };
         }
 
-        if diag {
+        if v & VARIANT_EVENTS != 0 {
+            EXTI.emr().write_value(wb32_pac::exti::regs::Emr(lines));
+        }
+        if diag.is_some() {
             diag_leds(true, false);
         }
-        let woke = wb32_hal::stop::enter(|m| {
-            if diag {
+        let woke = wb32_hal::stop::enter(opts, |m| {
+            if diag.is_some() {
                 diag_leds(m == Mark::Woke, true);
             }
         });
+        EXTI.emr().write_value(wb32_pac::exti::regs::Emr(emr_was));
 
         rx.set_mode(Mode::alternate(7));
         let fired = woke.unwrap_or(0) & lines;

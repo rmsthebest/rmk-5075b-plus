@@ -43,7 +43,7 @@ fn pre_lp() {
     }
 }
 
-fn post_lp() {
+fn post_lp(settle: u32) {
     anctl_unlock();
     // SAFETY: the info page is readable; ANCTL+0x004 as above.
     unsafe {
@@ -52,9 +52,36 @@ fn post_lp() {
             ANCTL_004.write_volatile(trim);
         }
     }
-    for _ in 0..35 {
+    for _ in 0..settle {
         cortex_m::asm::nop();
     }
+}
+
+/// How [`enter`] stops: [`Opts::VENDOR`] is the vendor's, but for pending
+/// interrupts; the rest are diagnostics, for a stop that doesn't come back.
+#[derive(Clone, Copy)]
+pub struct Opts {
+    /// Clear pending interrupts and stop anyway, as the vendor does, rather
+    /// than not stop.
+    pub clear_pending: bool,
+    /// POST_LP's delay loop count (the vendor's 35).
+    pub settle: u32,
+}
+
+impl Opts {
+    pub const VENDOR: Opts = Opts { clear_pending: false, settle: 35 };
+}
+
+/// Clears what would end a WFI at once, as the vendor's wb32_stop_mode:
+/// every EXTI line, every NVIC line and SysTick's.
+fn clear_pending() {
+    EXTI.pr().write_value(wb32_pac::exti::regs::Pr(0x7FFFF));
+    // SAFETY: writes to clear-pending registers only.
+    let nvic = unsafe { &*NVIC::PTR };
+    for i in 0..8 {
+        unsafe { nvic.icpr[i].write(u32::MAX) };
+    }
+    SCB::clear_pendst();
 }
 
 /// True if an interrupt or exception is pending that would end a WFI at
@@ -80,7 +107,7 @@ pub enum Mark {
 /// if an interrupt was already pending. Call with interrupts disabled
 /// (PRIMASK): the wake doesn't run a handler, the caller clears the lines
 /// it set up. `mark` is called as the wake gets past each [`Mark`].
-pub fn enter(mark: impl Fn(Mark)) -> Option<u32> {
+pub fn enter(opts: Opts, mark: impl Fn(Mark)) -> Option<u32> {
     // SAFETY: the caller has interrupts off; SysTick, SCB and these
     // registers are only touched here meanwhile.
     let syst = unsafe { &*SYST::PTR };
@@ -89,7 +116,9 @@ pub fn enter(mark: impl Fn(Mark)) -> Option<u32> {
     const SLEEPDEEP: u32 = 1 << 2;
 
     unsafe { syst.csr.modify(|v| v & !SYST_ENABLE) };
-    if pending() {
+    if opts.clear_pending {
+        clear_pending();
+    } else if pending() {
         unsafe { syst.csr.modify(|v| v | SYST_ENABLE) };
         return None;
     }
@@ -107,7 +136,7 @@ pub fn enter(mark: impl Fn(Mark)) -> Option<u32> {
     cortex_m::asm::dsb();
     cortex_m::asm::wfi();
     mark(Mark::Woke);
-    post_lp();
+    post_lp(opts.settle);
     unsafe { scb.scr.modify(|v| v & !SLEEPDEEP) };
     let fired = EXTI.pr().read().0;
 

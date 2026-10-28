@@ -32,9 +32,10 @@
 //! firmware, to test the watchdog. 0xD9, stop mode while asleep
 //! (src/power.rs, off at reset, not saved): argument 0 reads, 1 turns it
 //! off, 0x53 ('S') on, 0x44 ('D') on with its progress shown on the Caps
-//! and Win-lock LEDs (src/stop.rs); byte 3 of the answer is 1 if on, bytes 4-7 and 8-11
+//! and Win-lock LEDs and byte 3 its variant bits (src/stop.rs); byte 3 of the answer is 1 if on, bytes 4-7 and 8-11
 //! (little-endian) the stops so far and those a key, the knob or the cable
-//! ended, 12-15 the tries that didn't stop (an interrupt was pending).
+//! ended, 12-15 the tries that didn't stop (an interrupt was pending), 16
+//! the diagnostic's variant bits (0xFF: off).
 //!
 //! Crash policy (boot-guard): a panic resets into this image; a second one
 //! before the image has run `STABLE_AFTER` goes to DFU. The software
@@ -239,11 +240,11 @@ fn custom_value(buf: &mut [u8]) {
             }
             buf[3] = power::setting();
         }
-        CHANNEL_STOP if buf.len() >= 16 => {
+        CHANNEL_STOP if buf.len() >= 17 => {
             match buf[2] {
                 STOP_OFF => power::set_stop_mode(false),
                 STOP_CONFIRM => power::set_stop_mode(true),
-                STOP_DIAG => power::set_stop_diag(),
+                STOP_DIAG => power::set_stop_diag(buf[3]),
                 _ => {}
             }
             let (stops, wakes, aborts) = power::stop_counts();
@@ -251,6 +252,7 @@ fn custom_value(buf: &mut [u8]) {
             buf[4..8].copy_from_slice(&stops.to_le_bytes());
             buf[8..12].copy_from_slice(&wakes.to_le_bytes());
             buf[12..16].copy_from_slice(&aborts.to_le_bytes());
+            buf[16] = power::stop_diag().unwrap_or(0xFF);
         }
         CHANNEL_STACK => {
             let (used, size) = stack_peak();
