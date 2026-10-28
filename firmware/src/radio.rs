@@ -35,8 +35,9 @@
 //! device re-selected on waking (`reselect`); the module's host state
 //! frames go to `power::host_state`.
 //!
-//! Not yet: Vial through the dongle (the module's raw HID frames are
-//! ignored).
+//! Vial through the dongle (md_raw.c): the host's raw HID requests come
+//! from the module as raw frames (AF 60), go to a second RMK Vial session
+//! (`vial`), and its answers go back as raw frames (AF 61).
 
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -44,6 +45,7 @@ use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use embassy_futures::select::{Either3, select, select3};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_time::{Instant, Timer};
 use akko_lighting::record;
@@ -55,7 +57,7 @@ use rmk::types::action::Action;
 use rmk::types::led_indicator::LedIndicator;
 use wb32_hal::gpio::{AnyPin, Input, Output, Port, Pull};
 use wb32_hal::uart::Uart3;
-use qmk_wireless::frame::{devctrl, utf16z};
+use qmk_wireless::frame::{RAW_LEN, devctrl, utf16z};
 use qmk_wireless::{Device, DeviceStrings, Event, Link};
 
 pub const BAUD: u32 = 115_200;
@@ -111,6 +113,9 @@ static MODULE_STATE: AtomicU8 = AtomicU8::new(0);
 static CHARGE: AtomicU8 = AtomicU8::new(0);
 const CHARGE_CABLE: u8 = 1;
 const CHARGE_FULL: u8 = 2;
+/// Vial requests from the dongle. Vial waits for each answer, so one is
+/// plenty; a second is dropped.
+static VIAL_IN: Channel<CriticalSectionRawMutex, [u8; RAW_LEN], 1> = Channel::new();
 static BOARD_EVENTS: Mutex<CriticalSectionRawMutex, RefCell<heapless::Deque<BoardEvent, 4>>> =
     Mutex::new(RefCell::new(heapless::Deque::new()));
 
@@ -284,6 +289,73 @@ pub fn fill_diag(buf: &mut [u8]) {
     });
 }
 
+/// Vial through the dongle: RMK's Vial session, as USB's, over the
+/// module's raw frames. Runs for good; requests only come while a
+/// wireless device is selected.
+pub async fn vial(service: &rmk::host::HostService<'_>) -> ! {
+    let mut rx = VialRx { buf: [0; RAW_LEN], at: RAW_LEN };
+    let mut tx = VialTx { buf: [0; RAW_LEN], len: 0 };
+    loop {
+        // Only returns on an error, and ours never fail.
+        service.run_session(&mut rx, &mut tx).await;
+    }
+}
+
+/// The requests, as a byte stream: one 32-byte report at a time.
+struct VialRx {
+    buf: [u8; RAW_LEN],
+    /// Read up to here; RAW_LEN when it's all been read.
+    at: usize,
+}
+
+impl embedded_io_async::ErrorType for VialRx {
+    type Error = core::convert::Infallible;
+}
+
+impl embedded_io_async::Read for VialRx {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        if self.at == RAW_LEN {
+            self.buf = VIAL_IN.receive().await;
+            self.at = 0;
+        }
+        let n = buf.len().min(RAW_LEN - self.at);
+        buf[..n].copy_from_slice(&self.buf[self.at..self.at + n]);
+        self.at += n;
+        Ok(n)
+    }
+}
+
+/// The answers: each 32 bytes written go to the module as one raw frame.
+struct VialTx {
+    buf: [u8; RAW_LEN],
+    len: usize,
+}
+
+impl embedded_io_async::ErrorType for VialTx {
+    type Error = core::convert::Infallible;
+}
+
+impl embedded_io_async::Write for VialTx {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        let n = buf.len().min(RAW_LEN - self.len);
+        self.buf[self.len..self.len + n].copy_from_slice(&buf[..n]);
+        self.len += n;
+        if self.len == RAW_LEN {
+            self.len = 0;
+            LINK.lock(|l| l.borrow_mut().send_raw(self.buf));
+            POKE.signal(());
+        }
+        Ok(n)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
 #[processor(subscribe = [ActionEvent])]
 #[::rmk::macros::runnable_generated]
 pub struct Radio {
@@ -417,10 +489,12 @@ impl Radio {
                 l.rx_idle(now);
             }
             while let Some(b) = uart.read() {
-                // Raw HID and the rest: nothing for us yet.
                 match l.receive(b, now, &mut tx) {
                     Some(Event::HostState { resume }) => crate::power::host_state(resume),
                     Some(Event::Battery(_)) => BATTERY_KNOWN.store(true, Ordering::Relaxed),
+                    Some(Event::Raw(r)) => {
+                        let _ = VIAL_IN.try_send(r);
+                    }
                     _ => {}
                 }
             }

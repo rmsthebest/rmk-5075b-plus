@@ -4,7 +4,7 @@ Rust firmware ([RMK](https://github.com/HaoboGu/rmk) on [Embassy](https://embass
 Akko 5075B Plus, a 75% wireless keyboard on a WestberryTech WB32FQ95 (Cortex-M3, 96 MHz). It
 replaces the vendor's QMK build with feature parity:
 - USB, Bluetooth 1-3 and the 2.4G dongle;
-- Vial;
+- Vial, over USB and through the 2.4G dongle;
 - the RGB matrix and side lights;
 - the knob;
 - battery reporting;

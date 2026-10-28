@@ -53,16 +53,18 @@ NAMES = {0: "never", 1: "1 min", 2: "3 min", 3: "5 min", 4: "10 min", 5: "20 min
 
 
 def rmk_raw_hid():
-    """/dev path of akko-rmk's Vial raw HID node, or None (as tools/bench.py)."""
+    """/dev path of akko-rmk's Vial raw HID node, or None (as tools/bench.py).
+    Over USB if it's there, else through the 2.4G dongle (same ids, its own
+    name), which passes Vial on to the keyboard on 2.4G."""
+    found = {}
     for h in sorted(Path("/sys/class/hidraw").iterdir()):
         dev = h.resolve() / "device"
         uevent = (dev / "uevent").read_text()
-        # The 2.4G dongle has the same ids (and a Vial node): only "(RMK)".
-        if "0003:0000342D:0000E4F6" not in uevent.upper() or "(RMK)" not in uevent:
+        if "0003:0000342D:0000E4F6" not in uevent.upper():
             continue
         if (dev / "report_descriptor").read_bytes().startswith(b"\x06\x60\xff"):
-            return f"/dev/{h.name}"
-    return None
+            found.setdefault("usb" if "(RMK)" in uevent else "dongle", f"/dev/{h.name}")
+    return found.get("usb") or found.get("dongle")
 
 
 def ask(channel, arg, more=0):
@@ -70,7 +72,7 @@ def ask(channel, arg, more=0):
     answer."""
     path = rmk_raw_hid()
     if not path:
-        sys.exit("akko-rmk isn't connected (over USB)")
+        sys.exit("akko-rmk isn't connected (over USB or the 2.4G dongle)")
     fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
     try:
         os.write(fd, bytes([0x00, 0x08, channel, arg, more]) + bytes(28))

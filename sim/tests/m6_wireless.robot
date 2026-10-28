@@ -30,6 +30,7 @@ ${CAPS_LED}         0x20
 ${FLASH_ERASE}      0xF8
 ${AIRCR}            0xE000ED0C
 ${SYSRESETREQ}      0x05FA0004
+${RADIO_BYTE}       0xE0
 ${RADIO_FRAME}      0xE4
 ${RADIO_FLAGS}      0xE8
 ${RADIO_ERRORS}     0xEC
@@ -118,6 +119,18 @@ Module Sends
     [Documentation]    A module frame "cmd arg sum", ${frame} = cmd | arg << 8.
     [Arguments]    ${frame}
     Execute Command    uart3 WriteDoubleWord ${RADIO_FRAME} ${frame}
+
+Module Sends Raw
+    [Documentation]    A raw HID packet from the host through the dongle
+    ...    (AF 60 32 data[32] sum): ${bytes}, then zeros. ${sum_fix} is
+    ...    added to the sum (non-zero: a bad frame).
+    [Arguments]    @{bytes}    ${sum_fix}=0
+    ${data}=    Evaluate    [int(str(b), 0) for b in $bytes] + [0] * (32 - len($bytes))
+    ${frame}=    Evaluate    [0xAF, 0x60, 32] + $data
+    ${frame}=    Evaluate    $frame + [(sum($frame) + ${sum_fix}) & 0xFF]
+    FOR    ${b}    IN    @{frame}
+        Execute Command    uart3 WriteDoubleWord ${RADIO_BYTE} ${b}
+    END
 
 Radio
     [Arguments]    ${offset}
@@ -329,6 +342,25 @@ The Host's Caps Lock Comes From The Module
     Module Sends    ${DISCONNECTED}
     Run For    0.1
     Caps LED Should Be    ${False}
+
+Vial Works Through The Dongle
+    [Documentation]    md_raw.c: a Vial request from the module's raw frame
+    ...    (AF 60) is answered as a raw frame (AF 61), not on USB, one
+    ...    after the other; a frame with a bad sum is dropped.
+    Boot
+    On The Dongle
+    # Sleep timeout (0xD7) to index 4: the answer is the setting.
+    Module Sends Raw    0x08    0xD7    5
+    Radio Should Get    af 61 20 08 d7 05 04 00
+    Module Sends Raw    0x08    0xD7    0
+    Radio Should Get    af 61 20 08 d7 00 04 00
+    Module Sends Raw    0x08    0xD7    2    sum_fix=1
+    Run For    0.2
+    Radio Should Not Get    af 61 20 08 d7 02
+    Module Sends Raw    0x08    0xD7    0
+    Radio Should Get    af 61 20 08 d7 00 04 00
+    Should Not Be In Log    HOST HID 3: 08 d7    timeout=0
+    No Radio Errors
 
 The Selected Device Survives A Reset
     [Documentation]    Fn+R (BT2), saved with the lighting record; after a reset

@@ -20,7 +20,7 @@ bring-up milestones, kept because the sim suites test them.
 | `knob.rs` | encoder on B7/B6, QMK's quadrature decoding |
 | `keymap.rs` | default keymap, generated from the QMK VIA keymap (`tools/gen_keymap.py`) |
 | `lighting.rs` | `akko-lighting` on the 106 WS2812 LEDs, VialRGB, the settings record |
-| `radio.rs` | `qmk-wireless` on UART3: device keys, report hook, Vial stats |
+| `radio.rs` | `qmk-wireless` on UART3: device keys, report hook, Vial through the dongle, Vial stats |
 | `power.rs` | sleep timeout and light sleep |
 | `stop.rs` | stop mode's wake lines, around `wb32_hal::stop` |
 | `watchdog.rs` | software watchdog on the TIM2 tick |

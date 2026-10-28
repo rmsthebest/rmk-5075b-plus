@@ -500,6 +500,7 @@ async fn main(_spawner: Spawner) {
             OwnFrame(lights.run()),
             OwnFrame(radio.run()),
             OwnFrame(power.run()),
+            OwnFrame(radio::vial(&host_service)),
         ),
         stable,
         watchdog::heartbeat(),
