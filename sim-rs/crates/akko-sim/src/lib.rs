@@ -54,10 +54,14 @@ pub enum Image {
     AkkoRmkMac,
     /// akko-rmk built with the `rom-peek` feature (Vial channel 0xDA).
     AkkoRmkRomPeek,
+    /// The QMK build in daily use, as its ELF (for the symbols): its
+    /// flash bytes are ../../akko_5075b_plus_fixes.bin's (run.sh checks).
+    /// Built outside the repo; the reference our models were checked on.
+    Qmk,
 }
 
 impl Image {
-    pub const ALL: [Image; 7] = [
+    pub const ALL: [Image; 8] = [
         Image::M1aBounce,
         Image::M1bStub,
         Image::M2Blink,
@@ -65,6 +69,7 @@ impl Image {
         Image::AkkoRmk,
         Image::AkkoRmkMac,
         Image::AkkoRmkRomPeek,
+        Image::Qmk,
     ];
 
     pub fn file_name(self) -> &'static str {
@@ -76,6 +81,7 @@ impl Image {
             Image::AkkoRmk => "akko-rmk",
             Image::AkkoRmkMac => "akko-rmk-mac",
             Image::AkkoRmkRomPeek => "akko-rmk-rom-peek",
+            Image::Qmk => "qmk-via",
         }
     }
 

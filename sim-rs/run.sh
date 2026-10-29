@@ -34,6 +34,16 @@ done
 cp "$build-mac/$rel/akko-rmk" "$images.new/akko-rmk-mac"
 cp "$build-rom-peek/$rel/akko-rmk" "$images.new/akko-rmk-rom-peek"
 cp "rom/rust/target/$rel/wb32-rom-dfu" "$images.new/wb32-rom-dfu"
+# The QMK build in daily use, built from the vendor's source outside the repo.
+# Its ELF has the symbols the QMK tests need; its bytes must be the .bin's.
+qmk=${QMK_ELF:-../qmk_5075b_plus/.build/akko_5075b_plus_via.elf}
+qmk_sha=d5e10b44ed718de45f0da4c4e08914578baa9104895e88a2c3e67e912c3af306
+[ -f "$qmk" ] || { echo "no QMK ELF at $qmk (set QMK_ELF)" >&2; exit 1; }
+arm-none-eabi-objcopy -O binary "$qmk" "$images.new/qmk.bin"
+sha=$(sha256sum "$images.new/qmk.bin" | cut -d' ' -f1)
+rm "$images.new/qmk.bin"
+[ "$sha" = "$qmk_sha" ] || { echo "$qmk isn't the known-good QMK build ($sha)" >&2; exit 1; }
+cp "$qmk" "$images.new/qmk-via"
 rm -rf "$images" && mv "$images.new" "$images"
 
 cd sim-rs

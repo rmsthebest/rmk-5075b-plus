@@ -7,6 +7,7 @@ use crate::decode::*;
 use crate::exception::{Exc, Fault};
 use crate::ppb::Ppb;
 use crate::{Config, CoreDiag};
+use std::collections::HashMap;
 
 /// Flags in APSR.
 pub const N: u32 = 1 << 31;
@@ -66,6 +67,11 @@ pub struct Cpu {
     pub lockstep: bool,
     /// In lockstep, the PPB addresses read (the caller empties it).
     pub ppb_reads: Vec<u32>,
+    /// Functions stubbed out: reaching one of these addresses returns at
+    /// once (to LR) with r0 set to the value, as Renode's `cpu AddHook
+    /// <addr> "self.SetRegisterUlong(0, v); self.PC = self.LR"`. For
+    /// firmware the board can't run past; not an instruction.
+    pub stubs: HashMap<u32, u32>,
     /// The address of the instruction executing (for faults and diags).
     pub(crate) cur_pc: u32,
     /// The IT state it executes in.
@@ -103,6 +109,7 @@ impl Cpu {
             diags: Vec::new(),
             lockstep: false,
             ppb_reads: Vec::new(),
+            stubs: HashMap::new(),
             cur_pc: 0,
             cur_it: ItState::default(),
             pending_sync: None,
@@ -111,7 +118,8 @@ impl Cpu {
     }
 
     /// A system reset: everything in the core back to its reset value, then
-    /// SP and PC from the vector table at 0. Time, counters and diags carry on.
+    /// SP and PC from the vector table at 0. Time, counters, diags and stubs
+    /// carry on.
     pub fn reset(&mut self, bus: &mut impl Bus) {
         let keep = (
             self.now,
@@ -119,6 +127,7 @@ impl Cpu {
             self.sleeps,
             std::mem::take(&mut self.diags),
             self.lockstep,
+            std::mem::take(&mut self.stubs),
         );
         *self = Cpu::new(self.config);
         (
@@ -127,6 +136,7 @@ impl Cpu {
             self.sleeps,
             self.diags,
             self.lockstep,
+            self.stubs,
         ) = keep;
         self.ppb.reset(self.now);
         self.r[LR] = 0xFFFF_FFFF;
@@ -362,6 +372,15 @@ impl Cpu {
         self.update_irqs(bus);
         if !self.lockstep && self.take_pending(bus) {
             return;
+        }
+        if !self.stubs.is_empty() {
+            if let Some(&v) = self.stubs.get(&self.r[PC]) {
+                self.r[0] = v;
+                let lr = self.r[LR];
+                self.thumb = lr & 1 != 0;
+                self.r[PC] = lr & !1;
+                return;
+            }
         }
         self.cur_pc = self.r[PC];
         self.cur_it = self.it;

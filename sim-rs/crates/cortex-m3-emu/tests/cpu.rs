@@ -557,3 +557,56 @@ fn systick_counts_only_while_enabled() {
     assert_eq!(s.cvr(501), 0x00FF_FFFF, "loaded on the first enabled clock");
     assert_eq!(s.cvr(500 + 12058), 0x00FF_FFFF - 12057);
 }
+
+#[test]
+fn rettobase_is_clear_in_a_nested_handler() {
+    // ARMv7-M ARM B3.2.4, ICSR.RETTOBASE: in Handler mode, 1 only when no
+    // exception other than IPSR's is active. ChibiOS's __port_irq_epilogue
+    // pushes a context-switch frame on the PSP when it reads 1; Renode
+    // reads 1 in SysTick preempting another handler, the frame is never
+    // popped, and QMK's idle stack leaks 32 bytes per nested tick.
+    let (mut cpu, mut bus) = machine_at(
+        0x100,
+        &[
+            (0xF24E_1100, "movw r1, #0xe100"),
+            (0xF2CE_0100, "movt r1, #0xe000"),
+            (0x2202, "movs r2, #0x2"),
+            (0x600A, "str r2, [r1]"), // ISER0: enable IRQ 1
+            (0xE7FE, "b 0x10c"),
+        ],
+    );
+    // IRQ 1: read ICSR, pend SysTick (PENDSTSET), wait.
+    put(
+        &mut bus,
+        0x80,
+        &[
+            (0xF64E_5004, "movw r0, #0xed04"),
+            (0xF2CE_0000, "movt r0, #0xe000"),
+            (0x6805, "ldr r5, [r0]"),
+            (0xF04F_6180, "mov r1, #0x4000000"),
+            (0x6001, "str r1, [r0]"),
+            (0xE7FE, "b 0x90"),
+        ],
+    );
+    // SysTick: read ICSR, return.
+    put(
+        &mut bus,
+        0xA0,
+        &[(0x6806, "ldr r6, [r0]"), (0x4770, "bx lr")],
+    );
+    bus.flash.write((16 + 1) * 4, Size::Word, 0x81);
+    bus.flash.write(15 * 4, Size::Word, 0xA1);
+    cpu.reset(&mut bus);
+    cpu.ppb.priority[17] = 0x80; // IRQ 1 below SysTick's 0
+    steps(&mut cpu, &mut bus, 4);
+    bus.irq = 1 << 1;
+    // Each entry is a step: IRQ 1's, its five instructions, SysTick's.
+    steps(&mut cpu, &mut bus, 7);
+    assert_eq!(cpu.ipsr, 15, "SysTick preempted IRQ 1");
+    steps(&mut cpu, &mut bus, 1);
+    assert_ne!(cpu.r[5] & 1 << 11, 0, "IRQ 1 alone: RETTOBASE");
+    assert_eq!(cpu.r[6] & 1 << 11, 0, "SysTick over IRQ 1: no RETTOBASE");
+    assert_eq!(cpu.r[6] & 0x1FF, 15, "VECTACTIVE");
+    steps(&mut cpu, &mut bus, 1);
+    assert_eq!((cpu.ipsr, cpu.pc()), (17, 0x90), "back in IRQ 1");
+}

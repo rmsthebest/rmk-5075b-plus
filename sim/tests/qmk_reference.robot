@@ -56,6 +56,8 @@ QMK SPI Flash Bring-Up Matches Its Golden Trace
     # Without the hooks: QSPI setup (BAUDR 0x20 = PCLK1/32, SER, CR0 8-bit
     # mode 0, the FIFO depth probe), chip select on C12 (GPIOC BSRR) and the
     # first flash commands on a blank chip (sim/peripherals/qspi.py).
+    # Renode's RETTOBASE leaves CS low after the first READ (n=2050), and QMK
+    # stops there; sim-rs's qmk_reference.rs has why (BOARD_FACTS.md).
     ${trace}=    Run Process    ${SIM}/trace.sh    ${QMK_BIN}    1.5    ^(QSPI|FLASH|GPIOC\\+0x018)
     ${golden}=    Get File    ${GOLDEN_QSPI}
     Should Be Equal    ${trace.stdout.strip()}    ${golden.strip()}

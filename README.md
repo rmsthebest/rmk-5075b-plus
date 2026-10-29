@@ -21,7 +21,7 @@ There was no Rust support for the WB32, so this repo also carries a PAC and a HA
 The comparison is with the vendor's firmware as shipped: the vendor's QMK source, built with
 symbols, which we checked function by function against the stock image. Our own fixes to that QMK
 build aren't published, so they don't count here. Both images ran in the same simulation, and
-`sim/tests/m7_power.robot` and `sim/compare/qmk_power.robot` take the numbers.
+`m7_power` and `qmk_power` take the numbers (in `sim-rs`, and in Renode's `sim`).
 
 | | Vendor QMK | This firmware |
 |---|---|---|

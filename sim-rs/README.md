@@ -4,7 +4,8 @@ A Cortex-M3 interpreter and WB32FQ95 models in Rust, with the tests as plain
 `cargo test`. It is the gate for every firmware image: the workbench's "Run
 sim tests" (`../tools/bench.py`) runs the whole suite, about 100 s, and
 freezes the akko-rmk it ran. The Renode sim in `../sim` runs the same suites
-as a cross-check ("Cross-check in Renode"), and the QMK reference until step 9.
+as a cross-check ("Cross-check in Renode"). The QMK build runs here too
+(`qmk_reference.rs`, `qmk_power.rs`).
 
 ```fish
 sim-rs/run.sh                   # build and snapshot the images, run every test
@@ -55,4 +56,6 @@ QMK binary and its golden traces) and the keyboard itself:
 
 - Step 8: the switch-over. sim-rs is the workbench's gate; there's no test selection or smaller gate any more, as the whole suite takes about 100 s (2 min with the image builds). `run.sh` runs with `--no-fail-fast`. `sim/affected.py` is gone; Renode's `sim/run.sh` stays for the cross-check.
 
-Next: the QMK binary (step 9): `qmk_reference`, the golden traces and `compare/qmk_power`.
+- Step 9: the QMK binary. `run.sh` snapshots `../qmk_5075b_plus/.build/akko_5075b_plus_via.elf` (or `$QMK_ELF`) as `qmk-via` after checking that its flash bytes are `akko_5075b_plus_fixes.bin`'s. `qmk_reference.rs` (all 8 tests of qmk_reference.robot, 7 s) and `qmk_power.rs` (compare/qmk_power.robot's 3 cases, 9 s against Renode's 25 min each) pass. The core can stub a function (`Cpu::stubs`: set r0, return), as Renode's `cpu AddHook` does with `spi_flash_start`. Two golden traces end where Renode goes wrong, not QMK: in SysTick nested over the QSPI interrupt, Renode's ICSR reads RETTOBASE, so ChibiOS's interrupt epilogue leaks a frame on the idle thread's stack per nested tick, until the stack overwrites `spiStarted` and `spi_stop` leaves the flash selected (BOARD_FACTS.md; found by watching the variable in a lockstep `compare-renode qmk-via`, pinned by `cpu.rs` `rettobase_is_clear_in_a_nested_handler`). The tests hold ours to the goldens up to that point, then to what the spec gives: CS high after a 2048-byte READ, and QMK going on to USB. QMK runs at the CPU's 100 M instructions/s, never sleeping, in both sims. The suite is 198 tests, about 2 min with the builds.
+
+Next: a GDB stub.
