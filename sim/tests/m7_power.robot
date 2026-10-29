@@ -37,16 +37,19 @@ ${ALL_UP}           a1 00 00 00 00 00 00 00 00 a1
 # on 30.5 M insns, 943 sleeps; off 24.6 M, 1003; asleep 1.14 M, 1004 (SysTick
 # 1000); key held 36.0 M. Press 3-12 steps (mean 7.6), release 38-51.
 # Parked scan: on 7.56 M, off 1.37 M, asleep 0.98 M; press 3-4 steps.
+# Tickless SysTick: on 8.49 M, 280 sleeps; off 1.88 M, 297; asleep 1.06 M,
+# 101; press 3 steps. Fewer wakes, but each costs more: every wake polls all
+# of main's join (the knob's 5 ms poll and the 16 ms frames dominate).
 ${MAX_INSNS_LIGHTS_ON}      9000000
-${MAX_WAKES_LIGHTS_ON}      1100
-${MAX_INSNS_LIGHTS_OFF}     1700000
-${MAX_WAKES_LIGHTS_OFF}     1100
+${MAX_WAKES_LIGHTS_ON}      350
+${MAX_INSNS_LIGHTS_OFF}     2000000
+${MAX_WAKES_LIGHTS_OFF}     350
 ${MAX_INSNS_ASLEEP}         1200000
-${MAX_WAKES_ASLEEP}         1100
+${MAX_WAKES_ASLEEP}         120
 ${MAX_INSNS_KEY_HELD}       40000000
 # Press (release) to IN endpoint armed, in 100 us steps: worst over the
 # presses in `Press To Report Latency`. Releases wait out the 5 ms debounce.
-${MAX_PRESS_WORST}          5
+${MAX_PRESS_WORST}          4
 ${MAX_RELEASE_WORST}        55
 
 *** Keywords ***

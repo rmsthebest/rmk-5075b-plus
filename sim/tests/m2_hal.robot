@@ -16,6 +16,7 @@ ${GPIOC_ODR}        0x40000814
 ${CAPS_LED}         0x20
 ${SYST_CSR}         0xE000E010
 ${SYST_RVR}         0xE000E014
+${SYST_CVR}         0xE000E018
 ${GPIO_KEY}         0x40000FF0
 ${ESC_DOWN}         0x10000
 ${F1_DOWN}          0x10001
@@ -40,12 +41,19 @@ Read Word
     RETURN    ${v}
 
 Milliseconds
-    [Documentation]    The time driver's millisecond count (low word of DRIVER's first field).
+    [Documentation]    The time driver's time in ms: DRIVER's first fields
+    ...    (the ticks, us, up to the current period, u64, and the cycles past
+    ...    that tick) plus how far SysTick is into that period (its reload
+    ...    minus its count).
     [Arguments]    ${elf}
     ${nm}=    Run Process    nm    -C    ${elf}
-    ${addr}=    Evaluate    [l.split()[0] for l in $nm.stdout.splitlines() if l.endswith(" wb32_hal::time_driver::DRIVER")][0]
-    ${ms}=    Read Word    0x${addr}
-    RETURN    ${ms}
+    ${addr}=    Evaluate    int([l.split()[0] for l in $nm.stdout.splitlines() if l.endswith(" wb32_hal::time_driver::DRIVER")][0], 16)
+    ${lo}=    Read Word    ${addr}
+    ${hi}=    Read Word    ${{ ${addr} + 4 }}
+    ${frac}=    Read Word    ${{ ${addr} + 8 }}
+    ${rvr}=    Read Word    ${SYST_RVR}
+    ${cvr}=    Read Word    ${SYST_CVR}
+    RETURN    ${{ ((${hi} << 32 | ${lo}) + (${frac} + ${rvr} - ${cvr}) // 96) // 1000 }}
 
 Caps LED Is On
     ${odr}=    Read Word    ${GPIOC_ODR}
@@ -96,14 +104,15 @@ Only Modelled Peripherals Are Touched
     Should Not Be In Log    LOCKED
     Should Not Be In Log    non existing peripheral
 
-SysTick Interrupts Every Millisecond
-    # As QMK's ChibiOS tick on this chip: core clock, reload for 1 ms at 96 MHz.
+SysTick Runs Tickless
+    # Core clock, interrupt on; the reload is set to the next alarm (the
+    # blink's 500 ms is past the counter's reach: its longest, 2^24 cycles).
     Boot    ${M2}
     Run For    0.1
     ${csr}=    Read Word    ${SYST_CSR}
     Should Be Equal As Integers    ${{ ${csr} & 0x7 }}    7
     ${rvr}=    Read Word    ${SYST_RVR}
-    Should Be Equal As Integers    ${rvr}    95999
+    Should Be Equal As Integers    ${rvr}    ${{ (1 << 24) - 1 }}
 
 Time Base Counts Milliseconds
     Boot    ${M2}
