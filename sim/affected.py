@@ -26,19 +26,20 @@ ALL = "*"
 # m4_rmk tests that any change to akko-rmk runs.
 SMOKE = ("Enumerates As The QMK Keyboard|A Key Press Sends A Keyboard Report|Enters DFU"
          "|No Panic|A Panic Resets|The Stack Has Headroom")
-RMK = ["m4_rmk", "m5_lighting", "m6_wireless"]
+RMK = ["m4_rmk", "m5_lighting", "m6_wireless", "m7_power"]
 
 # (path regex, suites). First match wins.
 RULES = [
     (r"sim/tests/(\w+)\.robot$", None),  # the suite itself
     (r"sim/tests/leds\.py$", ["m5_lighting"]),
+    (r"sim/tests/powercount\.py$", ["m7_power"]),
     (r"sim/(affected\.py|shard\.py|run\.sh)$", []),  # the runner
     (r"rom/", []),  # the ROM study: its own suites (rom/sim/run.sh)
     (r"(tools/(?!precheck)|crates/akko-lighting/examples/|.*\.md$|.*README)", []),  # host-only
-    (r"crates/akko-lighting/", ["m5_lighting"]),
+    (r"crates/akko-lighting/", ["m5_lighting", "m7_power"]),
     (r"crates/qmk-wireless/", ["m6_wireless"]),
-    (r"firmware/src/lighting\.rs$", ["m5_lighting"]),
-    (r"firmware/src/radio\.rs$", ["m6_wireless"]),
+    (r"firmware/src/lighting\.rs$", ["m5_lighting", "m7_power"]),
+    (r"firmware/src/radio\.rs$", ["m6_wireless", "m7_power"]),
     (r"firmware/src/bin/m1", ["boot_guard"]),
     (r"firmware/src/bin/m2", ["m2_hal"]),
     (r"firmware/src/bin/m3", ["m3_usb"]),

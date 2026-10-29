@@ -55,6 +55,8 @@
 # 0xF0C write: queue one byte (value & 0xFF) for command 0x09.
 # 0xF04 reads back the host state: 0 detached, 1 enumerating, 2 configured,
 # 3 suspended, 4 failed. 0xF08 reads the host's step count (100 us each).
+# 0xF14 write: select IN endpoint n; read: the step count when the device
+# last set its INPKTRDY (0xFFFFFFFF: never), for press-to-report latency.
 
 if request.IsInit:
     from Antmicro.Renode.Core import EmulationManager
@@ -237,6 +239,7 @@ if request.IsInit:
             if len(d.in_fifo[i]) > maxp:
                 self.WarningLog("HOST ERROR: EP%d IN packet of %d bytes, INMAXP allows %d" % (i, len(d.in_fifo[i]), maxp))
             r |= I_INPKTRDY
+            h.ready_tick[i] = h.tick
         d.incsr1[i] = r
 
     def outcsr1_write(i, v):
@@ -382,6 +385,8 @@ if request.IsInit:
     h.task = None                    # running control-transfer generator
     h.next = None
     h.tick = 0
+    h.ready_tick = {}                # 0xF14: IN endpoint -> step of its last INPKTRDY
+    h.ready_ep = 0
     h.suspended = False
     h.plugged = True
     ctl = [None]                     # current control stage, for SETUPEND
@@ -781,6 +786,11 @@ if not request.IsInit:
     elif off == 0xF0C:
         if request.IsWrite:
             h.out_bytes.append(int(request.Value) & 0xFF)
+    elif off == 0xF14:
+        if request.IsWrite:
+            h.ready_ep = int(request.Value)
+        else:
+            request.Value = h.ready_tick.get(h.ready_ep, 0xFFFFFFFF)
     elif off == 0xF10:
         if request.IsWrite:
             h.trace = int(request.Value) != 0
