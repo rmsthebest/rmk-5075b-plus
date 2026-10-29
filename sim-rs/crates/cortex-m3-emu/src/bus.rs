@@ -25,19 +25,46 @@ impl Size {
 
 /// Everything outside the core's private peripheral bus.
 ///
-/// Accesses never fail: like Renode (and unlike a real bus fault), an access
-/// nothing answers reads as 0 and is dropped, and the chip model records it
-/// as an error for the test to fail on. Values are little-endian and only the
-/// low `size` bytes are meaningful.
+/// Data accesses never fail: like Renode (and unlike a real bus fault), an
+/// access nothing answers reads as 0 and is dropped, and the chip model
+/// records it as an error for the test to fail on. Values are little-endian
+/// and only the low `size` bytes are meaningful.
 pub trait Bus {
     fn read(&mut self, addr: u32, size: Size) -> u32;
     fn write(&mut self, addr: u32, size: Size, value: u32);
 
-    /// An instruction fetch. Separate from `read` so a chip can tell code
-    /// from data (traces, execute-from-RAM checks); the default is a read.
-    fn fetch(&mut self, addr: u32) -> u16 {
-        self.read(addr, Size::Half) as u16
+    /// An instruction fetch: `None` where there's no memory to execute
+    /// from, which the core takes as a bus fault.
+    fn fetch(&mut self, addr: u32) -> Option<u16>;
+
+    /// Runs whatever the chip has due at or before `now` (core ticks, see
+    /// [`crate::TICK_HZ`]). Called before every instruction and whenever a
+    /// sleeping core's clock jumps.
+    fn advance(&mut self, _now: u64) {}
+
+    /// When the chip next needs `advance`, if ever. A sleeping core jumps
+    /// straight there.
+    fn next_event(&self) -> u64 {
+        u64::MAX
     }
+
+    /// The interrupt request lines into the NVIC, read before every
+    /// instruction.
+    fn irq_lines(&mut self) -> IrqLines {
+        IrqLines::default()
+    }
+
+    /// The core went to sleep (WFI/WFE); `deep` is SCR.SLEEPDEEP.
+    fn sleep(&mut self, _deep: bool) {}
+}
+
+/// External interrupt inputs, bit n for IRQ n (exception 16 + n).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct IrqLines {
+    /// Lines held high now.
+    pub level: u64,
+    /// Lines that went high since the last read, even if already low again.
+    pub raised: u64,
 }
 
 /// A plain little-endian memory: flash, SRAM, ROM.

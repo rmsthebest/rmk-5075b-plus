@@ -1,5 +1,6 @@
 //! The Akko 5075B Plus on wb32-sim, and the harness the tests drive it with.
 
+use cortex_m3_emu::{Config, Cpu, TICK_HZ};
 use std::path::PathBuf;
 use wb32_sim::chip::ROM_BASE;
 use wb32_sim::{LoadError, Wb32};
@@ -63,6 +64,7 @@ impl Image {
 }
 
 pub struct Board {
+    pub cpu: Cpu,
     pub chip: Wb32,
 }
 
@@ -83,7 +85,36 @@ impl Board {
         stub.extend_from_slice(&(ROM_PARKED | 1).to_le_bytes());
         stub.extend_from_slice(&0xE7FEu16.to_le_bytes()); // b .
         chip.load(ROM_BASE, &stub).expect("the stub fits the ROM");
-        Board { chip }
+        Board {
+            cpu: Cpu::new(Config::default()),
+            chip,
+        }
+    }
+
+    /// Loads an image and resets into it, as `sysbus LoadELF` then
+    /// `machine Reset`.
+    pub fn boot(image: Image) -> Result<Board, LoadError> {
+        let mut b = Board::new();
+        b.load(image)?;
+        b.reset();
+        Ok(b)
+    }
+
+    /// A system reset: SRAM keeps its contents, as on the chip.
+    pub fn reset(&mut self) {
+        self.cpu.reset(&mut self.chip);
+    }
+
+    /// Runs for `secs` of emulated time. A SYSRESETREQ resets the system
+    /// and carries on.
+    pub fn run_for(&mut self, secs: f64) {
+        let end = self.cpu.now + (secs * TICK_HZ as f64) as u64;
+        while self.cpu.now < end && !self.cpu.halted {
+            self.cpu.run_until(&mut self.chip, end);
+            if std::mem::take(&mut self.cpu.reset_requested) {
+                self.reset();
+            }
+        }
     }
 
     /// Loads an image's ELF. Returns its entry point.

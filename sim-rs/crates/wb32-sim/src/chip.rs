@@ -132,6 +132,14 @@ impl Bus for Wb32 {
             }),
         }
     }
+
+    fn fetch(&mut self, addr: u32) -> Option<u16> {
+        match self.region(addr, Size::Half)? {
+            Region::Flash(o) => Some(self.flash.read(o, Size::Half) as u16),
+            Region::Rom(o) => Some(self.rom.read(o, Size::Half) as u16),
+            Region::Sram(o) => Some(self.sram.read(o, Size::Half) as u16),
+        }
+    }
 }
 
 #[cfg(test)]

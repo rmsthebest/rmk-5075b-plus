@@ -34,7 +34,7 @@ QMK binary and its golden traces) and the keyboard itself:
 
 ## Status
 
-Step 1 of the plan: the workspace, the memory map (flash at 0 and
-0x0800_0000, ROM, SRAM), ELF and binary loading, and the ROM stub. Accesses
-to nothing, and stores to flash or ROM, are recorded as `Diag`s rather than
-faulting, as Renode logs them. Next: the core.
+- Step 1: the workspace, the memory map (flash at 0 and 0x0800_0000, ROM, SRAM), ELF and binary loading, the ROM stub. Accesses to nothing, and stores to flash or ROM, are recorded as `Diag`s rather than faulting, as Renode logs them.
+- Step 2: the core. The decoder agrees with llvm-objdump on every instruction of the images, the ROM and a random blob (`tests/decode_oracle.rs`); the interpreter, exceptions, NVIC, SysTick, SCB and DWT have their own tests (`cortex-m3-emu/tests/cpu.rs`). Timing is Renode's: 100 MIPS, SysTick and CYCCNT at 96 MHz. A sleeping core jumps to the next event.
+
+Next: check the core against Renode's execution traces of the same images (step 3).

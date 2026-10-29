@@ -15,6 +15,7 @@ that pins it (`-` until the test is ported).
 | Stop entry is skipped while any EXTI request bit is pending. | RM2905025 5.4 | - |
 | PWR_CFGR is reset only by power-on reset. | RM2905025 5.4 | - |
 | SYSRESETREQ keeps SRAM: the panic record and the bootloader magic at 0x2000_6FFC survive it. | Board: boot-guard's panic record survives the reset into the ROM bootloader and back (M3, tools/m3-check.py, 2026-10-26) | - |
+| The core is a Cortex-M3 r2p0 (CPUID 0x412FC230) with 4 priority bits, an MPU and 37 IRQs (0-36, I2S last). | Vendor wb32fq95xx.h (`__CM3_REV`, `__NVIC_PRIO_BITS`, `__MPU_PRESENT`, IRQn) | `cortex-m3-emu` `Config`, `ppb.rs` |
 | The ROM feeds the IWDG only while RCC+0x104 is non-zero. What sets it is unknown. | ROM disassembly, rom/notes.md. Open: read 0x40010D04 on the board after starting an IWDG | - |
 
 ## Open questions for the board
@@ -23,4 +24,5 @@ Things to read with Vial peek (0xDA) in an image that's being flashed anyway:
 - Reset values of the registers the models assume (RCC, ANCTL, the GPIO MODER/PUPDR).
 - SYS MEMSZ (0x4001_6404); rom/sim assumes 0x03.
 - RCC+0x104 with and without the IWDG running.
-- Instructions per second: cycles taken by a known busy loop, against SysTick.
+- Instructions per second: cycles taken by a known busy loop, against SysTick. The sim runs at Renode's 100 MIPS for now; the board's flash wait states make it slower (asm::delay(HCLK/1000) took about 3000 TIM2 ticks, 2026-10-27).
+- CPUID, to confirm r2p0.
