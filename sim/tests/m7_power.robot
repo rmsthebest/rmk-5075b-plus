@@ -40,12 +40,14 @@ ${ALL_UP}           a1 00 00 00 00 00 00 00 00 a1
 # Tickless SysTick: on 8.49 M, 280 sleeps; off 1.88 M, 297; asleep 1.06 M,
 # 101; press 3 steps. Fewer wakes, but each costs more: every wake polls all
 # of main's join (the knob's 5 ms poll and the 16 ms frames dominate).
-${MAX_INSNS_LIGHTS_ON}      9000000
-${MAX_WAKES_LIGHTS_ON}      350
-${MAX_INSNS_LIGHTS_OFF}     2000000
-${MAX_WAKES_LIGHTS_OFF}     350
-${MAX_INSNS_ASLEEP}         1200000
-${MAX_WAKES_ASLEEP}         120
+# No polls (knob, radio 50 ms, suspended frames 250 ms, heartbeat 500 ms):
+# on 7.55 M, 74 sleeps; off 0.90 M, 75 (the 16 ms frames); asleep 0.12 M, 18.
+${MAX_INSNS_LIGHTS_ON}      8500000
+${MAX_WAKES_LIGHTS_ON}      90
+${MAX_INSNS_LIGHTS_OFF}     1000000
+${MAX_WAKES_LIGHTS_OFF}     90
+${MAX_INSNS_ASLEEP}         150000
+${MAX_WAKES_ASLEEP}         25
 ${MAX_INSNS_KEY_HELD}       40000000
 # Press (release) to IN endpoint armed, in 100 us steps: worst over the
 # presses in `Press To Report Latency`. Releases wait out the 5 ms debounce.
