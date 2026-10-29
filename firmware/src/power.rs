@@ -62,8 +62,11 @@ use crate::stop;
 /// HS_LBACK_TIMEOUT and HS_PAIR_TIMEOUT (wls.h).
 const RECONNECT_TIMEOUT_MS: u32 = 30_000;
 const PAIR_TIMEOUT_MS: u32 = 120_000;
-/// How often the task looks, awake or asleep.
-const TICK_MS: u64 = 250;
+/// How often the task looks asleep (the cable, and whether to stop), and
+/// at least how often awake (the link's timeouts; the idle timeout is
+/// waited for exactly). Pokes wake it at once.
+const TICK_MS: u32 = 250;
+const AWAKE_TICK_MS: u32 = 1_000;
 /// The vendor's wait after telling the module (wls.c, wait_ms(200)).
 const MODULE_SLEEP_WAIT_MS: u64 = 200;
 /// Asleep this long (the lights off, the columns driven) before stopping.
@@ -263,6 +266,16 @@ impl Power {
         (now.wrapping_sub(self.state_since) >= link && !crate::lighting::recording()).then_some(Why::Link)
     }
 
+    /// Awake: ms until the idle timeout (`AWAKE_TICK_MS` if none).
+    fn idle_left(&self, now: u32) -> u32 {
+        let timeout = record::sleep_ms(setting());
+        if timeout == 0 || !radio::wireless() {
+            return AWAKE_TICK_MS;
+        }
+        // One past it, so `due` sees it reached.
+        (timeout + 1).saturating_sub(now.wrapping_sub(LAST_INPUT.load(Ordering::Relaxed)))
+    }
+
     async fn sleep(&mut self, why: Why) {
         if why == Why::Idle {
             radio::release_keys();
@@ -339,7 +352,8 @@ impl Power {
 impl rmk::core_traits::Runnable for Power {
     async fn run(&mut self) -> ! {
         loop {
-            select(POKE.wait(), Timer::after_millis(TICK_MS)).await;
+            let wait = if self.asleep.is_some() { TICK_MS } else { self.idle_left(now_ms()).min(AWAKE_TICK_MS) };
+            select(POKE.wait(), Timer::after_millis(wait as u64)).await;
             let now = now_ms();
             if self.asleep.is_none() {
                 if let Some(why) = self.due(now) {

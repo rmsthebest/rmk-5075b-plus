@@ -8,7 +8,7 @@
 //! - `scan_alive`, every scan pass (1 ms while a key is down): the
 //!   executor runs and the keys are read. While the scan is parked
 //!   (`scan_parked`, no key down) it counts as moving.
-//! - `MAIN_ALIVE`, every 100 ms from `heartbeat`, a future in main's join:
+//! - `MAIN_ALIVE`, every 500 ms from `heartbeat`, a future in main's join:
 //!   the time queue (SysTick) works.
 //!
 //! What it can't catch: a hang with interrupts off (in a critical section)
@@ -49,11 +49,11 @@ pub fn start() {
     wb32_hal::tick::start(PERIOD_MS, PRIO, check);
 }
 
-/// Bumps `MAIN_ALIVE` every 100 ms.
+/// Bumps `MAIN_ALIVE` every 500 ms.
 pub async fn heartbeat() -> ! {
     loop {
         MAIN_ALIVE.store(MAIN_ALIVE.load(Ordering::Relaxed).wrapping_add(1), Ordering::Relaxed);
-        Timer::after_millis(100).await;
+        Timer::after_millis(500).await;
     }
 }
 
