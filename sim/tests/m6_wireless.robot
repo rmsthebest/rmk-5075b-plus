@@ -723,3 +723,33 @@ In Stop Mode The Knob Wakes It, And The Next Turn Is Sent
     Run For    0.002
     Drive    1    6    2
     Radio Should Get    a3 e9 00
+
+A Fast Knob Spin Through The Dongle Keeps Every Step
+    [Documentation]    40 detents at 4 ms each, with the module taking 4 ms to
+    ...    ACK each frame (uart3.py's ACK delay): every step reaches the
+    ...    module as a volume-up press and its release. The link holds 16
+    ...    messages and drops what doesn't fit, so the knob waits for room
+    ...    (src/knob.rs) instead of handing it steps the link would drop.
+    Boot
+    On The Dongle
+    Execute Command    uart3 WriteDoubleWord ${RADIO_FLAGS} ${{ 4 << 16 | 100 << 8 }}
+    FOR    ${i}    IN RANGE    40
+        Drive    1    7    0
+        Run For    0.001
+        Drive    1    6    0
+        Run For    0.001
+        Drive    1    7    2
+        Run For    0.001
+        Drive    1    6    2
+        Run For    0.001
+    END
+    Run For    2
+    ${presses}=    Set Variable    0
+    FOR    ${i}    IN RANGE    60
+        ${ok}=    Run Keyword And Return Status    Wait For Log Entry    radio: <- a3 e9 00    timeout=0
+        IF    not ${ok}    BREAK
+        ${presses}=    Evaluate    ${presses} + 1
+    END
+    Log To Console    \nknob steps through the dongle: ${presses} of 40
+    Should Be Equal As Integers    ${presses}    40
+    No Radio Errors

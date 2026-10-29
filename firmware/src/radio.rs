@@ -155,6 +155,14 @@ pub fn wireless() -> bool {
     WIRELESS.load(Ordering::Relaxed)
 }
 
+/// Reports can go out now without piling up: on USB always; on a wireless
+/// device, once the link has sent (and had ACKed) everything queued. The
+/// link drops messages that don't fit its 16, so a source that can run
+/// ahead of the module (the knob) waits for this.
+pub fn link_ready() -> bool {
+    !wireless() || !LINK.lock(|l| l.borrow().busy())
+}
+
 /// A pairing key's hold started pairing.
 pub fn pairing() -> bool {
     PAIRING.load(Ordering::Relaxed)

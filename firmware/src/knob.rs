@@ -8,6 +8,13 @@
 //! between isn't lost. Asleep (src/power.rs), a change wakes the keyboard
 //! and the turn is sent. A step counts as input for the sleep timeout.
 //!
+//! Over the radio a step is two messages (press, release) that each wait
+//! for the module's ACK, a few ms apiece, and the link drops what doesn't
+//! fit its queue: a fast spin lost most of its steps. So a step's press
+//! waits until the link has sent everything before it, and the steps turned
+//! meanwhile queue here (`MAX_QUEUED`). Keys typed meanwhile only wait
+//! behind one step, not a queue of them.
+//!
 //! RMK's own `RotaryEncoder` only waits on edges with the `async_matrix`
 //! feature, and otherwise polls every 20 ms, too slow for a quick turn.
 
@@ -24,7 +31,9 @@ const RESOLUTION: i8 = 4;
 /// config.h) plus margin for the host's 1 ms poll.
 const TAP: Duration = Duration::from_millis(5);
 /// Steps turned faster than they can be sent wait here, up to this many.
-const MAX_QUEUED: i8 = 8;
+const MAX_QUEUED: i8 = 32;
+/// How often a step waiting for the radio link looks again.
+const LINK_POLL: Duration = Duration::from_millis(1);
 
 #[input_device(publish = KeyboardEvent)]
 pub struct Knob {
@@ -71,7 +80,7 @@ impl Knob {
                     self.held = None;
                     return KeyboardEvent::rotary_encoder(self.id, dir, false);
                 }
-                None if self.queued != 0 => {
+                None if self.queued != 0 && crate::radio::link_ready() => {
                     let dir = if self.queued > 0 { Direction::CounterClockwise } else { Direction::Clockwise };
                     self.queued -= self.queued.signum();
                     self.held = Some((dir, now + TAP));
@@ -87,9 +96,14 @@ impl Knob {
                 async move { if a_high { a.wait_for_low().await } else { a.wait_for_high().await } },
                 async move { if b_high { b.wait_for_low().await } else { b.wait_for_high().await } },
             );
-            match self.held {
-                Some((_, until)) => {
-                    select(moved, Timer::at(until)).await;
+            let wake = match self.held {
+                Some((_, until)) => Some(until),
+                None if self.queued != 0 => Some(now + LINK_POLL),
+                None => None,
+            };
+            match wake {
+                Some(at) => {
+                    select(moved, Timer::at(at)).await;
                 }
                 None => {
                     moved.await;

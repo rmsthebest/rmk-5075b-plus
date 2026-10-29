@@ -24,8 +24,10 @@
 # Simulation control (offsets 0xE0..):
 #   0xE0 write: one byte from the module, as is
 #   0xE4 write: a module frame "cmd arg sum" from cmd | arg << 8
-#   0xE8 write: bit 0 no ACKs, bit 1 auto-connect, bits 8-15 battery %
-#               (reset: ACKs on, auto-connect off, battery 100)
+#   0xE8 write: bit 0 no ACKs, bit 1 auto-connect, bits 8-15 battery %,
+#               bits 16-23 ACK delay in ms (the real module takes a few ms
+#               to ACK over the air; 0: at once)
+#               (reset: ACKs on at once, auto-connect off, battery 100)
 #   0xEC read : errors logged so far (a bad sum, a stray byte, wrong set-up)
 #   0xF0 read : frames received from the keyboard
 #   0xF4 read : ACKs received from the keyboard
@@ -33,6 +35,8 @@
 
 if request.IsInit:
     from Antmicro.Renode.Core import EmulationManager
+    from Antmicro.Renode.Time import TimeInterval
+    from System import Action
 
     IRQ = 32
     IER_RDAIE, IER_THREIE = 0x1, 0x2
@@ -43,7 +47,9 @@ if request.IsInit:
     ACK = [0x61, 0x0D, 0x0A]
 
     nvic = None
+    mach = None
     for m in EmulationManager.Instance.CurrentEmulation.Machines:
+        mach = m
         nvic = m.SystemBus.WhatPeripheralIsAt(0xE000E000)
 
     class State(object):
@@ -93,7 +99,15 @@ if request.IsInit:
         if not ok:
             error("radio: bad sum in " + hexs(f))
             return
-        if not s.flags & 1:
+        delay = (s.flags >> 16) & 0xFF
+        if s.flags & 1:
+            pass
+        elif delay:
+            def ack_later(t):
+                module_send(ACK)
+                update_irq()
+            mach.ScheduleAction(TimeInterval.FromMilliseconds(delay), Action[TimeInterval](ack_later))
+        else:
             module_send(ACK)
         if f[0] == 0xA6:
             if f[1] == 0x53:
