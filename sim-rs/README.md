@@ -47,4 +47,6 @@ QMK binary and its golden traces) and the keyboard itself:
 
 - Step 6b: `m5_lighting.rs`, all 29 tests of m5_lighting.robot (11 s), with leds.py's colour maths and layout reading in `tests/common`, which m4 now shares. A seeded decoder bug (RGB for GRB) fails the 13 colour tests; a radio reporting the battery 1% high fails the two that read the level.
 
-Next: m6 (wireless, stop mode), step 6c.
+- Step 6c: `m6_wireless.rs`, all 28 tests of m6_wireless.robot (18 s), stop mode included. Stop mode is modelled as in Renode: SysTick off, SLEEPDEEP and a WFI that any interrupt ends; what a stop does to the clocks on the chip (BOARD_FACTS.md) isn't modelled yet in either sim. A seeded UART bug (LSR never shows a byte) fails all 28. The whole suite (186 tests) takes about 100 s.
+
+Next: m7_power (step 7).
