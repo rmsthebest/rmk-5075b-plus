@@ -1,14 +1,16 @@
 //! The Akko 5075B Plus on wb32-sim, and the harness the tests drive it with.
 
+pub mod gdb;
 pub mod nor;
 pub mod radio;
 pub mod usb_host;
 pub mod ws2812;
 
-use cortex_m3_emu::{Bus, Config, Cpu, IrqLines, Size, TICK_HZ};
+use cortex_m3_emu::{Bus, Config, Cpu, IrqLines, Size, Sleep, TICK_HZ};
 use nor::Nor;
 use radio::Radio;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 use usb_host::{Host, UsbEvent};
@@ -16,6 +18,9 @@ use wb32_sim::chip::ROM_BASE;
 use wb32_sim::gpio::{A, B, C, Matrix, Pin};
 use wb32_sim::{LoadError, Wb32};
 use ws2812::Ws2812;
+
+/// The core's private peripheral bus (NVIC, SCB, SysTick, DWT).
+const PPB: std::ops::Range<u32> = 0xE000_0000..0xE010_0000;
 
 /// Where the ROM stub's reset handler spins: "PC is here" means "entered DFU".
 pub const ROM_PARKED: u32 = 0x1FFF_E008;
@@ -334,6 +339,89 @@ impl Board {
                 self.reset();
             }
         }
+    }
+
+    /// As `run_for`, for a debugger: stops early before an instruction at
+    /// one of `breaks`, or at a BKPT (`Cpu::run_until_break`). True if it
+    /// did.
+    pub fn run_for_break(&mut self, secs: f64, breaks: &HashSet<u32>) -> bool {
+        let end = self.cpu.now + (secs * TICK_HZ as f64) as u64;
+        while self.cpu.now < end && !self.cpu.halted {
+            let mut bus = BoardBus {
+                chip: &mut self.chip,
+                host: &mut self.host,
+            };
+            if self.cpu.run_until_break(&mut bus, end, breaks) {
+                return true;
+            }
+            if std::mem::take(&mut self.cpu.reset_requested) {
+                self.resets += 1;
+                self.reset();
+                if breaks.contains(&self.pc()) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// A debugger's single step: one instruction or exception entry. A
+    /// sleeping core sleeps until it wakes, for at most `secs`; false if
+    /// it was still asleep then.
+    pub fn debug_step(&mut self, secs: f64) -> bool {
+        let end = self.cpu.now + (secs * TICK_HZ as f64) as u64;
+        if self.cpu.sleep != Sleep::Awake {
+            let mut bus = BoardBus {
+                chip: &mut self.chip,
+                host: &mut self.host,
+            };
+            if !self.cpu.wake(&mut bus, end) {
+                return false;
+            }
+        }
+        let mut bus = BoardBus {
+            chip: &mut self.chip,
+            host: &mut self.host,
+        };
+        self.cpu.step(&mut bus);
+        self.cpu.debug_halt = false;
+        if std::mem::take(&mut self.cpu.reset_requested) {
+            self.resets += 1;
+            self.reset();
+        }
+        true
+    }
+
+    /// Memory as a debugger reads it (`Cpu::debug_read`); None where
+    /// nothing answers.
+    pub fn debug_read(&mut self, addr: u32, size: Size) -> Option<u32> {
+        if !PPB.contains(&addr) && !self.chip.mapped(addr, size) {
+            return None;
+        }
+        let mut bus = BoardBus {
+            chip: &mut self.chip,
+            host: &mut self.host,
+        };
+        Some(self.cpu.debug_read(&mut bus, addr, size))
+    }
+
+    /// A debugger's write. Flash and the ROM take it directly, as a
+    /// debugger's `load` programs them; false where nothing answers.
+    pub fn debug_write(&mut self, addr: u32, size: Size, value: u32) -> bool {
+        use wb32_sim::chip::Region;
+        match self.chip.region(addr, size) {
+            Some(Region::Flash(o)) => self.chip.flash_mut().write(o, size, value),
+            Some(Region::Rom(o)) => self.chip.rom_mut().write(o, size, value),
+            _ if PPB.contains(&addr) || self.chip.mapped(addr, size) => {
+                let mut bus = BoardBus {
+                    chip: &mut self.chip,
+                    host: &mut self.host,
+                };
+                self.cpu.debug_write(&mut bus, addr, size, value);
+            }
+            _ => return false,
+        }
+        true
     }
 
     pub fn pc(&self) -> u32 {

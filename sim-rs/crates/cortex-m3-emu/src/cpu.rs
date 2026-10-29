@@ -7,7 +7,7 @@ use crate::decode::*;
 use crate::exception::{Exc, Fault};
 use crate::ppb::Ppb;
 use crate::{Config, CoreDiag};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Flags in APSR.
 pub const N: u32 = 1 << 31;
@@ -72,6 +72,12 @@ pub struct Cpu {
     /// <addr> "self.SetRegisterUlong(0, v); self.PC = self.LR"`. For
     /// firmware the board can't run past; not an instruction.
     pub stubs: HashMap<u32, u32>,
+    /// A debugger is attached (halting debug, DHCSR.C_DEBUGEN): a BKPT
+    /// halts the core before it executes, instead of escalating to
+    /// HardFault (ARM DDI 0403E C1.6.1).
+    pub debugger: bool,
+    /// Set when a BKPT halted the core (the caller clears it).
+    pub debug_halt: bool,
     /// The address of the instruction executing (for faults and diags).
     pub(crate) cur_pc: u32,
     /// The IT state it executes in.
@@ -110,6 +116,8 @@ impl Cpu {
             lockstep: false,
             ppb_reads: Vec::new(),
             stubs: HashMap::new(),
+            debugger: false,
+            debug_halt: false,
             cur_pc: 0,
             cur_it: ItState::default(),
             pending_sync: None,
@@ -118,8 +126,8 @@ impl Cpu {
     }
 
     /// A system reset: everything in the core back to its reset value, then
-    /// SP and PC from the vector table at 0. Time, counters, diags and stubs
-    /// carry on.
+    /// SP and PC from the vector table at 0. Time, counters, diags, stubs
+    /// and the debugger carry on.
     pub fn reset(&mut self, bus: &mut impl Bus) {
         let keep = (
             self.now,
@@ -128,6 +136,7 @@ impl Cpu {
             std::mem::take(&mut self.diags),
             self.lockstep,
             std::mem::take(&mut self.stubs),
+            self.debugger,
         );
         *self = Cpu::new(self.config);
         (
@@ -137,6 +146,7 @@ impl Cpu {
             self.diags,
             self.lockstep,
             self.stubs,
+            self.debugger,
         ) = keep;
         self.ppb.reset(self.now);
         self.r[LR] = 0xFFFF_FFFF;
@@ -192,6 +202,17 @@ impl Cpu {
         } else {
             self.r[SP] = v & !3
         }
+    }
+
+    /// CONTROL as MSR writes it: nPRIV and SPSEL (ignored in Handler
+    /// mode, where the MSP is always in use).
+    pub fn set_control(&mut self, v: u8) {
+        let spsel = if self.handler_mode() {
+            self.control & 2
+        } else {
+            v & 2
+        };
+        self.set_stack_selection(self.ipsr, (v & 1) | spsel);
     }
 
     pub fn set_psp(&mut self, v: u32) {
@@ -305,6 +326,16 @@ impl Cpu {
 
     // ---- memory ----
 
+    /// A debugger's access (the AHB-AP): the PPB and the bus, as the core
+    /// sees them.
+    pub fn debug_read(&mut self, bus: &mut impl Bus, addr: u32, size: Size) -> u32 {
+        self.read(bus, addr, size)
+    }
+
+    pub fn debug_write(&mut self, bus: &mut impl Bus, addr: u32, size: Size, value: u32) {
+        self.write(bus, addr, size, value)
+    }
+
     pub(crate) fn read(&mut self, bus: &mut impl Bus, addr: u32, size: Size) -> u32 {
         if (0xE000_0000..0xE010_0000).contains(&addr) {
             let now = self.now;
@@ -358,6 +389,42 @@ impl Cpu {
                 self.step(bus);
             }
         }
+    }
+
+    /// As `run_until`, for a debugger: also stops before an instruction at
+    /// one of `breaks` (not the first, which it resumes from) and at a BKPT
+    /// (`debug_halt`, cleared). True if it stopped for either.
+    pub fn run_until_break(
+        &mut self,
+        bus: &mut impl Bus,
+        deadline: u64,
+        breaks: &HashSet<u32>,
+    ) -> bool {
+        let mut first = true;
+        while self.now < deadline && !self.halted && !self.reset_requested {
+            if self.sleep != Sleep::Awake {
+                self.sleep_until(bus, deadline);
+                continue;
+            }
+            if !first && breaks.contains(&self.r[PC]) {
+                return true;
+            }
+            first = false;
+            self.step(bus);
+            if std::mem::take(&mut self.debug_halt) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// A sleeping core sleeps until it wakes, or `deadline`: whether it is
+    /// awake (a debugger's single step).
+    pub fn wake(&mut self, bus: &mut impl Bus, deadline: u64) -> bool {
+        while self.sleep != Sleep::Awake && self.now < deadline && !self.halted {
+            self.sleep_until(bus, deadline);
+        }
+        self.sleep == Sleep::Awake
     }
 
     /// One instruction, or one exception entry.
@@ -833,6 +900,14 @@ impl Cpu {
                 }
             }
             Op::Svc { .. } => self.raise_sync(Exc::SVCALL, self.r[PC]),
+            Op::Bkpt { .. } if self.debugger => {
+                // Halted before it executes: the PC stays on the BKPT.
+                self.r[PC] = self.cur_pc;
+                self.it = self.cur_it;
+                self.instructions -= 1;
+                self.now -= self.config.insn_ticks;
+                self.debug_halt = true;
+            }
             Op::Bkpt { .. } => {
                 // No debugger: BKPT escalates to HardFault (HFSR.DEBUGEVT).
                 self.diag(CoreDiag::Breakpoint { pc: self.cur_pc });

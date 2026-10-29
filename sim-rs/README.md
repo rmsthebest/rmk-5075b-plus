@@ -13,6 +13,24 @@ sim-rs/run.sh -p wb32-sim       # cargo test arguments pass through
 cd sim-rs; cargo test           # against the last snapshot
 ```
 
+## Debugging an image
+
+`akko-sim gdb <image> [port]` boots an image halted at its reset vector and
+serves GDB on localhost, as a debug probe would on the keyboard:
+
+```fish
+cd sim-rs; cargo run --release --bin akko-sim -- gdb akko-rmk 3333
+gdb target/images/akko-rmk -ex 'target remote :3333'
+```
+
+Breakpoints, `stepi`/`step`, Ctrl-C, registers (the core's, `xpsr`, `msp`,
+`psp`, `primask`, `basepri`, `faultmask`, `control`), memory (flash writes go
+straight in, as `load` does) and a BKPT halting the core. `monitor reset` is a
+system reset (SRAM kept), `monitor time` the emulated time, and `monitor key
+<row> <col> down|up` presses a key. Emulated time stands still while halted and
+runs as fast as it can otherwise, with the USB host and the board's parts going
+on as in the tests. No watchpoints yet.
+
 `run.sh` builds the firmware in `target/sim-rs*` (not the repo's `target/`, so a
 Renode run can go on at the same time) and copies the images to
 `sim-rs/target/images/`, which is all the tests read. `AKKO_SIM_IMAGES=` points
@@ -56,6 +74,8 @@ QMK binary and its golden traces) and the keyboard itself:
 
 - Step 8: the switch-over. sim-rs is the workbench's gate; there's no test selection or smaller gate any more, as the whole suite takes about 100 s (2 min with the image builds). `run.sh` runs with `--no-fail-fast`. `sim/affected.py` is gone; Renode's `sim/run.sh` stays for the cross-check.
 
-- Step 9: the QMK binary. `run.sh` snapshots `../qmk_5075b_plus/.build/akko_5075b_plus_via.elf` (or `$QMK_ELF`) as `qmk-via` after checking that its flash bytes are `akko_5075b_plus_fixes.bin`'s. `qmk_reference.rs` (all 8 tests of qmk_reference.robot, 7 s) and `qmk_power.rs` (compare/qmk_power.robot's 3 cases, 9 s against Renode's 25 min each) pass. The core can stub a function (`Cpu::stubs`: set r0, return), as Renode's `cpu AddHook` does with `spi_flash_start`. Two golden traces end where Renode goes wrong, not QMK: in SysTick nested over the QSPI interrupt, Renode's ICSR reads RETTOBASE, so ChibiOS's interrupt epilogue leaks a frame on the idle thread's stack per nested tick, until the stack overwrites `spiStarted` and `spi_stop` leaves the flash selected (BOARD_FACTS.md; found by watching the variable in a lockstep `compare-renode qmk-via`, pinned by `cpu.rs` `rettobase_is_clear_in_a_nested_handler`). The tests hold ours to the goldens up to that point, then to what the spec gives: CS high after a 2048-byte READ, and QMK going on to USB. QMK runs at the CPU's 100 M instructions/s, never sleeping, in both sims. The suite is 198 tests, about 2 min with the builds.
+- Step 9: the QMK binary. `run.sh` snapshots `../qmk_5075b_plus/.build/akko_5075b_plus_via.elf` (or `$QMK_ELF`) as `qmk-via` after checking that its flash bytes are `akko_5075b_plus_fixes.bin`'s. `qmk_reference.rs` (all 8 tests of qmk_reference.robot, 7 s) and `qmk_power.rs` (compare/qmk_power.robot's 3 cases, 9 s against Renode's 25 min each) pass. The core can stub a function (`Cpu::stubs`: set r0, return), as Renode's `cpu AddHook` does with `spi_flash_start`. Two golden traces end where Renode goes wrong, not QMK: in SysTick nested over the QSPI interrupt, Renode's ICSR reads RETTOBASE, so ChibiOS's interrupt epilogue leaks a frame on the idle thread's stack per nested tick, until the stack overwrites `spiStarted` and `spi_stop` leaves the flash selected (BOARD_FACTS.md; found by watching the variable in a lockstep `compare-renode qmk-via`, pinned by `cpu.rs` `rettobase_is_clear_in_a_nested_handler`). The tests hold ours to the goldens up to that point, then to what the spec gives: CS high after a 2048-byte READ, and QMK going on to USB. QMK runs at the CPU's 100 M instructions/s, never sleeping, in both sims. The suite is 198 tests, about 2 min with the builds (205 with step 9b).
 
-Next: a GDB stub.
+- Step 9b: the GDB stub (`akko_sim::gdb`, `akko-sim gdb`). The core stops before a breakpoint's instruction (`Cpu::run_until_break`, resuming from one) and, with a debugger attached, a BKPT halts it instead of escalating to HardFault (ARM DDI 0403E C1.6.1). `tests/gdb.rs` checks the packets, Ctrl-C over a socket, and a session with GDB itself (`gdb`, or `$GDB`): break at main, continue, stepi, memory, a register write, `monitor time`, detach.
+
+Next: the plan's board checks (reset values, TIM2, RCC after stop, the busy-loop rate), as images are batched for the keyboard.

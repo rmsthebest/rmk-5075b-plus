@@ -334,6 +334,11 @@ impl Wb32 {
         }
     }
 
+    /// Whether anything answers at `addr`: a memory or a peripheral.
+    pub fn mapped(&self, addr: u32, size: Size) -> bool {
+        self.region(addr, size).is_some() || periph(addr & !3).is_some()
+    }
+
     /// The memory holding the whole access, if one does.
     pub fn region(&self, addr: u32, size: Size) -> Option<Region> {
         let inside = |m: &Memory, base: u32| {

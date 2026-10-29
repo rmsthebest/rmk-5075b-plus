@@ -610,3 +610,50 @@ fn rettobase_is_clear_in_a_nested_handler() {
     steps(&mut cpu, &mut bus, 1);
     assert_eq!((cpu.ipsr, cpu.pc()), (17, 0x90), "back in IRQ 1");
 }
+
+#[test]
+fn bkpt_halts_only_with_a_debugger() {
+    // ARM DDI 0403E C1.6.1: with halting debug, a BKPT halts the core
+    // before it executes; without a debugger it escalates to HardFault
+    // (`undefined_instruction_escalates...` has the fault side).
+    let code = [
+        (0x2001, "movs r0, #0x1"),
+        (0xBE00, "bkpt #0x0"),
+        (0x2002, "movs r0, #0x2"),
+    ];
+    let (mut cpu, mut bus) = machine(&code);
+    bus.flash.write(3 * 4, Size::Word, 0x81);
+    put(&mut bus, 0x80, &[(0xE7FE, "b 0x80")]);
+    cpu.debugger = true;
+    let none = std::collections::HashSet::new();
+    assert!(cpu.run_until_break(&mut bus, 1_000_000, &none));
+    assert_eq!((cpu.pc(), cpu.ipsr, cpu.r[0]), (0x42, 0, 1));
+    assert_eq!(cpu.instructions, 1, "the BKPT didn't execute");
+    assert!(cpu.diags.is_empty(), "{:?}", cpu.diags);
+    assert!(!cpu.debug_halt, "cleared");
+
+    let (mut cpu, mut bus) = machine(&code);
+    bus.flash.write(3 * 4, Size::Word, 0x81);
+    put(&mut bus, 0x80, &[(0xE7FE, "b 0x80")]);
+    cpu.step(&mut bus);
+    cpu.step(&mut bus);
+    assert_eq!((cpu.pc(), cpu.ipsr), (0x80, 3), "HardFault");
+    assert!(matches!(cpu.diags[..], [CoreDiag::Breakpoint { pc: 0x42 }]));
+}
+
+#[test]
+fn run_until_break_stops_before_a_breakpoint_but_resumes_from_one() {
+    let (mut cpu, mut bus) = machine(&[
+        (0x3001, "adds r0, #0x1"),
+        (0x3101, "adds r1, #0x1"),
+        (0xE7FC, "b 0x40"),
+    ]);
+    let breaks = [0x42].into();
+    assert!(cpu.run_until_break(&mut bus, 1_000_000, &breaks));
+    assert_eq!((cpu.pc(), cpu.r[0], cpu.r[1]), (0x42, 1, 0));
+    // From the breakpoint: once round the loop, back to it.
+    assert!(cpu.run_until_break(&mut bus, 1_000_000, &breaks));
+    assert_eq!((cpu.pc(), cpu.r[0], cpu.r[1]), (0x42, 2, 1));
+    let none = std::collections::HashSet::new();
+    assert!(!cpu.run_until_break(&mut bus, 1_000, &none), "the deadline");
+}
