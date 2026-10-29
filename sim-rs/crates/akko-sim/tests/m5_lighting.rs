@@ -655,9 +655,9 @@ fn with_the_lights_off_a_low_battery_flashes_led_0() {
     // On the battery, so on the dongle: with the cable in it charges, which
     // shows no flash, and on USB with the cable out the host's suspend
     // turns the lighting off after 7 s.
+    t.b.radio.borrow_mut().bonded[akko_sim::radio::DEVS_2G4] = true;
     t.fn_hold(DONGLE, 0.03);
-    t.b.run_for(0.2);
-    t.b.module_frame(0x5B, 0x32);
+    t.b.run_for(0.5);
     t.b.plug(false);
     t.set_battery(10);
     let seen = led_0_over(&mut t, 10.5);
@@ -762,7 +762,7 @@ fn a_key_wakes_a_host_that_allows_remote_wakeup() {
 #[test]
 fn before_the_module_tells_the_level_the_host_reads_100() {
     let mut t = T::boot();
-    t.b.radio.borrow_mut().flags = akko_sim::radio::NO_ACKS | 57 << 8;
+    t.b.radio.borrow_mut().ack = false;
     t.log_should_show("configured", 4.0);
     t.b.run_for(0.5);
     t.b.host.command(GET_BATTERY);

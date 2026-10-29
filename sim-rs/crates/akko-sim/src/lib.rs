@@ -214,7 +214,7 @@ impl Bus for BoardBus<'_> {
             // The charger in the host's steps: 100 us is fine for a battery.
             let plugged = self.host.plugged();
             self.charger.advance(now, plugged, &mut self.chip.gpio);
-            self.radio.borrow_mut().set_battery(self.charger.percent());
+            self.radio.borrow_mut().battery = self.charger.percent();
         }
     }
     fn next_event(&self) -> u64 {
@@ -617,11 +617,53 @@ impl Board {
         self.radio.borrow_mut().send(bytes, &mut self.chip.uart3.rx);
     }
 
-    /// A module frame "cmd arg sum".
+    /// A module frame "cmd arg sum", whatever the module's model would say.
     pub fn module_frame(&mut self, cmd: u8, arg: u8) {
+        let now = self.cpu.now;
         self.radio
             .borrow_mut()
-            .send_frame(cmd, arg, &mut self.chip.uart3.rx);
+            .send_frame(cmd, arg, now, &mut self.chip.uart3.rx);
+    }
+
+    /// The radio's host goes away (`Radio::link_drop`): back after
+    /// `back_after` seconds, or not.
+    pub fn link_drop(&mut self, back_after: Option<f64>) {
+        let now = self.cpu.now;
+        self.radio.borrow_mut().link_drop(
+            back_after.map(|s| (s * 1000.0) as u64),
+            now,
+            &mut self.chip.uart3.rx,
+        );
+    }
+
+    /// Device `dev`'s host (radio::DEVS_*) comes within reach or goes
+    /// (`Radio::host_present`).
+    pub fn host_present(&mut self, dev: usize, present: bool) {
+        let now = self.cpu.now;
+        self.radio
+            .borrow_mut()
+            .host_present(dev, present, now, &mut self.chip.uart3.rx);
+    }
+
+    /// The host behind the dongle suspends (false) or resumes.
+    pub fn dongle_host(&mut self, resume: bool) {
+        let now = self.cpu.now;
+        self.radio
+            .borrow_mut()
+            .host_state(resume, now, &mut self.chip.uart3.rx);
+    }
+
+    /// A Vial request from the host through the dongle (AF 60); its answer
+    /// (AF 61's 32 bytes), if one comes within `secs`.
+    pub fn vial_via_dongle(&mut self, request: &[u8], secs: f64) -> Option<Vec<u8>> {
+        let now = self.cpu.now;
+        let n = {
+            let mut r = self.radio.borrow_mut();
+            r.raw_out(request, now, &mut self.chip.uart3.rx);
+            r.raw_in.len()
+        };
+        self.run_until(secs, |b| b.radio.borrow().raw_in.len() > n)
+            .then(|| self.radio.borrow().raw_in[n].clone())
     }
 
     /// The colours of the last LED frame, 0xRRGGBB per LED.

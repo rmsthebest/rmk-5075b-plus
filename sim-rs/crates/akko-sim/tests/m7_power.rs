@@ -19,8 +19,6 @@ const KEYBOARD_EP: u8 = 1;
 const RGB_TOG: (u8, u8) = (3, 9);
 const KEY_A: (u8, u8) = (3, 1);
 const DONGLE: (u8, u8) = (2, 6);
-const CONNECTED: (u8, u8) = (0x5B, 0x32);
-const HOST_SUSPEND: (u8, u8) = (0x60, 0x00);
 const SEL_DONGLE: &str = "a6 30 d6";
 const ALL_UP: &str = "a1 00 00 00 00 00 00 00 00 a1";
 const HANDLERS: [&str; 12] = [
@@ -125,13 +123,13 @@ fn measure(t: &mut T, label: &str, secs: f64) -> Counts {
 /// Fn+Y, the link up, the cable out (on the battery, as it's used), then
 /// the host suspends: asleep.
 fn on_the_dongle_asleep(t: &mut T) {
+    t.b.radio.borrow_mut().bonded[akko_sim::radio::DEVS_2G4] = true;
     t.fn_tap(DONGLE, 1);
     t.part_should_show(Part::Radio, &format!("^<- {SEL_DONGLE}"), 1.0);
-    t.b.module_frame(CONNECTED.0, CONNECTED.1);
     t.part_should_show(Part::Radio, &format!("^<- {ALL_UP}"), 1.0);
     t.b.plug(false);
     t.b.run_for(2.5);
-    t.b.module_frame(HOST_SUSPEND.0, HOST_SUSPEND.1);
+    t.b.dongle_host(false);
     t.b.run_for(0.5);
 }
 

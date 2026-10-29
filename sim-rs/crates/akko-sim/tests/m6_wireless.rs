@@ -12,9 +12,10 @@
 mod common;
 
 use akko_sim::Part;
-use akko_sim::radio::NO_ACKS;
+use akko_sim::radio::{DEVS_2G4, Fault};
 use akko_sim::usb_host::hex;
 use common::*;
+use cortex_m3_emu::TICK_HZ;
 
 const BT1: (u8, u8) = (2, 3);
 const BT2: (u8, u8) = (2, 4);
@@ -29,10 +30,7 @@ const ALL_UP: &str = "a1 00 00 00 00 00 00 00 00 a1";
 const A_DOWN: &str = "a1 00 00 04 00 00 00 00 00 a5";
 const VERSION_ASK: &str = "a6 70 16";
 // Module frames: (cmd, arg).
-const CONNECTED: (u8, u8) = (0x5B, 0x32);
-const DISCONNECTED: (u8, u8) = (0x5B, 0x33);
 const CAPS_ON: (u8, u8) = (0x5A, 0x02);
-const HOST_SUSPEND: (u8, u8) = (0x60, 0x00);
 const HOST_RESUME: (u8, u8) = (0x60, 0x01);
 const LED_2G4: usize = 38;
 const RED: u32 = 0xFF0000;
@@ -67,25 +65,12 @@ fn module_sends(t: &mut T, (cmd, arg): (u8, u8)) {
     t.b.module_frame(cmd, arg);
 }
 
-/// A raw HID packet from the host through the dongle (AF 60 32 data[32]
-/// sum): `bytes`, then zeros. `sum_fix` is added to the sum (non-zero: a
-/// bad frame).
-fn module_sends_raw(t: &mut T, bytes: &[u8], sum_fix: u8) {
-    let mut frame = vec![0xAF, 0x60, 32];
-    frame.extend(bytes);
-    frame.resize(35, 0);
-    let sum = frame.iter().fold(0u8, |a, &b| a.wrapping_add(b));
-    frame.push(sum.wrapping_add(sum_fix));
-    for b in frame {
-        t.b.module_sends(&[b]);
-    }
-}
-
 /// A Vial request through the dongle (USB is detached in wireless mode):
-/// the answer's raw frame should start with `want`'s bytes.
+/// the answer should start with `want`'s bytes.
 fn vial_via_dongle(t: &mut T, bytes: &[u8], want: &str) {
-    module_sends_raw(t, bytes, 0);
-    radio_should_get(t, &format!("af 61 20 {want}"), 1.0);
+    let got = t.b.vial_via_dongle(bytes, 1.0).expect("no answer");
+    assert!(hex(&got).starts_with(want), "{} for {want}", hex(&got));
+    t.radio = t.b.log(Part::Radio).len();
 }
 
 fn no_radio_errors(t: &T) {
@@ -102,11 +87,17 @@ fn caps_led(t: &mut T) -> bool {
     !t.pin_high(GPIOC_ODR, CAPS_LED)
 }
 
-/// Fn+Y, then the module reports the link up.
+/// The module has a bond with the dongle: a select connects.
+fn bond_dongle(t: &mut T) {
+    t.b.radio.borrow_mut().bonded[DEVS_2G4] = true;
+}
+
+/// Fn+Y with the dongle bonded: the module connects.
 fn on_the_dongle(t: &mut T) {
+    bond_dongle(t);
     t.fn_hold(DONGLE, 0.03);
     radio_should_get(t, SEL_DONGLE, 1.0);
-    module_sends(t, CONNECTED);
+    t.part_should_show(Part::Radio, "^-> 5b 32", 1.0);
     radio_should_get(t, ALL_UP, 1.0);
 }
 
@@ -176,7 +167,7 @@ fn asleep_and_stopped() -> T {
     on_the_dongle(&mut t);
     // On the battery: with the cable in it doesn't stop.
     t.b.plug(false);
-    module_sends(&mut t, HOST_SUSPEND);
+    t.b.dongle_host(false);
     t.b.run_for(0.5);
     should_be_asleep(&mut t, true, false);
     should_be_stopped(&mut t, false);
@@ -231,13 +222,14 @@ fn start_up_talks_to_the_module_as_qmk_does() {
 fn fn_y_moves_the_keys_to_the_dongle() {
     let mut t = boot();
     t.b.run_for(0.2);
+    bond_dongle(&mut t);
     t.fn_hold(DONGLE, 0.03);
     radio_should_get(&mut t, SEL_DONGLE, 1.0);
     assert!(!usb_pullup(&mut t));
     key(&mut t, KEY_A, true);
     t.b.run_for(0.05);
     radio_should_not_get(&t, "a1");
-    module_sends(&mut t, CONNECTED);
+    t.part_should_show(Part::Radio, "^-> 5b 32", 1.0);
     radio_should_get(&mut t, A_DOWN, 1.0);
     key(&mut t, KEY_A, false);
     radio_should_get(&mut t, ALL_UP, 1.0);
@@ -247,21 +239,30 @@ fn fn_y_moves_the_keys_to_the_dongle() {
 }
 
 /// Fixed-tree bug 1: the module drops out with A held, A is released, the
-/// link comes back: the host gets the release. The device is re-selected
-/// while down, at most every 500 ms.
+/// link comes back: the host gets the release. Keys while it's down select
+/// the device again, at most every 500 ms.
 #[test]
 fn a_release_while_the_link_is_down_reaches_the_host_on_reconnect() {
     let mut t = boot();
     on_the_dongle(&mut t);
     key(&mut t, KEY_A, true);
     radio_should_get(&mut t, A_DOWN, 1.0);
-    module_sends(&mut t, DISCONNECTED);
+    t.b.link_drop(Some(1.5));
     t.b.run_for(0.05);
     key(&mut t, KEY_A, false);
     radio_should_get(&mut t, SEL_DONGLE, 1.0);
-    t.b.run_for(0.3);
-    module_sends(&mut t, CONNECTED);
-    radio_should_get(&mut t, ALL_UP, 1.0);
+    for _ in 0..8 {
+        t.b.run_for(0.1);
+        tap(&mut t, (3, 2));
+    }
+    radio_should_get(&mut t, ALL_UP, 2.0);
+    let selects = t.b.radio.borrow().selects_while_down.clone();
+    assert!(selects.len() >= 2, "{} selects while down", selects.len());
+    for w in selects.windows(2) {
+        let gap = (w[1] - w[0]) as f64 / TICK_HZ as f64;
+        assert!(gap >= 0.499, "selects {gap} s apart");
+    }
+    no_radio_errors(&t);
 }
 
 /// The dongle's strings, VID/PID, clear, pair: the bytes of
@@ -325,7 +326,7 @@ fn the_hosts_caps_lock_comes_from_the_module() {
     module_sends(&mut t, CAPS_ON);
     t.b.run_for(0.1);
     assert!(caps_led(&mut t));
-    module_sends(&mut t, DISCONNECTED);
+    t.b.link_drop(None);
     t.b.run_for(0.1);
     assert!(!caps_led(&mut t));
 }
@@ -338,15 +339,12 @@ fn vial_works_through_the_dongle() {
     let mut t = boot();
     on_the_dongle(&mut t);
     // Sleep timeout (0xD7) to index 4: the answer is the setting.
-    module_sends_raw(&mut t, &[0x08, 0xD7, 5], 0);
-    radio_should_get(&mut t, "af 61 20 08 d7 05 04 00", 1.0);
-    module_sends_raw(&mut t, &[0x08, 0xD7, 0], 0);
-    radio_should_get(&mut t, "af 61 20 08 d7 00 04 00", 1.0);
-    module_sends_raw(&mut t, &[0x08, 0xD7, 2], 1);
-    t.b.run_for(0.2);
+    vial_via_dongle(&mut t, &[0x08, 0xD7, 5], "08 d7 05 04 00");
+    vial_via_dongle(&mut t, &[0x08, 0xD7, 0], "08 d7 00 04 00");
+    t.b.radio.borrow_mut().faults.push_back(Fault::BadSum);
+    assert_eq!(t.b.vial_via_dongle(&[0x08, 0xD7, 2], 0.2), None);
     radio_should_not_get(&t, "af 61 20 08 d7 02");
-    module_sends_raw(&mut t, &[0x08, 0xD7, 0], 0);
-    radio_should_get(&mut t, "af 61 20 08 d7 00 04 00", 1.0);
+    vial_via_dongle(&mut t, &[0x08, 0xD7, 0], "08 d7 00 04 00");
     t.hid_not_since(3, "08 d7");
     no_radio_errors(&t);
 }
@@ -407,7 +405,7 @@ fn ee_clr_keeps_the_selected_device() {
 fn an_unanswered_frame_is_dropped_after_41_tries() {
     let mut t = boot();
     t.b.run_for(0.2);
-    t.b.radio.borrow_mut().flags = NO_ACKS | 100 << 8;
+    t.b.radio.borrow_mut().ack = false;
     let before = t.b.radio.borrow().frames;
     t.fn_hold(BT1, 0.03);
     t.b.run_for(0.6);
@@ -432,6 +430,8 @@ fn an_unanswered_frame_is_dropped_after_41_tries() {
 fn the_dongles_key_blinks_until_connected_then_shows_green_for_2_s() {
     let mut t = boot();
     t.b.run_for(0.2);
+    bond_dongle(&mut t);
+    t.b.host_present(DEVS_2G4, false);
     t.fn_hold(DONGLE, 0.03);
     radio_should_get(&mut t, SEL_DONGLE, 1.0);
     let seen = led_colours_over(&mut t, LED_2G4, 2.5);
@@ -439,7 +439,9 @@ fn the_dongles_key_blinks_until_connected_then_shows_green_for_2_s() {
         seen.contains(&RED) && seen.contains(&0) && !seen.contains(&GREEN),
         "{seen:06x?}"
     );
-    module_sends(&mut t, CONNECTED);
+    // The dongle's host comes within reach: the module connects.
+    t.b.host_present(DEVS_2G4, true);
+    t.part_should_show(Part::Radio, "^-> 5b 32", 1.0);
     t.b.run_for(0.1);
     assert_eq!(t.led(LED_2G4), GREEN);
     let seen = led_colours_over(&mut t, LED_2G4, 1.6);
@@ -488,7 +490,7 @@ fn never_means_never_otherwise_a_link_down_for_30_s_sleeps() {
     let mut t = boot();
     on_the_dongle(&mut t);
     set_sleep_timeout(&mut t, 0);
-    module_sends(&mut t, DISCONNECTED);
+    t.b.link_drop(None);
     t.b.run_for(35.0);
     should_be_asleep(&mut t, false, false);
     set_sleep_timeout(&mut t, 7);
@@ -506,7 +508,7 @@ fn never_means_never_otherwise_a_link_down_for_30_s_sleeps() {
 fn typing_doesnt_hold_off_the_link_down_sleep_the_host_resuming_wakes_it() {
     let mut t = boot();
     on_the_dongle(&mut t);
-    module_sends(&mut t, DISCONNECTED);
+    t.b.link_drop(None);
     t.b.run_for(10.0);
     tap(&mut t, KEY_A);
     t.b.run_for(10.0);
@@ -515,6 +517,8 @@ fn typing_doesnt_hold_off_the_link_down_sleep_the_host_resuming_wakes_it() {
     radio_should_get(&mut t, SEL_USB, 1.0);
     t.b.run_for(0.5);
     should_be_asleep(&mut t, true, false);
+    // The firmware's side only: asleep it told the module USB, which then
+    // has no link to hear the host on.
     module_sends(&mut t, HOST_RESUME);
     radio_should_get(&mut t, SEL_DONGLE, 1.0);
     t.b.run_for(0.3);
@@ -529,7 +533,7 @@ fn the_host_suspending_sleeps_it_at_once_its_resume_wakes_it() {
     let mut t = boot();
     on_the_dongle(&mut t);
     set_sleep_timeout(&mut t, 0);
-    module_sends(&mut t, HOST_SUSPEND);
+    t.b.dongle_host(false);
     t.b.run_for(0.5);
     should_be_asleep(&mut t, true, false);
     // Asleep, the scan runs at 10 ms: the watchdog (2 s) stays quiet. A
@@ -537,7 +541,7 @@ fn the_host_suspending_sleeps_it_at_once_its_resume_wakes_it() {
     t.b.run_for(10.0);
     should_be_asleep(&mut t, true, false);
     assert_eq!(t.b.resets, 0);
-    module_sends(&mut t, HOST_RESUME);
+    t.b.dongle_host(true);
     radio_should_get(&mut t, SEL_DONGLE, 1.0);
     t.b.run_for(0.3);
     should_be_asleep(&mut t, false, false);
@@ -547,7 +551,7 @@ fn the_host_suspending_sleeps_it_at_once_its_resume_wakes_it() {
 fn the_knob_wakes_it_and_the_turn_is_sent() {
     let mut t = boot();
     on_the_dongle(&mut t);
-    module_sends(&mut t, HOST_SUSPEND);
+    t.b.dongle_host(false);
     t.b.run_for(0.5);
     should_be_asleep(&mut t, true, false);
     knob_up(&mut t, 0.002);
@@ -600,6 +604,7 @@ fn in_stop_mode_a_flat_battery_stops_it_until_the_cable_goes_in() {
     t.b.run_for(0.3);
     should_be_stopped(&mut t, true);
     key(&mut t, KEY_A, false);
+    // As the module would send it (the firmware told it USB: no link).
     module_sends(&mut t, HOST_RESUME);
     t.b.run_for(1.5);
     should_be_asleep(&mut t, true, true);
@@ -616,7 +621,7 @@ fn in_stop_mode_a_flat_battery_stops_it_until_the_cable_goes_in() {
 fn stop_mode_is_off_unless_turned_on() {
     let mut t = boot();
     on_the_dongle(&mut t);
-    module_sends(&mut t, HOST_SUSPEND);
+    t.b.dongle_host(false);
     t.b.run_for(2.0);
     should_be_asleep(&mut t, true, false);
     should_be_stopped(&mut t, false);
@@ -656,7 +661,7 @@ fn with_stop_diag_on_caps_shows_a_stop_in_progress() {
     t.hid_should_show(3, "08 d9 44 01", 1.0);
     on_the_dongle(&mut t);
     t.b.plug(false);
-    module_sends(&mut t, HOST_SUSPEND);
+    t.b.dongle_host(false);
     t.b.run_for(1.7);
     should_be_stopped(&mut t, true);
     assert!(caps_led(&mut t), "Caps on");
@@ -678,7 +683,7 @@ fn every_stop_diag_variant_at_once_still_stops_and_wakes_on_a_key() {
     t.hid_should_show(3, "08 d9 44 01", 1.0);
     on_the_dongle(&mut t);
     t.b.plug(false);
-    module_sends(&mut t, HOST_SUSPEND);
+    t.b.dongle_host(false);
     t.b.run_for(1.7);
     should_be_stopped(&mut t, true);
     key(&mut t, KEY_A, true);
@@ -700,7 +705,7 @@ fn every_stop_diag_variant_at_once_still_stops_and_wakes_on_a_key() {
 #[test]
 fn in_stop_mode_the_modules_uart_wakes_it() {
     let mut t = asleep_and_stopped();
-    module_sends(&mut t, HOST_RESUME);
+    t.b.dongle_host(true);
     radio_should_get(&mut t, SEL_DONGLE, 1.0);
     t.b.run_for(0.3);
     should_be_stopped(&mut t, false);
@@ -714,7 +719,7 @@ fn in_stop_mode_the_cable_wakes_it_and_it_doesnt_stop_with_the_cable_in() {
     t.b.plug(true);
     t.b.run_for(0.5);
     should_be_asleep(&mut t, false, false);
-    module_sends(&mut t, HOST_SUSPEND);
+    t.b.dongle_host(false);
     t.b.run_for(2.0);
     should_be_asleep(&mut t, true, false);
     should_be_stopped(&mut t, false);
@@ -743,7 +748,7 @@ fn in_stop_mode_the_knob_wakes_it_and_the_next_turn_is_sent() {
 fn a_fast_knob_spin_through_the_dongle_keeps_every_step() {
     let mut t = boot();
     on_the_dongle(&mut t);
-    t.b.radio.borrow_mut().flags = 4 << 16 | 100 << 8;
+    t.b.radio.borrow_mut().ack_delay_ms = 4;
     for _ in 0..40 {
         knob_up(&mut t, 0.001);
     }
@@ -754,5 +759,57 @@ fn a_fast_knob_spin_through_the_dongle_keeps_every_step() {
         .count();
     println!("knob steps through the dongle: {presses} of 40");
     assert_eq!(presses, 40);
+    no_radio_errors(&t);
+}
+
+/// Fn+E held 3 s with the module's model: it pairs (5B 31), the host takes
+/// it (5B 32), and the module keeps the bond; keys then reach BT1.
+#[test]
+fn a_pairing_the_host_accepts_bonds_and_connects() {
+    let mut t = boot();
+    t.b.run_for(0.2);
+    t.fn_hold(BT1, 3.1);
+    t.part_should_show(Part::Radio, "^-> 5b 31", 1.0);
+    t.part_should_show(Part::Radio, "^-> 5b 32", 3.0);
+    assert!(t.b.radio.borrow().bonded[1]);
+    t.b.run_for(0.1);
+    tap(&mut t, KEY_A);
+    radio_should_get(&mut t, A_DOWN, 1.0);
+    no_radio_errors(&t);
+    t.no_errors();
+}
+
+/// The module's frames spoilt on the wire: CONNECTED loses a byte (the
+/// keyboard drops the partial frame after 20 ms: a resync) and the raw
+/// frame of a Vial request has a bad sum (a checksum error). Neither is
+/// ACKed, and the module's second try is taken. The counters, the module's
+/// version and battery and the device read back through the dongle (Vial
+/// 0xD4).
+#[test]
+fn spoilt_module_frames_are_counted_and_the_second_try_is_taken() {
+    let mut t = T::boot();
+    t.b.radio.borrow_mut().version = 0x17;
+    t.log_should_show("configured", 4.0);
+    t.b.run_for(0.05);
+    bond_dongle(&mut t);
+    t.fn_hold(DONGLE, 0.03);
+    radio_should_get(&mut t, SEL_DONGLE, 1.0);
+    {
+        let mut r = t.b.radio.borrow_mut();
+        r.retransmit_ms = Some(30);
+        r.faults.extend([Fault::LostByte, Fault::BadSum]);
+    }
+    t.part_should_show(Part::Radio, r"^-> 5b 8d \(LostByte\)", 1.0);
+    t.part_should_show(Part::Radio, r"^-> 5b 32 8d \(again\)", 0.1);
+    radio_should_get(&mut t, ALL_UP, 1.0);
+    let b = t.b.vial_via_dongle(&[0x08, 0xD4], 1.0).expect("no answer");
+    let field = |i: usize| u16::from_le_bytes([b[2 + 2 * i], b[3 + 2 * i]]);
+    assert_eq!((field(4), field(5)), (1, 1), "checksum errors, resyncs");
+    assert_eq!(
+        (b[21], b[22], b[23]),
+        (100, 0x17, 6),
+        "battery, version, device"
+    );
+    t.part_should_show(Part::Radio, r"\(BadSum\)", 0.0);
     no_radio_errors(&t);
 }

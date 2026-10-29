@@ -34,4 +34,5 @@ Things to read with Vial peek (0xDA) in an image that's being flashed anyway:
 - RCC+0x104 with and without the IWDG running.
 - Instructions per second: cycles taken by a known busy loop, against SysTick. The sim runs at Renode's 100 MIPS for now; the board's flash wait states make it slower (asm::delay(HCLK/1000) took about 3000 TIM2 ticks, 2026-10-27).
 - CPUID, to confirm r2p0.
+- The radio module's timings (sim-rs `radio.rs`, assumed): a bonded select to CONNECTED (300 ms), a pairing (2 s), its 30 min sleep. Log them from the keyboard's side (the time between frames) in an image that's being flashed anyway.
 - AIRCR (0xE000_ED0C), to confirm bit 13 reads 0.

@@ -50,11 +50,11 @@ fn the_cable_out_suspends_usb_and_back_in_it_enumerates() {
 #[test]
 fn wireless_mode_lifts_b1_and_the_host_lets_the_device_go() {
     let mut t = T::boot_and_enumerate();
+    t.b.radio.borrow_mut().bonded[akko_sim::radio::DEVS_2G4] = true;
     t.fn_hold(DONGLE, 0.03);
     t.log_should_show("device detached", 0.5);
     assert!(t.pin_high(GPIOB_ODR, USB_POWER));
-    t.b.module_frame(0x5B, 0x32);
-    t.b.run_for(0.1);
+    t.b.run_for(0.4);
     t.tap(KEY_A.0, KEY_A.1);
     t.part_should_show(Part::Radio, "^<- a1 00 00 04", 1.0);
     t.hid_not_since(1, "00 00 04");
@@ -81,8 +81,10 @@ fn the_charger_drives_a15_and_the_module_hears_of_it() {
     t.b.run_for(0.01);
     assert!(!t.b.chip.gpio.pin_level(CHARGING), "charging");
     t.part_should_show(Part::Radio, "^<- a6 64 0a", 2.0);
+    assert_eq!(t.b.radio.borrow().charge, Some(0x64));
     t.b.charger.level = 100.0;
     t.part_should_show(Part::Radio, "^<- a6 66 0c", 2.0);
+    assert_eq!(t.b.radio.borrow().charge, Some(0x66));
     assert!(t.b.chip.gpio.pin_level(CHARGING));
 }
 
