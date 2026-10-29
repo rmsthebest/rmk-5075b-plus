@@ -813,8 +813,7 @@ On USB Caps Lock And Win-Lock Are Off While The Host Is Suspended
 On USB The Lights Go Off 7 s After The Host Suspends
     [Documentation]    QMK's suspend_power_down after USB_POWER_DOWN_DELAY:
     ...    the host suspended for 7 s turns the LED power off (the MCU
-    ...    doesn't sleep on USB); its resume turns it back on. (A key's
-    ...    remote wakeup needs the host to enable it, which the model doesn't.)
+    ...    doesn't sleep on USB); its resume turns it back on.
     Boot To Lighting
     Execute Command    usb WriteDoubleWord ${HOST_CMD} 0x04
     Run For    6.5
@@ -826,6 +825,28 @@ On USB The Lights Go Off 7 s After The Host Suspends
     Run For    0.3
     LED Power Should Be    ${True}
     No LED Errors
+
+A Key Wakes A Host That Allows Remote Wakeup
+    [Documentation]    The host enables remote wakeup and suspends, as Linux
+    ...    does; a key press drives resume for 1-15 ms (QMK's 2 ms), and
+    ...    the next key types.
+    Boot To Lighting
+    Execute Command    usb WriteDoubleWord ${HOST_CMD} 0x0104
+    Run For    0.1
+    Should Not Be In Log    HOST ERROR    timeout=0
+    Key    3    1    1
+    Run For    0.03
+    Key    3    1    0
+    ${line}=    Wait For Log Entry    HOST: remote wakeup, RESUME held \\d+ ms    timeout=1
+    ...    treatAsRegex=true    pauseEmulation=true
+    ${ms}=    Evaluate    int(__import__('re').search(r'held (\\d+) ms', $line).group(1))
+    Should Be True    1 <= ${ms} <= 15    RESUME held ${ms} ms
+    Run For    0.1
+    Key    3    1    1
+    HID Should Show    1    00 00 04 00 00 00 00 00
+    Key    3    1    0
+    HID Should Show    1    00 00 00 00 00 00 00 00
+    Should Not Be In Log    HOST ERROR    timeout=0
 
 Before The Module Tells The Level, The Host Reads 100%
     [Documentation]    M7e: a GET_REPORT of the battery before the module has

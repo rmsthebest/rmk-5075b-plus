@@ -46,6 +46,11 @@
 #   0x02 | byte << 8     send one byte to the CDC data OUT endpoint
 #   0x03 | leds << 8     HID LED output report (interrupt OUT, else SET_REPORT)
 #   0x04                 suspend the bus;  0x05  resume it
+#   0x0104               SET_FEATURE(DEVICE_REMOTE_WAKEUP), then suspend, as
+#                        Linux does with wakeup enabled. A device that drives
+#                        POWER.RESUME is then woken: "HOST: remote wakeup,
+#                        RESUME held <n> ms" when it clears the bit (USB 2.0
+#                        allows 1-15 ms). RESUME without the feature is an error.
 #   0x06                 bus reset and enumerate again
 #   0x07 / 0x08          unplug the cable / plug it back in (immediate)
 #   0x09 | ep << 8       send the bytes queued at 0xF0C as one packet on
@@ -183,7 +188,15 @@ if request.IsInit:
                 d.faddr_pending = v & 0x7F
             else:
                 d.faddr = v & 0x7F
-        elif off == 0x01: d.power = (d.power & (P_SUSMD | P_RSTFLG)) | (v & ~(P_SUSMD | P_RSTFLG) & 0xFF)
+        elif off == 0x01:
+            was = d.power
+            d.power = (d.power & (P_SUSMD | P_RSTFLG)) | (v & ~(P_SUSMD | P_RSTFLG) & 0xFF)
+            if d.power & P_RESUME and not was & P_RESUME:
+                h.resume_tick = h.tick
+            elif was & P_RESUME and not d.power & P_RESUME and h.resume_tick is not None:
+                held = h.tick - h.resume_tick
+                h.resume_tick = None
+                log("remote wakeup, RESUME held %d ms" % ((held + TICKS_PER_MS // 2) // TICKS_PER_MS))
         elif off == 0x07: d.intrine = v & 0x0F
         elif off == 0x09: d.introute = v & 0x0E
         elif off == 0x0B: d.intrusbe = v & 0x0F
@@ -388,6 +401,9 @@ if request.IsInit:
     h.ready_tick = {}                # 0xF14: IN endpoint -> step of its last INPKTRDY
     h.ready_ep = 0
     h.suspended = False
+    h.wakeup_capable = False         # bmAttributes bit 5 of the configuration
+    h.wakeup_enabled = False         # SET_FEATURE(DEVICE_REMOTE_WAKEUP) sent
+    h.resume_tick = None             # step POWER.RESUME was set, for its length
     h.plugged = True
     ctl = [None]                     # current control stage, for SETUPEND
     result = {}
@@ -422,6 +438,7 @@ if request.IsInit:
         d.power |= P_RSTFLG
         d.intrusb |= U_RESET
         h.addr = 0
+        h.wakeup_enabled = False
         for _ in wait_ms(10):
             yield
         d.power &= ~P_RSTFLG
@@ -497,6 +514,7 @@ if request.IsInit:
 
     def parse_config(cfg):
         h.ifaces = []
+        h.wakeup_capable = bool(cfg[7] & 0x20)
         k = 0
         while k + 1 < len(cfg):
             ln, ty = cfg[k], cfg[k + 1]
@@ -604,6 +622,11 @@ if request.IsInit:
                     err("no boot keyboard interface"); return
                 for x in control("SET_REPORT(output)", 0x21, 0x09, 0x0200, num, 1, out=[arg]): yield
         elif op == 0x04:
+            if arg == 1:
+                if not h.wakeup_capable:
+                    err("SET_FEATURE(DEVICE_REMOTE_WAKEUP) on a device that doesn't support it"); return
+                for x in control("SET_FEATURE(DEVICE_REMOTE_WAKEUP)", 0x00, 0x03, 1, 0, 0): yield
+                h.wakeup_enabled = True
             h.suspended = True
             log("bus idle (suspend)")
             for x in wait_ms(3): yield
@@ -743,7 +766,9 @@ if request.IsInit:
             d.frame = (d.frame + 1) & 0x7FF
             d.intrusb |= U_SOF
         if h.suspended and (d.power & P_RESUME) and (d.power & P_SUSMD):
-            log("remote wakeup")
+            if not h.wakeup_enabled:
+                err("RESUME driven without SET_FEATURE(DEVICE_REMOTE_WAKEUP)")
+            log("device drives resume")
             d.power &= ~P_SUSMD
             h.suspended = False
             h.state = 2
