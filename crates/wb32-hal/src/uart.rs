@@ -7,9 +7,14 @@
 //! received data and line status. Pins AF7, push-pull.
 //!
 //! The interrupt does what `serve_interrupt` does: drain RBR while LSR says
-//! data ready, then, if the THR-empty interrupt is on and THR is empty, put
-//! one byte from the TX ring in it, or turn the interrupt off when the ring
-//! is empty. Bytes received with the RX ring full are dropped and counted.
+//! data ready, then, if the THR-empty interrupt is on and THR is empty,
+//! refill the TX FIFO from the TX ring, or turn the interrupt off when the
+//! ring is empty. ChibiOS puts one byte in per interrupt; the FIFO takes
+//! up to 16 (RM2905025 25.2.7, the trigger levels), so a frame costs one
+//! interrupt per 16 bytes rather than per byte. Bytes received with the RX
+//! ring full are dropped and counted. RX keeps the 1-byte trigger: a higher
+//! one would hold short frames (the module's ACKs) until the character
+//! timeout.
 
 use core::cell::RefCell;
 use core::future::poll_fn;
@@ -35,7 +40,10 @@ const LSR_FE: u32 = 1 << 3;
 const LSR_THRE: u32 = 1 << 5;
 /// USR (DesignWare): sending or receiving; the TX FIFO empty.
 const USR_BUSY: u32 = 1 << 0;
+const USR_TFNF: u32 = 1 << 1;
 const USR_TFE: u32 = 1 << 2;
+/// The TX FIFO's depth: at most this many bytes per THR-empty interrupt.
+const TX_FIFO: usize = 16;
 
 /// Received bytes not yet read. A frame from the module is at most 36
 /// bytes and is read within a millisecond or so.
@@ -193,9 +201,16 @@ fn on_interrupt() {
         }
 
         if r.ier().read().0 & IER_THREIE != 0 && lsr & LSR_THRE != 0 {
-            match TX.borrow(cs).borrow_mut().pop() {
-                Some(b) => r.thr().write_value(uart::regs::Thr(b as u32)),
-                None => r.ier().modify(|w| w.0 &= !IER_THREIE),
+            let mut tx = TX.borrow(cs).borrow_mut();
+            if tx.len == 0 {
+                r.ier().modify(|w| w.0 &= !IER_THREIE);
+            }
+            for _ in 0..TX_FIFO {
+                if r.usr().read().0 & USR_TFNF == 0 {
+                    break;
+                }
+                let Some(b) = tx.pop() else { break };
+                r.thr().write_value(uart::regs::Thr(b as u32));
             }
         }
     });
