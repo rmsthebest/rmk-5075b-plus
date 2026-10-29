@@ -58,6 +58,7 @@ use rmk::types::led_indicator::LedIndicator;
 use wb32_hal::gpio::{AnyPin, Input, Output, Port, Pull};
 use wb32_hal::uart::Uart3;
 use qmk_wireless::frame::{RAW_LEN, devctrl, utf16z};
+use qmk_wireless::rx::FRAME_TIMEOUT_MS;
 use qmk_wireless::{Device, DeviceStrings, Event, Link};
 
 pub const BAUD: u32 = 115_200;
@@ -75,9 +76,11 @@ const POST_INIT_MS: u32 = 100;
 const CHARGE_REFRESH_MS: u32 = 10_000;
 /// WLS_INQUIRY_BAT_TIME, HS_USB_BAT_INQUIRY_TIME.
 const BATTERY_POLL_MS: u32 = 3000;
-/// Housekeeping while the link is quiet; it's polled every millisecond
-/// while a frame waits for its ACK.
-const IDLE_POLL_MS: u64 = 50;
+/// While the link is quiet, the charge pins (cable, full) are read this
+/// often; the battery inquiry and the charge refresh come when due. It's
+/// polled every millisecond while a frame waits for its ACK, and a partial
+/// frame from the module is dropped on time.
+const IDLE_POLL_MS: u32 = 250;
 /// Time for USB's all-up report to go out before the pull-up is cut.
 const USB_RELEASE_MS: u64 = 20;
 
@@ -109,10 +112,11 @@ static UART_ERRORS: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU1
 /// The module's state as QMK's MD_STATE_* (`qmk_wireless::ModuleState` has
 /// the same order), for the lighting.
 static MODULE_STATE: AtomicU8 = AtomicU8::new(0);
-/// The charge pins as housekeeping last read them: CHARGE_CABLE, CHARGE_FULL.
-static CHARGE: AtomicU8 = AtomicU8::new(0);
-const CHARGE_CABLE: u8 = 1;
-const CHARGE_FULL: u8 = 2;
+/// The charge pins, in GPIOA: the cable sense (A7, high with a cable in)
+/// and the charger's done (A15, high when full), read as they're asked
+/// for (`battery`); the module hears of a change at housekeeping's pace.
+const CHARGE_CABLE: u32 = 1 << 7;
+const CHARGE_FULL: u32 = 1 << 15;
 /// Vial requests from the dongle. Vial waits for each answer, so one is
 /// plenty; a second is dropped.
 static VIAL_IN: Channel<CriticalSectionRawMutex, [u8; RAW_LEN], 1> = Channel::new();
@@ -224,7 +228,7 @@ pub fn battery_known() -> bool {
 }
 
 pub fn battery() -> (u8, bool, bool) {
-    let c = CHARGE.load(Ordering::Relaxed);
+    let c = wb32_pac::GPIOA.idr().read().0;
     let level = LINK.lock(|l| l.borrow().battery());
     (level, c & CHARGE_CABLE != 0, c & CHARGE_FULL != 0)
 }
@@ -540,10 +544,6 @@ impl Radio {
     fn housekeeping(&mut self, now: u32) {
         let charging = self.cable.is_high();
         let full = self.full.is_high();
-        CHARGE.store(
-            if charging { CHARGE_CABLE } else { 0 } | if full { CHARGE_FULL } else { 0 },
-            Ordering::Relaxed,
-        );
         // The module hears nothing before the post-init (version, sleep,
         // device), as QMK's start-up order has it.
         if self.post_init_at.is_some() {
@@ -576,8 +576,20 @@ impl rmk::core_traits::Runnable for Radio {
         loop {
             let now = now_ms();
             let until = |t: u32| (t.wrapping_sub(now) as i32).max(0) as u64;
-            let mut wait = if LINK.lock(|l| l.borrow().busy()) { 1 } else { IDLE_POLL_MS };
-            for t in [self.post_init_at, self.hold.map(|(_, t)| t)].into_iter().flatten() {
+            let (busy, mid_frame) = LINK.lock(|l| {
+                let l = l.borrow();
+                (l.busy(), l.mid_frame())
+            });
+            let mut wait = match (busy, mid_frame) {
+                (true, _) => 1,
+                (false, true) => FRAME_TIMEOUT_MS as u64 + 1,
+                (false, false) => IDLE_POLL_MS as u64,
+            };
+            let housekeeping = self.post_init_at.is_none().then(|| {
+                let charge = self.charge_sent.map(|(_, at)| at.wrapping_add(CHARGE_REFRESH_MS + 1));
+                [Some(self.battery_asked.wrapping_add(BATTERY_POLL_MS + 1)), charge]
+            });
+            for t in [self.post_init_at, self.hold.map(|(_, t)| t)].into_iter().chain(housekeeping.into_iter().flatten()).flatten() {
                 wait = wait.min(until(t));
             }
             let event = match select3(

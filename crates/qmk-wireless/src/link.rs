@@ -248,6 +248,11 @@ impl Link {
         }
     }
 
+    /// Part of a frame has come (see [`rx_idle`](Self::rx_idle)).
+    pub fn mid_frame(&self) -> bool {
+        self.parser.mid_frame()
+    }
+
     /// Call when no received bytes are waiting.
     pub fn rx_idle(&mut self, now: u32) {
         if let Some(Rx::Resync) = self.parser.idle(now) {

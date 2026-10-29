@@ -285,6 +285,11 @@ const BATTERY_REPORT_DELAY_MS: u32 = 1_000;
 
 /// USB_POWER_DOWN_DELAY: the host suspended this long turns the lights off.
 const USB_LIGHTS_OFF_MS: u32 = 7000;
+/// Frames while the lights are suspended (asleep, or the USB host
+/// suspended): rgb_matrix's suspend sends nothing then, so a frame only
+/// looks for the lights coming back on (a host's resume, the cable), which
+/// can wait this long. A key wakes it at once.
+const SUSPENDED_FRAME_MS: u32 = 250;
 /// The Fn layers, whose MO keys recording lets through.
 const LAYER_FL: u8 = 1;
 const LAYER_MFL: u8 = 3;
@@ -437,6 +442,8 @@ pub struct Lighting {
     ct_a_since: Option<u32>,
     /// When USB was suspended, while it is.
     usb_suspended_at: Option<u32>,
+    /// When the last frame ran (ms), for `SUSPENDED_FRAME_MS`.
+    frame_at: u32,
     /// When USB was configured, while it is: the battery report waits
     /// BATTERY_REPORT_DELAY_MS for the host's driver.
     usb_configured_at: Option<u32>,
@@ -468,6 +475,7 @@ impl Lighting {
             boost,
             ct_a_since: None,
             usb_suspended_at: None,
+            frame_at: 0,
             usb_configured_at: None,
             battery_sent: None,
         };
@@ -634,6 +642,7 @@ impl Lighting {
     /// found unchanged).
     async fn frame(&mut self) {
         let now = now_ms();
+        self.frame_at = now;
         self.apply_vial(now);
         self.ct_a(now);
         // The radio's device changes and module state (src/radio.rs).
@@ -680,14 +689,24 @@ fn now_ms() -> u32 {
     Instant::now().as_millis() as u32
 }
 
+impl Lighting {
+    /// Suspended: ms until the next frame (0: due).
+    fn suspended_wait(&self, now: u32) -> u32 {
+        SUSPENDED_FRAME_MS.saturating_sub(now.wrapping_sub(self.frame_at))
+    }
+}
+
 impl DeadlineProcessor for Lighting {
     fn deadline(&self) -> Option<Instant> {
         let now = now_ms();
         let engine = &self.board.engine;
-        if engine.frame_due(now) || self.store.due(now) {
+        // Coming back from suspended: at once.
+        let resumed = engine.suspended && !self.lights_off(now);
+        let frame = if engine.suspended { resumed || self.suspended_wait(now) == 0 } else { engine.frame_due(now) };
+        if frame || self.store.due(now) {
             return Some(Instant::now());
         }
-        let mut wait = engine.next_frame().wrapping_sub(now);
+        let mut wait = if engine.suspended { self.suspended_wait(now) } else { engine.next_frame().wrapping_sub(now) };
         if let Some(t) = self.store.save_at {
             wait = wait.min(t.wrapping_sub(now));
         }
@@ -698,7 +717,10 @@ impl DeadlineProcessor for Lighting {
         if self.store.due(now_ms()) {
             self.store.save(self.board).await;
         }
-        if self.board.engine.frame_due(now_ms()) {
+        let now = now_ms();
+        let engine = &self.board.engine;
+        let due = if engine.suspended { self.suspended_wait(now) == 0 || !self.lights_off(now) } else { engine.frame_due(now) };
+        if due {
             self.frame().await;
         }
     }

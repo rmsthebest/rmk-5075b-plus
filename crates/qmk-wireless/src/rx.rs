@@ -89,6 +89,12 @@ impl Parser {
         None
     }
 
+    /// Part of a frame has come: `idle` must be called within
+    /// [`FRAME_TIMEOUT_MS`] or so.
+    pub fn mid_frame(&self) -> bool {
+        self.count != 0
+    }
+
     pub fn feed(&mut self, byte: u8, now: u32) -> Option<Rx> {
         self.last_rx = now;
         match self.count {
