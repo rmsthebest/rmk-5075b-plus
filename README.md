@@ -43,6 +43,9 @@ python3 -I tools/rgbref/run.py           # akko-lighting against QMK's C, frame 
 python3 -I tools/bench.py                # workbench on :8475: sim runs, freeze, flash RMK or QMK
 ```
 
+[`FLASHING.md`](FLASHING.md) has the whole flashing procedure. It covers the bootloader, the checks after a flash,
+Vial (vial.rocks also works through the 2.4G dongle, while desktop Vial needs USB) and going back to QMK.
+
 ## Flashing safety
 
 The case can't be opened: there's no SWD and no BOOT0. The ROM DFU bootloader can only be reached
