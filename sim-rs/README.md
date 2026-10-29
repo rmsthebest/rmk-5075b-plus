@@ -45,4 +45,6 @@ QMK binary and its golden traces) and the keyboard itself:
 
 - Step 6a: the DesignWare SSI (QSPI and SPIM2 share it) and the 16550 UART3 in wb32-sim; the board's NOR flash (C12 chip select, kept across resets), WS2812 chain and radio module in akko-sim, as `SsiDevice`/`UartPeer`s ported from qspi.py, spim2.py and uart3.py. The host's log now runs on across a system reset, as Renode's does. `m4_rmk.rs` (29 tests, 17 s) and `peek.rs` (rom/sim's peek.robot, on akko-rmk built with `rom-peek`) pass. akko-rmk's register-write trace, flash commands included, matches `sim/trace.sh` over 8 s (7,005 writes). A seeded NOR bug (programming that doesn't clear bits) fails the five storage tests.
 
-Next: m5 (lighting) and m6 (wireless, stop mode), steps 6b and 6c.
+- Step 6b: `m5_lighting.rs`, all 29 tests of m5_lighting.robot (11 s), with leds.py's colour maths and layout reading in `tests/common`, which m4 now shares. A seeded decoder bug (RGB for GRB) fails the 13 colour tests; a radio reporting the battery 1% high fails the two that read the level.
+
+Next: m6 (wireless, stop mode), step 6c.
