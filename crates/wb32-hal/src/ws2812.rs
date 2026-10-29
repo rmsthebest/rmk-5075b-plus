@@ -105,7 +105,9 @@ impl Ws2812 {
         r.rxftlr().write_value(spi::regs::Rxftlr(0));
         r.ier().write_value(spi::regs::Ier(0));
         let _ = r.icr().read();
-        critical_section::with(|cs| FIFO_LEN.borrow(cs).set(if fifo == 1 { 0 } else { fifo }));
+        // A probe that finds nothing would leave no room to fill (each frame
+        // then ends on the timeout); SPIM2's depth is 4 (RM p.291).
+        critical_section::with(|cs| FIFO_LEN.borrow(cs).set(if fifo == 1 { 4 } else { fifo }));
 
         crate::enable_irq(Interrupt::SPIM2, prio);
         rgb.fill([0; 3]);
