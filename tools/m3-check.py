@@ -175,7 +175,7 @@ def main():
     port.send("dfu")
     port.close()
     wait_for("DFU device", dfu_present, 10)
-    print("In DFU. Put QMK back with:\n  wb32-dfu-updater_cli -D ~/stuff/akko/akko_5075b_plus_fixes.bin && wb32-dfu-updater_cli -R")
+    print("In DFU. Put QMK back with:\n  wb32-dfu-updater_cli -D <QMK image>.bin && wb32-dfu-updater_cli -R")
 
     print()
     if failures:

@@ -20,8 +20,10 @@ Reports: `target/sim-results/report.html`, with a per-test Renode log in `target
 
 Renode is a portable download, so no system install is needed:
 
+From the repo root (`run.sh` looks in `../tools`, next to the repo):
+
 ```fish
-cd ~/stuff/akko/tools
+mkdir -p ../tools; cd ../tools
 mkdir renode-dl renode
 curl -sSL -o renode-dl/renode.tar.gz https://github.com/renode/renode/releases/download/v1.17.0/renode-1.17.0.linux-portable.tar.gz
 # sha256 4ba7c68b59e2447f188ef4b4b112fcccd2802582c460beedceb63b84e5605a5f
