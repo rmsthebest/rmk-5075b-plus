@@ -17,14 +17,19 @@ const PANIC_RECORD: u32 = 0x2000_7000;
 
 /// Bytes `len(m) LE, m` hashed with FNV-1a, as boot-guard's panic record.
 fn fnv1a(bytes: &[u8]) -> u32 {
-    bytes.iter().fold(0x811C_9DC5u32, |h, &b| (h ^ b as u32).wrapping_mul(0x0100_0193))
+    bytes.iter().fold(0x811C_9DC5u32, |h, &b| {
+        (h ^ b as u32).wrapping_mul(0x0100_0193)
+    })
 }
 
 #[test]
 fn enumerates_as_the_qmk_keyboard_with_vial() {
     let mut t = T::boot();
     t.log_should_show("string 2 = 'AKKO 5075B Plus (RMK)'", 4.0);
-    t.log_should_show("configured: if 0 class 03 eps [81 01], if 1 class 03 eps [82], if 2 class 03 eps [83 02]", 4.0);
+    t.log_should_show(
+        "configured: if 0 class 03 eps [81 01], if 1 class 03 eps [82], if 2 class 03 eps [83 02]",
+        4.0,
+    );
     assert_eq!(t.b.host.state(), CONFIGURED);
     t.no_errors();
 }
@@ -62,7 +67,12 @@ fn endpoints_are_driven_as_chibios_drives_them() {
     t.key(3, 1, false);
     t.hid_should_show(1, "00 00 00 00 00 00 00 00", 1.0);
     let d = t.b.chip.usb.borrow();
-    let rmw = d.trace.as_ref().unwrap().iter().find(|a| a.to_string() == "USBT W i1 +0x11 <- 0x03");
+    let rmw = d
+        .trace
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|a| a.to_string() == "USBT W i1 +0x11 <- 0x03");
     assert!(rmw.is_none(), "{rmw:?}");
 }
 
@@ -154,7 +164,12 @@ fn the_mac_feature_sends_the_vendors_mac_keys() {
     let mut t = T::start(Image::AkkoRmkMac);
     t.wait_for_enumeration();
     t.mac_mode(true);
-    for (col, want) in [(4, "08 00 2c"), (3, "01 00 52"), (5, "00 00 3e"), (6, "00 00 3f")] {
+    for (col, want) in [
+        (4, "08 00 2c"),
+        (3, "01 00 52"),
+        (5, "00 00 3e"),
+        (6, "00 00 3f"),
+    ] {
         t.key(0, col, true);
         t.hid_should_show(1, &format!("{want} 00 00 00 00 00"), 1.0);
         t.key(0, col, false);
@@ -253,7 +268,10 @@ fn odd_host_requests_dont_crash_usb() {
     t.b.run_for(0.05);
     t.no_panic_since_start_up();
     t.b.host.command(cmd::ABORTED_SETUP);
-    t.log_should_show("GET_DESCRIPTOR(device, after an aborted transfer) -> 18 bytes", 1.0);
+    t.log_should_show(
+        "GET_DESCRIPTOR(device, after an aborted transfer) -> 18 bytes",
+        1.0,
+    );
     assert_eq!(t.b.host.state(), CONFIGURED);
     t.tap(3, 1);
     t.hid_should_show(1, "00 00 04 00 00 00 00 00", 1.0);
@@ -268,7 +286,10 @@ fn odd_host_requests_dont_crash_usb() {
 fn a_short_setup_is_dropped() {
     let mut t = T::boot_and_enumerate();
     t.b.host.command(cmd::SHORT_SETUP);
-    t.log_should_show("GET_DESCRIPTOR(device, after a short SETUP) -> 18 bytes", 4.0);
+    t.log_should_show(
+        "GET_DESCRIPTOR(device, after a short SETUP) -> 18 bytes",
+        4.0,
+    );
     assert_eq!(t.b.host.state(), CONFIGURED);
     t.tap(3, 1);
     t.hid_should_show(1, "00 00 04 00 00 00 00 00", 1.0);
@@ -295,7 +316,11 @@ fn storage_stays_out_of_qmks_block() {
         assert_eq!(t.b.nor.borrow().word(a), 0xA500_0000 | a as u32);
     }
     let re = Regex::new(r"^(CE|(SE|BE|PP) 0x00)").unwrap();
-    let hits: Vec<String> = t.b.log(Part::Nor).into_iter().filter(|l| re.is_match(l)).collect();
+    let hits: Vec<String> =
+        t.b.log(Part::Nor)
+            .into_iter()
+            .filter(|l| re.is_match(l))
+            .collect();
     assert!(hits.is_empty(), "{hits:?}");
     // RMK's sectors are its whole window, 0x10000-0x1FFFF.
     assert_ne!(t.b.nor.borrow().mem[0x10000], 0xFF);
@@ -352,7 +377,11 @@ fn the_scan_reports_its_counters_over_vial() {
     let passes = le32(&second[2..]) - le32(&first[2..]);
     assert!(passes >= 290, "only {passes} scan passes in 0.32 s");
     let gap = le16(&second[18..]);
-    assert!(gap <= 25, "longest gap between passes {} ms", gap as f64 / 10.0);
+    assert!(
+        gap <= 25,
+        "longest gap between passes {} ms",
+        gap as f64 / 10.0
+    );
     // Other channels stay unanswered.
     t.raw_hid_send(&[0x08, 0x01]);
     t.hid_should_show(3, "08 01 00 00 00 00", 1.0);
@@ -372,7 +401,14 @@ fn vial_edits_dont_hold_up_the_scan() {
     t.hid_matching(3, "08 d1 .*", 1.0);
     for i in 0..300u32 {
         let kc = 0x04 + (i % 26) as u8;
-        t.raw_hid_send(&[0x05, (i % 2) as u8, ((i / 15) % 6) as u8, (i % 15) as u8, 0x00, kc]);
+        t.raw_hid_send(&[
+            0x05,
+            (i % 2) as u8,
+            ((i / 15) % 6) as u8,
+            (i % 15) as u8,
+            0x00,
+            kc,
+        ]);
         t.b.run_for(0.01);
     }
     t.b.run_for(1.0);
@@ -380,9 +416,16 @@ fn vial_edits_dont_hold_up_the_scan() {
     let reply = t.hid_matching(3, "08 d1 .*", 1.0);
     let gap = le16(&reply[18..]);
     t.key(0, 5, false);
-    println!("longest scan gap during Vial edits: {} ms", gap as f64 / 10.0);
+    println!(
+        "longest scan gap during Vial edits: {} ms",
+        gap as f64 / 10.0
+    );
     // 34.8 ms before the page caches and the read yields.
-    assert!(gap <= 50, "longest gap between passes {} ms", gap as f64 / 10.0);
+    assert!(
+        gap <= 50,
+        "longest gap between passes {} ms",
+        gap as f64 / 10.0
+    );
     t.no_panic_since_start_up();
     t.no_errors();
 }
@@ -463,7 +506,8 @@ fn the_last_runs_panic_message_is_readable_over_vial() {
     record.extend(fnv1a(&hashed).to_le_bytes());
     record.extend(msg);
     for (i, &b) in record.iter().enumerate() {
-        t.b.chip.write(PANIC_RECORD + i as u32, Size::Byte, b as u32);
+        t.b.chip
+            .write(PANIC_RECORD + i as u32, Size::Byte, b as u32);
     }
     t.wait_for_enumeration();
     for off in (0..msg.len()).step_by(28) {
@@ -489,7 +533,14 @@ fn a_panic_resets_into_the_keyboard_a_second_one_enters_dfu() {
     t.b.run_for(0.05);
     t.raw_hid_send(&[0x08, 0xD2, 0]);
     // The message starts "firmware/src/main.rs:".
-    t.hid_matching(3, &format!("08 d2 00 [0-9a-f]{{2}} {} .*", hex(b"firmware/src/main.rs:")), 1.0);
+    t.hid_matching(
+        3,
+        &format!(
+            "08 d2 00 [0-9a-f]{{2}} {} .*",
+            hex(b"firmware/src/main.rs:")
+        ),
+        1.0,
+    );
     t.key(3, 1, true);
     t.hid_should_show(1, "00 00 04 00 00 00 00 00", 1.0);
     t.key(3, 1, false);
@@ -517,9 +568,23 @@ fn a_hang_trips_the_watchdog_a_reset_then_dfu() {
     t.raw_hid_send(&[0x08, 0xD2, 0]);
     // The message starts "firmware/src/watchdog.rs:LL:" (28 bytes with a
     // two-digit line), and the second part is "CC: watchdog: ...".
-    t.hid_matching(3, &format!("08 d2 00 [0-9a-f]{{2}} {} .*", hex(b"firmware/src/watchdog.rs:")), 1.0);
+    t.hid_matching(
+        3,
+        &format!(
+            "08 d2 00 [0-9a-f]{{2}} {} .*",
+            hex(b"firmware/src/watchdog.rs:")
+        ),
+        1.0,
+    );
     t.raw_hid_send(&[0x08, 0xD2, 28]);
-    t.hid_matching(3, &format!("08 d2 1c [0-9a-f]{{2}} (3[0-9] )+{} .*", hex(b": watchdog:")), 1.0);
+    t.hid_matching(
+        3,
+        &format!(
+            "08 d2 1c [0-9a-f]{{2}} (3[0-9] )+{} .*",
+            hex(b": watchdog:")
+        ),
+        1.0,
+    );
     t.key(3, 1, true);
     t.hid_should_show(1, "00 00 04 00 00 00 00 00", 1.0);
     t.key(3, 1, false);
@@ -561,5 +626,9 @@ fn the_stack_has_headroom() {
     }
     let (used, size) = (top - a, top - 0x2000_0000);
     println!("stack: {used} of {size} bytes used");
-    assert!(size - used >= 12288, "only {} bytes of stack spare", size - used);
+    assert!(
+        size - used >= 12288,
+        "only {} bytes of stack spare",
+        size - used
+    );
 }

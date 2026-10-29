@@ -96,11 +96,15 @@ impl Uart {
     /// A system reset: registers and the RX queue go; the peer stays.
     pub fn reset(&mut self) {
         let peer = self.peer.take();
-        *self = Uart { peer, ..Uart::new(self.block, self.irq) };
+        *self = Uart {
+            peer,
+            ..Uart::new(self.block, self.irq)
+        };
     }
 
     pub fn irq_level(&self) -> u64 {
-        let level = (self.ier & IER_RDAIE != 0 && !self.rx.is_empty()) || self.ier & IER_THREIE != 0;
+        let level =
+            (self.ier & IER_RDAIE != 0 && !self.rx.is_empty()) || self.ier & IER_THREIE != 0;
         (level as u64) << self.irq
     }
 
@@ -135,14 +139,24 @@ impl Uart {
             if self.dlab() {
                 self.dll = v & 0xFF;
             } else {
-                let line = UartLine { dll: self.dll, dlh: self.dlh, dlf: self.dlf, lcr: self.lcr, sfe: self.sfe };
+                let line = UartLine {
+                    dll: self.dll,
+                    dlh: self.dlh,
+                    dlf: self.dlf,
+                    lcr: self.lcr,
+                    sfe: self.sfe,
+                };
                 if let Some(p) = &mut self.peer {
                     p.tx(v as u8, line, now, &mut self.rx);
                 }
             }
             return;
         }
-        log(Write { block: self.block, off, value: v });
+        log(Write {
+            block: self.block,
+            off,
+            value: v,
+        });
         match off {
             0x04 if self.dlab() => self.dlh = v & 0xFF,
             0x04 => self.ier = v & 0x8F,

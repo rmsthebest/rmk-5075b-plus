@@ -13,15 +13,30 @@ struct T {
 
 impl T {
     fn boot_and_enumerate() -> T {
-        let mut t = T { b: Board::boot(Image::AkkoRmkRomPeek).unwrap(), cursor: 0 };
-        t.hid_or_log(4.0, "configured", |e| matches!(e, UsbEvent::Log(l) if l.starts_with("configured")));
+        let mut t = T {
+            b: Board::boot(Image::AkkoRmkRomPeek).unwrap(),
+            cursor: 0,
+        };
+        t.hid_or_log(
+            4.0,
+            "configured",
+            |e| matches!(e, UsbEvent::Log(l) if l.starts_with("configured")),
+        );
         t.b.run_for(0.05);
         t
     }
 
     fn hid_or_log(&mut self, secs: f64, what: &str, pred: impl FnMut(&UsbEvent) -> bool) {
         if self.b.wait_for(&mut self.cursor, secs, pred).is_none() {
-            let tail: Vec<String> = self.b.host.events().iter().rev().take(8).map(|e| e.to_string()).collect();
+            let tail: Vec<String> = self
+                .b
+                .host
+                .events()
+                .iter()
+                .rev()
+                .take(8)
+                .map(|e| e.to_string())
+                .collect();
             panic!("no {what} within {secs} s; last events, newest first: {tail:#?}");
         }
     }
@@ -36,7 +51,11 @@ impl T {
     }
 
     fn hid_should_show(&mut self, want: &str) {
-        self.hid_or_log(1.0, want, |e| matches!(e, UsbEvent::Hid { ep: 3, data } if hex(data).starts_with(want)));
+        self.hid_or_log(
+            1.0,
+            want,
+            |e| matches!(e, UsbEvent::Hid { ep: 3, data } if hex(data).starts_with(want)),
+        );
     }
 
     /// Vial channel 0xDA at `addr`: the answer echoes the address, then
@@ -64,10 +83,24 @@ impl T {
 fn the_rom_peek_reads_only_the_rom_and_the_information_blocks() {
     let mut t = T::boot_and_enumerate();
     for addr in [
-        0x1FFF_E100u32, 0x1FFF_E104, 0x1FFF_E108, 0x1FFF_E10C, 0x1FFF_E110, 0x1FFF_E114, 0x1FFF_EFF8,
-        0x1FFF_EFFC, 0x1FFF_F000, 0x1FFF_F7F0, 0x1FFF_F7F4, 0x1FFF_F7F8, 0x1FFF_F7FC, 0x1FFF_F800,
+        0x1FFF_E100u32,
+        0x1FFF_E104,
+        0x1FFF_E108,
+        0x1FFF_E10C,
+        0x1FFF_E110,
+        0x1FFF_E114,
+        0x1FFF_EFF8,
+        0x1FFF_EFFC,
+        0x1FFF_F000,
+        0x1FFF_F7F0,
+        0x1FFF_F7F4,
+        0x1FFF_F7F8,
+        0x1FFF_F7FC,
+        0x1FFF_F800,
     ] {
-        t.b.chip.rom_mut().write(addr - 0x1FFF_E000, Size::Word, addr ^ 0xA5C3_E10F);
+        t.b.chip
+            .rom_mut()
+            .write(addr - 0x1FFF_E000, Size::Word, addr ^ 0xA5C3_E10F);
     }
     t.peek_should_show(0x1FFF_E100, 0, 24);
     // The last 8 bytes of the ROM; the information blocks are the next read.

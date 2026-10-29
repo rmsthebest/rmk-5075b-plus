@@ -20,9 +20,13 @@ fn main() {
         }
     }
     let name = args.get(1).expect(usage);
-    let image = *Image::ALL.iter().find(|i| i.file_name() == name).unwrap_or_else(|| panic!("no image {name}"));
+    let image = *Image::ALL
+        .iter()
+        .find(|i| i.file_name() == name)
+        .unwrap_or_else(|| panic!("no image {name}"));
     let secs: f64 = args.get(2).map(|s| s.parse().expect("secs")).unwrap_or(0.5);
-    let filter = regex::Regex::new(args.get(3).map(String::as_str).unwrap_or(".")).expect("block-regex");
+    let filter =
+        regex::Regex::new(args.get(3).map(String::as_str).unwrap_or(".")).expect("block-regex");
 
     let mut board = Board::boot(image).unwrap_or_else(|e| panic!("{e}"));
     board.chip.writes = Some(Vec::new());
@@ -39,7 +43,12 @@ fn main() {
             println!("{line}");
         }
     }
-    let mut diags: Vec<String> = board.chip.take_diags().iter().map(|d| d.to_string()).collect();
+    let mut diags: Vec<String> = board
+        .chip
+        .take_diags()
+        .iter()
+        .map(|d| d.to_string())
+        .collect();
     diags.extend(board.cpu.diags.iter().map(|d| d.to_string()));
     diags.dedup();
     for d in diags.iter().take(20) {

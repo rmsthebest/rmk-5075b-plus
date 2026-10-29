@@ -46,7 +46,16 @@ pub struct Fmc {
 
 impl Default for Fmc {
     fn default() -> Self {
-        Fmc { con: 0, stat: 0, addr: 0, keys: Vec::new(), op: 0, latch: [0; 64], ops: Vec::new(), errors: Vec::new() }
+        Fmc {
+            con: 0,
+            stat: 0,
+            addr: 0,
+            keys: Vec::new(),
+            op: 0,
+            latch: [0; 64],
+            ops: Vec::new(),
+            errors: Vec::new(),
+        }
     }
 }
 
@@ -87,7 +96,9 @@ impl Fmc {
             0x0C => self.keys.push(v),
             0x10 => self.addr = v,
             0x100..0x200 => self.latch[((off - 0x100) / 4) as usize] = v,
-            _ => self.errors.push(format!("FMC write to +0x{off:02x} = 0x{v:08x} not modelled")),
+            _ => self.errors.push(format!(
+                "FMC write to +0x{off:02x} = 0x{v:08x} not modelled"
+            )),
         }
         fill
     }
@@ -98,7 +109,8 @@ impl Fmc {
         self.keys.clear();
         if !unlocked {
             self.stat |= 4;
-            self.errors.push(format!("FMC ERROR: op 0x{op:02x} without the keys"));
+            self.errors
+                .push(format!("FMC ERROR: op 0x{op:02x} without the keys"));
             return None;
         }
         let fill = match op {
@@ -106,13 +118,22 @@ impl Fmc {
                 self.latch = [0; 64];
                 None
             }
-            0x1B => Some(Fill { addr: FLASH_BASE, words: vec![0; FLASH_SIZE / 4] }),
-            0x08 | 0x0C if page_ok(a) => {
-                Some(Fill { addr: a, words: if op == 0x08 { vec![0; 64] } else { self.latch.to_vec() } })
-            }
+            0x1B => Some(Fill {
+                addr: FLASH_BASE,
+                words: vec![0; FLASH_SIZE / 4],
+            }),
+            0x08 | 0x0C if page_ok(a) => Some(Fill {
+                addr: a,
+                words: if op == 0x08 {
+                    vec![0; 64]
+                } else {
+                    self.latch.to_vec()
+                },
+            }),
             _ => {
                 self.stat |= 4;
-                self.errors.push(format!("FMC ERROR: op 0x{op:02x} at 0x{a:08x}"));
+                self.errors
+                    .push(format!("FMC ERROR: op 0x{op:02x} at 0x{a:08x}"));
                 return None;
             }
         };

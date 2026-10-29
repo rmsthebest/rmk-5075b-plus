@@ -108,7 +108,10 @@ impl Ssi {
     /// A system reset: the registers go back; the device stays.
     pub fn reset(&mut self) {
         let device = self.device.take();
-        *self = Ssi { device, ..Ssi::new(self.block, self.irq) };
+        *self = Ssi {
+            device,
+            ..Ssi::new(self.block, self.irq)
+        };
     }
 
     fn risr(&self) -> u32 {
@@ -126,7 +129,10 @@ impl Ssi {
             DR => self.rx.pop_front().unwrap_or(0) as u32,
             0x20 => 0,
             0x24 => self.rx.len() as u32,
-            0x28 => 0x06 | (!self.rx.is_empty() as u32) << 3 | ((self.rx.len() >= FIFO_DEPTH) as u32) << 4,
+            0x28 => {
+                0x06 | (!self.rx.is_empty() as u32) << 3
+                    | ((self.rx.len() >= FIFO_DEPTH) as u32) << 4
+            }
             0x30 => self.risr() & self.ier,
             0x34 => self.risr(),
             0x3C | 0x48 => std::mem::take(&mut self.rxo) as u32,
@@ -145,10 +151,16 @@ impl Ssi {
     pub fn write(&mut self, off: u32, v: u32, gpio: &Gpio, log: &mut impl FnMut(Write)) {
         if off == DR {
             if self.spienr & 1 == 0 {
-                self.errors.push(format!("{}: DR write while SPIENR = 0, ignored", self.block.to_lowercase()));
+                self.errors.push(format!(
+                    "{}: DR write while SPIENR = 0, ignored",
+                    self.block.to_lowercase()
+                ));
                 return;
             }
-            let line = SsiLine { cr0: self.cr0, baudr: self.baudr };
+            let line = SsiLine {
+                cr0: self.cr0,
+                baudr: self.baudr,
+            };
             let r = match &mut self.device {
                 Some(d) => d.shift(v as u8, line, gpio),
                 None => 0xFF,
@@ -160,7 +172,11 @@ impl Ssi {
             }
             return;
         }
-        log(Write { block: self.block, off, value: v });
+        log(Write {
+            block: self.block,
+            off,
+            value: v,
+        });
         match off {
             SPIENR => {
                 self.spienr = v & 1;

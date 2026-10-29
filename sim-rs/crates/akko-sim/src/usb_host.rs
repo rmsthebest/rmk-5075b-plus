@@ -81,7 +81,10 @@ pub enum UsbEvent {
 }
 
 pub fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect::<Vec<_>>().join(" ")
+    b.iter()
+        .map(|x| format!("{x:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl fmt::Display for UsbEvent {
@@ -234,7 +237,16 @@ impl Cx {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn control(&self, what: &str, bm: u8, req: u8, value: u16, index: u16, length: u16, out: Option<Vec<u8>>) -> Ctrl {
+    async fn control(
+        &self,
+        what: &str,
+        bm: u8,
+        req: u8,
+        value: u16,
+        index: u16,
+        length: u16,
+        out: Option<Vec<u8>>,
+    ) -> Ctrl {
         let [v0, v1] = value.to_le_bytes();
         let [i0, i1] = index.to_le_bytes();
         let [l0, l1] = length.to_le_bytes();
@@ -252,7 +264,10 @@ impl Cx {
         if bm & 0x80 != 0 {
             self.set_ctl(Ctl::Data);
             loop {
-                match self.retry(|d, a| d.tok_in0(a), &format!("{what} data IN")).await {
+                match self
+                    .retry(|d, a| d.tok_in0(a), &format!("{what} data IN"))
+                    .await
+                {
                     Tok::Stall => {
                         self.log(format!("{what} -> STALL"));
                         self.set_ctl(Ctl::None);
@@ -274,13 +289,17 @@ impl Cx {
             }
             step().await;
             self.set_ctl(Ctl::Status);
-            r = self.retry(|d, a| d.tok_status_out0(a), &format!("{what} status OUT")).await;
+            r = self
+                .retry(|d, a| d.tok_status_out0(a), &format!("{what} status OUT"))
+                .await;
         } else {
             let no_data = out.as_ref().is_none_or(|o| o.is_empty());
             if let Some(out) = out.filter(|o| !o.is_empty()) {
                 self.set_ctl(Ctl::Data);
                 for pkt in out.chunks(64) {
-                    let r = self.retry(|d, a| d.tok_out0(a, pkt), &format!("{what} data OUT")).await;
+                    let r = self
+                        .retry(|d, a| d.tok_out0(a, pkt), &format!("{what} data OUT"))
+                        .await;
                     if r == Tok::Stall {
                         self.log(format!("{what} -> STALL"));
                         self.set_ctl(Ctl::None);
@@ -290,7 +309,12 @@ impl Cx {
                 }
             }
             self.set_ctl(Ctl::Status);
-            r = self.retry(|d, a| d.tok_status_in0(a, no_data), &format!("{what} status IN")).await;
+            r = self
+                .retry(
+                    |d, a| d.tok_status_in0(a, no_data),
+                    &format!("{what} status IN"),
+                )
+                .await;
         }
         self.set_ctl(Ctl::Idle);
         match r {
@@ -310,9 +334,25 @@ impl Cx {
         }
     }
 
-    async fn get_descriptor(&self, what: &str, dtype: u8, idx: u8, length: u16, index: u16, bm: u8) -> Ctrl {
-        self.control(&format!("GET_DESCRIPTOR({what})"), bm, 6, (dtype as u16) << 8 | idx as u16, index, length, None)
-            .await
+    async fn get_descriptor(
+        &self,
+        what: &str,
+        dtype: u8,
+        idx: u8,
+        length: u16,
+        index: u16,
+        bm: u8,
+    ) -> Ctrl {
+        self.control(
+            &format!("GET_DESCRIPTOR({what})"),
+            bm,
+            6,
+            (dtype as u16) << 8 | idx as u16,
+            index,
+            length,
+            None,
+        )
+        .await
     }
 
     fn parse_config(&self, cfg: &[u8]) {
@@ -326,11 +366,22 @@ impl Cx {
             }
             let b = |i: usize| cfg.get(k + i).copied().unwrap_or(0);
             if ty == 4 {
-                ifaces.push(Iface { num: b(2), class: b(5), sub: b(6), proto: b(7), eps: Vec::new() });
+                ifaces.push(Iface {
+                    num: b(2),
+                    class: b(5),
+                    sub: b(6),
+                    proto: b(7),
+                    eps: Vec::new(),
+                });
             } else if ty == 5
                 && let Some(i) = ifaces.last_mut()
             {
-                i.eps.push(Ep { addr: b(2), attrs: b(3), maxp: b(4) as u16 | (b(5) as u16) << 8, interval: b(6) });
+                i.eps.push(Ep {
+                    addr: b(2),
+                    attrs: b(3),
+                    maxp: b(4) as u16 | (b(5) as u16) << 8,
+                    interval: b(6),
+                });
             }
             k += ln;
         }
@@ -343,13 +394,21 @@ impl Cx {
         if idx == 0 {
             return;
         }
-        let s = self.get_descriptor(&format!("string {idx}"), 3, idx, 255, 0x0409, 0x80).await;
+        let s = self
+            .get_descriptor(&format!("string {idx}"), 3, idx, 255, 0x0409, 0x80)
+            .await;
         if let Some(s) = s.data().filter(|s| s.len() >= 2) {
             let units: Vec<u16> = (2..(s[0] as usize).saturating_sub(1))
                 .step_by(2)
-                .map(|k| s.get(k).copied().unwrap_or(0) as u16 | (s.get(k + 1).copied().unwrap_or(0) as u16) << 8)
+                .map(|k| {
+                    s.get(k).copied().unwrap_or(0) as u16
+                        | (s.get(k + 1).copied().unwrap_or(0) as u16) << 8
+                })
                 .collect();
-            self.log(format!("string {idx} = '{}'", String::from_utf16_lossy(&units)));
+            self.log(format!(
+                "string {idx} = '{}'",
+                String::from_utf16_lossy(&units)
+            ));
         }
     }
 
@@ -363,7 +422,19 @@ impl Cx {
         }
         self.bus_reset().await;
         let new_addr = 5;
-        if self.control(&format!("SET_ADDRESS({new_addr})"), 0x00, 5, new_addr as u16, 0, 0, None).await == Ctrl::Failed {
+        if self
+            .control(
+                &format!("SET_ADDRESS({new_addr})"),
+                0x00,
+                5,
+                new_addr as u16,
+                0,
+                0,
+                None,
+            )
+            .await
+            == Ctrl::Failed
+        {
             return;
         }
         wait_ms(2).await;
@@ -386,7 +457,11 @@ impl Cx {
         };
         let total = c9[2] as u16 | (c9[3] as u16) << 8;
         let cfg = self.get_descriptor("config", 2, 0, total, 0, 0x80).await;
-        let Some(cfg) = cfg.data().filter(|d| d.len() == total as usize).map(<[u8]>::to_vec) else {
+        let Some(cfg) = cfg
+            .data()
+            .filter(|d| d.len() == total as usize)
+            .map(<[u8]>::to_vec)
+        else {
             self.err("full config descriptor read failed");
             return;
         };
@@ -395,7 +470,11 @@ impl Cx {
         for idx in [dd[15], dd[14], dd[16]] {
             self.string(idx).await;
         }
-        if self.control("SET_CONFIGURATION(1)", 0x00, 9, 1, 0, 0, None).await == Ctrl::Failed {
+        if self
+            .control("SET_CONFIGURATION(1)", 0x00, 9, 1, 0, 0, None)
+            .await
+            == Ctrl::Failed
+        {
             return;
         }
         {
@@ -405,8 +484,25 @@ impl Cx {
         }
         let ifaces = self.h.borrow().ifaces.clone();
         for i in ifaces.iter().filter(|i| i.class == 3) {
-            self.control(&format!("SET_IDLE(if {})", i.num), 0x21, 0x0A, 0, i.num as u16, 0, None).await;
-            self.get_descriptor(&format!("HID report, if {}", i.num), 0x22, 0, 255, i.num as u16, 0x81).await;
+            self.control(
+                &format!("SET_IDLE(if {})", i.num),
+                0x21,
+                0x0A,
+                0,
+                i.num as u16,
+                0,
+                None,
+            )
+            .await;
+            self.get_descriptor(
+                &format!("HID report, if {}", i.num),
+                0x22,
+                0,
+                255,
+                i.num as u16,
+                0x81,
+            )
+            .await;
         }
         let summary: Vec<String> = ifaces
             .iter()
@@ -420,56 +516,120 @@ impl Cx {
     }
 
     /// The first endpoint of class `class` in direction `dir` (0x80 IN).
-    fn find_ep(&self, class: u8, dir: u8, attrs: Option<u8>, sub_proto: Option<(u8, u8)>) -> Option<(u8, Ep)> {
+    fn find_ep(
+        &self,
+        class: u8,
+        dir: u8,
+        attrs: Option<u8>,
+        sub_proto: Option<(u8, u8)>,
+    ) -> Option<(u8, Ep)> {
         let h = self.h.borrow();
-        h.ifaces.iter().filter(|i| i.class == class && sub_proto.is_none_or(|sp| sp == (i.sub, i.proto))).find_map(|i| {
-            i.eps
-                .iter()
-                .find(|e| e.addr & 0x80 == dir && attrs.is_none_or(|a| e.attrs & 3 == a))
-                .map(|&e| (i.num, e))
-        })
+        h.ifaces
+            .iter()
+            .filter(|i| i.class == class && sub_proto.is_none_or(|sp| sp == (i.sub, i.proto)))
+            .find_map(|i| {
+                i.eps
+                    .iter()
+                    .find(|e| e.addr & 0x80 == dir && attrs.is_none_or(|a| e.attrs & 3 == a))
+                    .map(|&e| (i.num, e))
+            })
     }
 
     async fn run_command(self, cmd: u32, data: Vec<u8>) {
         let (op, arg) = (cmd & 0xFF, (cmd >> 8) as u8);
         match op {
             0x01 => {
-                let num = self.h.borrow().ifaces.iter().find(|i| i.class == 2).map(|i| i.num);
+                let num = self
+                    .h
+                    .borrow()
+                    .ifaces
+                    .iter()
+                    .find(|i| i.class == 2)
+                    .map(|i| i.num);
                 let Some(num) = num else {
                     self.err("no CDC interface");
                     return;
                 };
                 let coding = vec![0x00, 0xC2, 0x01, 0x00, 0, 0, 8];
-                self.control("SET_LINE_CODING", 0x21, 0x20, 0, num as u16, 7, Some(coding)).await;
-                self.control("SET_CONTROL_LINE_STATE(DTR|RTS)", 0x21, 0x22, 3, num as u16, 0, None).await;
+                self.control(
+                    "SET_LINE_CODING",
+                    0x21,
+                    0x20,
+                    0,
+                    num as u16,
+                    7,
+                    Some(coding),
+                )
+                .await;
+                self.control(
+                    "SET_CONTROL_LINE_STATE(DTR|RTS)",
+                    0x21,
+                    0x22,
+                    3,
+                    num as u16,
+                    0,
+                    None,
+                )
+                .await;
             }
             0x02 => {
                 let Some((_, ep)) = self.find_ep(0x0A, 0x00, None, None) else {
                     self.err("no CDC data OUT endpoint");
                     return;
                 };
-                self.retry(|d, a| d.tok_out(a, (ep.addr & 0xF) as usize, &[arg]), "CDC OUT").await;
+                self.retry(
+                    |d, a| d.tok_out(a, (ep.addr & 0xF) as usize, &[arg]),
+                    "CDC OUT",
+                )
+                .await;
             }
             0x03 => {
                 // The boot keyboard interface (subclass 1, protocol 1).
                 if let Some((_, ep)) = self.find_ep(0x03, 0x00, Some(3), Some((1, 1))) {
-                    self.retry(|d, a| d.tok_out(a, (ep.addr & 0xF) as usize, &[arg]), "HID OUT").await;
-                    self.log(format!("HID LEDs {arg:02x} sent on EP{} OUT", ep.addr & 0xF));
+                    self.retry(
+                        |d, a| d.tok_out(a, (ep.addr & 0xF) as usize, &[arg]),
+                        "HID OUT",
+                    )
+                    .await;
+                    self.log(format!(
+                        "HID LEDs {arg:02x} sent on EP{} OUT",
+                        ep.addr & 0xF
+                    ));
                 } else {
                     let Some((num, _)) = self.find_ep(0x03, 0x80, None, Some((1, 1))) else {
                         self.err("no boot keyboard interface");
                         return;
                     };
-                    self.control("SET_REPORT(output)", 0x21, 0x09, 0x0200, num as u16, 1, Some(vec![arg])).await;
+                    self.control(
+                        "SET_REPORT(output)",
+                        0x21,
+                        0x09,
+                        0x0200,
+                        num as u16,
+                        1,
+                        Some(vec![arg]),
+                    )
+                    .await;
                 }
             }
             0x04 => {
                 if arg == 1 {
                     if !self.h.borrow().wakeup_capable {
-                        self.err("SET_FEATURE(DEVICE_REMOTE_WAKEUP) on a device that doesn't support it");
+                        self.err(
+                            "SET_FEATURE(DEVICE_REMOTE_WAKEUP) on a device that doesn't support it",
+                        );
                         return;
                     }
-                    self.control("SET_FEATURE(DEVICE_REMOTE_WAKEUP)", 0x00, 0x03, 1, 0, 0, None).await;
+                    self.control(
+                        "SET_FEATURE(DEVICE_REMOTE_WAKEUP)",
+                        0x00,
+                        0x03,
+                        1,
+                        0,
+                        0,
+                        None,
+                    )
+                    .await;
                     self.h.borrow_mut().wakeup_enabled = true;
                 }
                 self.h.borrow_mut().suspended = true;
@@ -502,8 +662,16 @@ impl Cx {
             0x0A => {
                 // CLEAR_FEATURE(ENDPOINT_HALT) with wIndex = arg, which may name
                 // an endpoint the device doesn't have (a host may send anything).
-                self.control(&format!("CLEAR_FEATURE(ENDPOINT_HALT, 0x{arg:02x})"), 0x02, 0x01, 0, arg as u16, 0, None)
-                    .await;
+                self.control(
+                    &format!("CLEAR_FEATURE(ENDPOINT_HALT, 0x{arg:02x})"),
+                    0x02,
+                    0x01,
+                    0,
+                    arg as u16,
+                    0,
+                    None,
+                )
+                .await;
             }
             0x0B => {
                 // A control read the host gives up on after its SETUP: the next
@@ -520,22 +688,33 @@ impl Cx {
                     d.c0 |= usb::C0_SETUPEND;
                     d.intrin |= 1;
                 }
-                let got = self.get_descriptor("device, after an aborted transfer", 1, 0, 18, 0, 0x80).await;
+                let got = self
+                    .get_descriptor("device, after an aborted transfer", 1, 0, 18, 0, 0x80)
+                    .await;
                 if !got.data().is_some_and(|d| d.starts_with(&[18, 1])) {
-                    self.err(format!("no device descriptor after an aborted transfer: {got:?}"));
+                    self.err(format!(
+                        "no device descriptor after an aborted transfer: {got:?}"
+                    ));
                 }
             }
             0x0D => {
                 // A SETUP of 5 bytes (no real host sends one; the device must
                 // drop it, not spin on it), then an ordinary request.
-                if self.d.borrow_mut().tok_setup(self.addr(), &[0x80, 6, 0, 1, 0]) != Tok::Ack {
+                if self
+                    .d
+                    .borrow_mut()
+                    .tok_setup(self.addr(), &[0x80, 6, 0, 1, 0])
+                    != Tok::Ack
+                {
                     self.err("short SETUP not ACKed");
                     return;
                 }
                 self.log("short SETUP (5 bytes)");
                 // Past the 2 s software watchdog before the next SETUP.
                 wait_ms(2500).await;
-                let got = self.get_descriptor("device, after a short SETUP", 1, 0, 18, 0, 0x80).await;
+                let got = self
+                    .get_descriptor("device, after a short SETUP", 1, 0, 18, 0, 0x80)
+                    .await;
                 if !got.data().is_some_and(|d| d.starts_with(&[18, 1])) {
                     self.err(format!("no device descriptor after a short SETUP: {got:?}"));
                 }
@@ -544,21 +723,45 @@ impl Cx {
                 // GET_REPORT(input, id = arg) on interface bits 16-23, 4 bytes
                 // asked, as Linux's battery query.
                 let num = (cmd >> 16) & 0xFF;
-                self.control(&format!("GET_REPORT(input {arg})"), 0xA1, 0x01, 0x0100 | arg as u16, num as u16, 4, None)
-                    .await;
+                self.control(
+                    &format!("GET_REPORT(input {arg})"),
+                    0xA1,
+                    0x01,
+                    0x0100 | arg as u16,
+                    num as u16,
+                    4,
+                    None,
+                )
+                .await;
             }
             0x09 => {
-                let has = self.h.borrow().ifaces.iter().any(|i| i.eps.iter().any(|e| e.addr == arg));
+                let has = self
+                    .h
+                    .borrow()
+                    .ifaces
+                    .iter()
+                    .any(|i| i.eps.iter().any(|e| e.addr == arg));
                 if !has {
                     self.err(format!("no EP{arg} OUT"));
                     return;
                 }
-                self.retry(|d, a| d.tok_out(a, arg as usize, &data), &format!("EP{arg} OUT")).await;
+                self.retry(
+                    |d, a| d.tok_out(a, arg as usize, &data),
+                    &format!("EP{arg} OUT"),
+                )
+                .await;
                 self.log(format!("EP{arg} OUT {}", hex(&data)));
             }
             0x0E => {
                 // One bulk OUT transfer, packets of maxp, a ZLP when full.
-                let maxp = self.h.borrow().ifaces.iter().flat_map(|i| &i.eps).find(|e| e.addr == arg).map(|e| e.maxp);
+                let maxp = self
+                    .h
+                    .borrow()
+                    .ifaces
+                    .iter()
+                    .flat_map(|i| &i.eps)
+                    .find(|e| e.addr == arg)
+                    .map(|e| e.maxp);
                 let Some(maxp) = maxp else {
                     self.err(format!("no EP{arg} OUT"));
                     return;
@@ -568,7 +771,11 @@ impl Cx {
                     packets.push(&[]);
                 }
                 for p in &packets {
-                    self.retry(|d, a| d.tok_out(a, arg as usize, p), &format!("EP{arg} OUT")).await;
+                    self.retry(
+                        |d, a| d.tok_out(a, arg as usize, p),
+                        &format!("EP{arg} OUT"),
+                    )
+                    .await;
                 }
                 self.log(format!(
                     "EP{arg} OUT {} bytes in {} packets: {}",
@@ -591,7 +798,9 @@ impl Cx {
             for e in i.eps.iter().filter(|e| e.addr & 0x80 != 0) {
                 let n = e.addr & 0xF;
                 let kind = e.attrs & 3;
-                if kind == 3 && !(frame_start && (tick / STEPS_PER_MS) % (e.interval.max(1) as u32) == 0) {
+                if kind == 3
+                    && !(frame_start && (tick / STEPS_PER_MS) % (e.interval.max(1) as u32) == 0)
+                {
                     continue;
                 }
                 let r = self.d.borrow_mut().tok_in(self.addr(), n as usize);
@@ -608,7 +817,8 @@ impl Cx {
                 if i.class == 0x0A {
                     for b in data {
                         if b == 0x0A {
-                            let line = String::from_utf8_lossy(&std::mem::take(&mut h.cdc_text)).into_owned();
+                            let line = String::from_utf8_lossy(&std::mem::take(&mut h.cdc_text))
+                                .into_owned();
                             h.events.push(UsbEvent::Cdc(line));
                         } else if b != 0x0D {
                             h.cdc_text.push(b);
@@ -619,7 +829,8 @@ impl Cx {
                 } else if kind == 2 {
                     h.events.push(UsbEvent::Bulk { ep: n, data });
                 } else {
-                    h.events.push(UsbEvent::Log(format!("EP{n} IN {}", hex(&data))));
+                    h.events
+                        .push(UsbEvent::Log(format!("EP{n} IN {}", hex(&data))));
                 }
             }
         }
@@ -641,9 +852,15 @@ pub struct Host {
 impl Host {
     /// A host whose first step is one STEP after `now`, on `dev`'s bus.
     pub fn new(dev: Rc<RefCell<Musb>>, now: u64) -> Self {
-        let h = State { plugged: true, ..Default::default() };
+        let h = State {
+            plugged: true,
+            ..Default::default()
+        };
         Host {
-            cx: Cx { h: Rc::new(RefCell::new(h)), d: dev },
+            cx: Cx {
+                h: Rc::new(RefCell::new(h)),
+                d: dev,
+            },
             task: None,
             next_enumerate: false,
             next_at: now + STEP,
@@ -706,7 +923,11 @@ impl Host {
         let log = std::mem::take(&mut self.cx.d.borrow_mut().log);
         let mut h = self.cx.h.borrow_mut();
         for l in log {
-            h.events.push(if l.error { UsbEvent::Error(l.msg) } else { UsbEvent::Log(l.msg) });
+            h.events.push(if l.error {
+                UsbEvent::Error(l.msg)
+            } else {
+                UsbEvent::Log(l.msg)
+            });
         }
     }
 
@@ -791,7 +1012,11 @@ impl Host {
             h.state = CONFIGURED;
         }
         if let Some(task) = &mut self.task {
-            if task.as_mut().poll(&mut Context::from_waker(Waker::noop())).is_ready() {
+            if task
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_ready()
+            {
                 self.task = None;
                 if std::mem::take(&mut self.next_enumerate) {
                     self.task = Some(Box::pin(cx.clone().enumerate_device()));
@@ -800,7 +1025,11 @@ impl Host {
         } else {
             let next = {
                 let mut h = cx.h.borrow_mut();
-                if matches!(h.state, CONFIGURED | SUSPENDED) { h.cmds.pop_front() } else { None }
+                if matches!(h.state, CONFIGURED | SUSPENDED) {
+                    h.cmds.pop_front()
+                } else {
+                    None
+                }
             };
             if let Some((c, data)) = next {
                 self.task = Some(Box::pin(cx.clone().run_command(c, data)));

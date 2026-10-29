@@ -21,11 +21,11 @@
 use crate::diag::Diag;
 use crate::fmc::{self, Fmc};
 use crate::gpio::{Gpio, Matrix};
-use crate::usb::{self, Musb};
 use crate::ssi::{QSPI_IRQ, SPIM2_IRQ, Ssi};
 use crate::sysctl::Sysctl;
 use crate::tim2::{self, Tim2};
 use crate::uart::{UART3_IRQ, Uart};
+use crate::usb::{self, Musb};
 use cortex_m3_emu::{Bus, IrqLines, Memory, Size};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -129,7 +129,11 @@ pub struct Write {
 
 impl fmt::Display for Write {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}+0x{:03x} = 0x{:08x}", self.block, self.off, self.value)
+        write!(
+            f,
+            "{}+0x{:03x} = 0x{:08x}",
+            self.block, self.off, self.value
+        )
     }
 }
 
@@ -236,7 +240,12 @@ impl Wb32 {
         if let Some(log) = &mut self.bus_writes
             && let Some((periph, off)) = renode_name(addr)
         {
-            log.push(BusWrite { periph, off, value, pc: self.pc });
+            log.push(BusWrite {
+                periph,
+                off,
+                value,
+                pc: self.pc,
+            });
         }
     }
 
@@ -269,7 +278,11 @@ impl Wb32 {
         match p {
             Periph::Gpio(o) => self.gpio.write(o, value, &mut log),
             Periph::Tim2(o) => {
-                log(Write { block: "TIM2", off: o, value });
+                log(Write {
+                    block: "TIM2",
+                    off: o,
+                    value,
+                });
                 self.tim2.write(o, value, self.now)
             }
             Periph::Qspi(o) => self.qspi.write(o, value, &self.gpio, &mut log),
@@ -282,13 +295,21 @@ impl Wb32 {
                 }
             }
             Periph::Cache(o) => {
-                log(Write { block: "CACHE", off: o, value });
+                log(Write {
+                    block: "CACHE",
+                    off: o,
+                    value,
+                });
                 self.cache.insert(o, value);
             }
             Periph::Usb(o) => {
                 if o >= 0x400 {
                     let block = if o < 0xC00 { "CRC" } else { "SFM" };
-                    log(Write { block, off: o % 0x400, value });
+                    log(Write {
+                        block,
+                        off: o % 0x400,
+                        value,
+                    });
                 }
                 self.usb.borrow_mut().write(o, value);
             }

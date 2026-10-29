@@ -121,7 +121,13 @@ impl Cpu {
             self.lockstep,
         );
         *self = Cpu::new(self.config);
-        (self.now, self.instructions, self.sleeps, self.diags, self.lockstep) = keep;
+        (
+            self.now,
+            self.instructions,
+            self.sleeps,
+            self.diags,
+            self.lockstep,
+        ) = keep;
         self.ppb.reset(self.now);
         self.r[LR] = 0xFFFF_FFFF;
         self.r[SP] = bus.read(0, Size::Word) & !3;

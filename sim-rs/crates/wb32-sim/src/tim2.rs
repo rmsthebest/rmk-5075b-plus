@@ -45,7 +45,12 @@ pub struct Tim2 {
 
 impl Default for Tim2 {
     fn default() -> Self {
-        let mut t = Tim2 { regs: [0; 18], cnt: 0, psc: 0, since: 0 };
+        let mut t = Tim2 {
+            regs: [0; 18],
+            cnt: 0,
+            psc: 0,
+            since: 0,
+        };
         t.regs[(ARR / 4) as usize] = 0xFFFF;
         t
     }
@@ -72,7 +77,11 @@ impl Tim2 {
     /// an update (at ARR) or the 16-bit roll-over past it.
     fn to_wrap(&self) -> (u64, bool) {
         let arr = self.r(ARR);
-        if self.cnt <= arr { ((arr - self.cnt) as u64 + 1, true) } else { (0x1_0000 - self.cnt as u64, false) }
+        if self.cnt <= arr {
+            ((arr - self.cnt) as u64 + 1, true)
+        } else {
+            (0x1_0000 - self.cnt as u64, false)
+        }
     }
 
     /// Brings the counter and flags up to `now`.
@@ -110,7 +119,11 @@ impl Tim2 {
 
     /// When the counter next wraps, if it's running.
     pub fn next_event(&self) -> u64 {
-        if self.running() { self.since + self.to_wrap().0 * self.tick() } else { u64::MAX }
+        if self.running() {
+            self.since + self.to_wrap().0 * self.tick()
+        } else {
+            u64::MAX
+        }
     }
 
     pub fn irq(&self) -> bool {
@@ -200,7 +213,10 @@ mod tests {
         t.write(DIER, 1 << 1, 0); // CC1IE
         t.write(CR1, CEN, 0);
         t.sync(2000 * CLOCK);
-        assert!(!t.irq(), "CNT passed CCR1, but the chip only flags at the wrap");
+        assert!(
+            !t.irq(),
+            "CNT passed CCR1, but the chip only flags at the wrap"
+        );
         t.sync(0x1_0000 * CLOCK);
         assert!(t.irq());
     }

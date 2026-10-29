@@ -87,7 +87,13 @@ impl Nor {
         let log = std::mem::take(&mut self.log);
         let errors = std::mem::take(&mut self.errors);
         let warnings = std::mem::take(&mut self.warnings);
-        *self = Nor { mem, log, errors, warnings, ..Nor::default() };
+        *self = Nor {
+            mem,
+            log,
+            errors,
+            warnings,
+            ..Nor::default()
+        };
     }
 
     /// The whole chip to 0xFF, unlogged (qspi.py's 0xF8).
@@ -97,7 +103,9 @@ impl Nor {
 
     /// A little-endian word at `addr`, wrapping (qspi.py's 0xF4 read).
     pub fn word(&self, addr: usize) -> u32 {
-        (0..4).fold(0, |v, i| v | (self.mem[(addr + i) % SIZE] as u32) << (8 * i))
+        (0..4).fold(0, |v, i| {
+            v | (self.mem[(addr + i) % SIZE] as u32) << (8 * i)
+        })
     }
 
     /// Stores a word as is, unlogged (qspi.py's 0xF4 write).
@@ -116,14 +124,17 @@ impl Nor {
         match self.cmd {
             Some(c @ (0x03 | 0x0B)) if self.args.len() >= 3 => {
                 let n = self.args.len() - 3 - (c == 0x0B) as usize;
-                let a = (self.args[0] as usize) << 16 | (self.args[1] as usize) << 8 | self.args[2] as usize;
+                let a = (self.args[0] as usize) << 16
+                    | (self.args[1] as usize) << 8
+                    | self.args[2] as usize;
                 self.log.push(format!("{} 0x{a:06x} n={n}", name(c)));
             }
             Some(c @ (0x9F | 0x06 | 0x04 | 0xB9 | 0xAB)) => self.log.push(name(c).to_string()),
             _ => {}
         }
         if self.cmd == Some(0x02) && self.pp_count != 0 {
-            self.log.push(format!("PP 0x{:06x} n={}", self.pp_addr, self.pp_count));
+            self.log
+                .push(format!("PP 0x{:06x} n={}", self.pp_addr, self.pp_count));
             self.wel = false;
             self.busy = BUSY_POLLS;
         }
@@ -141,7 +152,8 @@ impl Nor {
 
     fn need_wel(&mut self, what: &str) -> bool {
         if self.busy != 0 {
-            self.errors.push(format!("{what} while busy (WIP), ignored"));
+            self.errors
+                .push(format!("{what} while busy (WIP), ignored"));
             false
         } else if !self.wel {
             self.errors.push(format!("{what} without WREN, ignored"));
@@ -184,14 +196,24 @@ impl Nor {
                 v
             }
             // The electronic ID after 3 dummy bytes.
-            0xAB => if n >= 4 { JEDEC_ID[2] - 1 } else { 0xFF },
+            0xAB => {
+                if n >= 4 {
+                    JEDEC_ID[2] - 1
+                } else {
+                    0xFF
+                }
+            }
             0x03 | 0x0B | 0x02 | 0x20 | 0xD8 if n <= 3 => {
                 if n == 3 {
-                    let a = (self.args[0] as usize) << 16 | (self.args[1] as usize) << 8 | self.args[2] as usize;
+                    let a = (self.args[0] as usize) << 16
+                        | (self.args[1] as usize) << 8
+                        | self.args[2] as usize;
                     self.addr = a % SIZE;
                     match c {
                         0x20 if self.need_wel("SE") => self.erase(self.addr & !0xFFF, 0x1000, "SE"),
-                        0xD8 if self.need_wel("BE") => self.erase(self.addr & !0xFFFF, 0x10000, "BE"),
+                        0xD8 if self.need_wel("BE") => {
+                            self.erase(self.addr & !0xFFFF, 0x10000, "BE")
+                        }
                         0x02 => {
                             if self.need_wel("PP") {
                                 self.pp_addr = self.addr;
@@ -227,13 +249,16 @@ impl Nor {
 
 impl SsiDevice for Nor {
     fn shift(&mut self, b: u8, _line: SsiLine, gpio: &Gpio) -> u8 {
-        let cs = gpio.watched(CS).expect("the board watches the flash's chip select");
+        let cs = gpio
+            .watched(CS)
+            .expect("the board watches the flash's chip select");
         if self.cs_edges != Some(cs.rising) {
             self.cs_edges = Some(cs.rising);
             self.finish();
         }
         if cs.level {
-            self.warnings.push(format!("qspi: byte 0x{b:02x} sent with flash CS high"));
+            self.warnings
+                .push(format!("qspi: byte 0x{b:02x} sent with flash CS high"));
             return 0xFF;
         }
         self.byte(b)

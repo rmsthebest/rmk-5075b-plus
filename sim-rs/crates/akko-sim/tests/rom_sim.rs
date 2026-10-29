@@ -9,7 +9,9 @@ use akko_sim::{Board, Rom};
 const BULK_EP: u32 = 1;
 const APP: u32 = 0x0800_0000;
 /// A 16-byte app: SP 0x20001000, reset 0x08000009, then `b .` at 0x08000008.
-const TINY_APP: [u8; 16] = [0x00, 0x10, 0x00, 0x20, 0x09, 0x00, 0x00, 0x08, 0xFE, 0xE7, 0, 0, 0, 0, 0, 0];
+const TINY_APP: [u8; 16] = [
+    0x00, 0x10, 0x00, 0x20, 0x09, 0x00, 0x00, 0x08, 0xFE, 0xE7, 0, 0, 0, 0, 0, 0,
+];
 
 struct T {
     b: Board,
@@ -18,12 +20,23 @@ struct T {
 
 impl T {
     fn start(rom: Rom) -> T {
-        T { b: Board::start_rom(rom).unwrap_or_else(|e| panic!("{e}")), cursor: 0 }
+        T {
+            b: Board::start_rom(rom).unwrap_or_else(|e| panic!("{e}")),
+            cursor: 0,
+        }
     }
 
     fn wait(&mut self, secs: f64, what: &str, pred: impl FnMut(&UsbEvent) -> bool) {
         if self.b.wait_for(&mut self.cursor, secs, pred).is_none() {
-            let tail: Vec<String> = self.b.host.events().iter().rev().take(12).map(|e| e.to_string()).collect();
+            let tail: Vec<String> = self
+                .b
+                .host
+                .events()
+                .iter()
+                .rev()
+                .take(12)
+                .map(|e| e.to_string())
+                .collect();
             panic!("no {what} within {secs} s; last events, newest first: {tail:#?}");
         }
     }
@@ -55,7 +68,11 @@ impl T {
 
     /// The next reply packet on bulk IN EP1.
     fn reply_should_be(&mut self, want: &str) {
-        self.wait(1.0, &format!("reply {want}"), |e| matches!(e, UsbEvent::Bulk { ep: 1, data } if hex(data) == want));
+        self.wait(
+            1.0,
+            &format!("reply {want}"),
+            |e| matches!(e, UsbEvent::Bulk { ep: 1, data } if hex(data) == want),
+        );
     }
 
     fn no_host_errors(&self) {
@@ -105,10 +122,18 @@ fn a_page_is_erased_written_and_read_back(rom: Rom) {
     t.wait_for_enumeration();
     t.command(0x5E, APP, 1, &[]);
     t.reply_should_be("5e 00");
-    assert!(t.b.chip.fmc.ops.contains(&(0x08, APP)), "{:?}", t.b.chip.fmc.ops);
+    assert!(
+        t.b.chip.fmc.ops.contains(&(0x08, APP)),
+        "{:?}",
+        t.b.chip.fmc.ops
+    );
     t.command(0x6A, APP, 16, &TINY_APP);
     t.reply_should_be("6a 00");
-    assert!(t.b.chip.fmc.ops.ends_with(&[(0x0C, APP)]), "{:?}", t.b.chip.fmc.ops);
+    assert!(
+        t.b.chip.fmc.ops.ends_with(&[(0x0C, APP)]),
+        "{:?}",
+        t.b.chip.fmc.ops
+    );
     assert_eq!(t.b.word(0x0800_0004), 0x0800_0009);
     t.command(0x72, APP, 16, &[]);
     t.reply_should_be(&format!("72 00 {}", hex(&TINY_APP)));
@@ -194,4 +219,3 @@ on_both!(
     go_outside_flash_is_refused,
     reset_resets_the_chip,
 );
-

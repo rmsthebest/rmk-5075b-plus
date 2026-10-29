@@ -157,7 +157,11 @@ pub struct UsbAccess {
 impl fmt::Display for UsbAccess {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (rw, arrow) = if self.write { ("W", "<-") } else { ("R", "->") };
-        write!(f, "USBT {rw} i{} +0x{:02x} {arrow} 0x{:02x}", self.index, self.off, self.value)
+        write!(
+            f,
+            "USBT {rw} i{} +0x{:02x} {arrow} 0x{:02x}",
+            self.index, self.off, self.value
+        )
     }
 }
 
@@ -180,7 +184,11 @@ impl Musb {
     pub fn dev_reset(&mut self, power_on: bool) {
         self.faddr = 0;
         self.faddr_pending = None;
-        self.power = if power_on { 0 } else { self.power & !(P_SUSEN | P_SUSMD | P_RESUME) };
+        self.power = if power_on {
+            0
+        } else {
+            self.power & !(P_SUSEN | P_SUSMD | P_RESUME)
+        };
         self.intrin = 0;
         self.introut = 0;
         self.intrusb = 0;
@@ -205,7 +213,10 @@ impl Musb {
     }
 
     pub fn irq(&self) -> bool {
-        (self.intrin & self.intrine) | (self.introut & self.introute) | (self.intrusb & self.intrusbe) != 0
+        (self.intrin & self.intrine)
+            | (self.introut & self.introute)
+            | (self.intrusb & self.intrusbe)
+            != 0
     }
 
     pub fn other(&self, off: u32) -> u32 {
@@ -219,12 +230,20 @@ impl Musb {
             return self.other(off);
         }
         if size != Size::Byte {
-            self.error(format!("{}-byte read of USB+0x{off:03x} (registers are 8 bits)", size.bytes()));
+            self.error(format!(
+                "{}-byte read of USB+0x{off:03x} (registers are 8 bits)",
+                size.bytes()
+            ));
         }
         let index = self.index;
         let value = self.reg_read(off);
         if let Some(t) = &mut self.trace {
-            t.push(UsbAccess { write: false, index, off, value });
+            t.push(UsbAccess {
+                write: false,
+                index,
+                off,
+                value,
+            });
         }
         value as u32
     }
@@ -251,16 +270,39 @@ impl Musb {
         match off {
             0x10 => self.inmaxp[i],
             0x11 if i == 0 => self.c0,
-            0x11 => (self.incsr1[i] & !I_FIFONE) | if self.in_fifo[i].is_empty() { 0 } else { I_FIFONE },
+            0x11 => {
+                (self.incsr1[i] & !I_FIFONE)
+                    | if self.in_fifo[i].is_empty() {
+                        0
+                    } else {
+                        I_FIFONE
+                    }
+            }
             0x12 => self.incsr2[i],
             0x13 => self.outmaxp[i],
             0x14 => self.outcsr1[i],
             0x15 => self.outcsr2[i],
-            0x16 => (if i == 0 { self.ep0_rx.len() } else { self.out_fifo[i].len() }) as u8,
-            0x17 => if i == 0 { 0 } else { (self.out_fifo[i].len() >> 8) as u8 },
+            0x16 => {
+                (if i == 0 {
+                    self.ep0_rx.len()
+                } else {
+                    self.out_fifo[i].len()
+                }) as u8
+            }
+            0x17 => {
+                if i == 0 {
+                    0
+                } else {
+                    (self.out_fifo[i].len() >> 8) as u8
+                }
+            }
             0x20..0x30 if off % 4 == 0 => {
                 let n = ((off - 0x20) / 4) as usize;
-                let fifo = if n == 0 { &mut self.ep0_rx } else { &mut self.out_fifo[n] };
+                let fifo = if n == 0 {
+                    &mut self.ep0_rx
+                } else {
+                    &mut self.out_fifo[n]
+                };
                 match fifo.pop_front() {
                     Some(b) => b,
                     None => {
@@ -278,7 +320,12 @@ impl Musb {
             self.other.insert(off, v);
         } else {
             if let Some(t) = &mut self.trace {
-                t.push(UsbAccess { write: true, index: self.index, off, value: v as u8 });
+                t.push(UsbAccess {
+                    write: true,
+                    index: self.index,
+                    off,
+                    value: v as u8,
+                });
             }
             self.reg_write(off, v as u8);
         }
@@ -329,7 +376,12 @@ impl Musb {
             }
             0x20..0x30 if off % 4 == 0 => {
                 let n = ((off - 0x20) / 4) as usize;
-                if n == 0 { &mut self.ep0_tx } else { &mut self.in_fifo[n] }.push(v);
+                if n == 0 {
+                    &mut self.ep0_tx
+                } else {
+                    &mut self.in_fifo[n]
+                }
+                .push(v);
             }
             _ => {
                 self.other.insert(off, v as u32);
@@ -381,7 +433,10 @@ impl Musb {
         if v & I_INPKTRDY != 0 {
             let maxp = self.inmaxp[i] as usize * 8;
             if self.in_fifo[i].len() > maxp {
-                self.error(format!("EP{i} IN packet of {} bytes, INMAXP allows {maxp}", self.in_fifo[i].len()));
+                self.error(format!(
+                    "EP{i} IN packet of {} bytes, INMAXP allows {maxp}",
+                    self.in_fifo[i].len()
+                ));
             }
             r |= I_INPKTRDY;
             self.ready_tick.insert(i as u8, self.tick);

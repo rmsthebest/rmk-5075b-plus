@@ -21,11 +21,21 @@ fn boot_recording(image: Image) -> Board {
 }
 
 fn writes(b: &Board) -> Vec<String> {
-    b.chip.writes.iter().flatten().map(|w| w.to_string()).collect()
+    b.chip
+        .writes
+        .iter()
+        .flatten()
+        .map(|w| w.to_string())
+        .collect()
 }
 
 fn no_locked(b: &mut Board) {
-    let locked: Vec<_> = b.chip.take_diags().into_iter().filter(|d| matches!(d, Diag::Locked { .. })).collect();
+    let locked: Vec<_> = b
+        .chip
+        .take_diags()
+        .into_iter()
+        .filter(|d| matches!(d, Diag::Locked { .. }))
+        .collect();
     assert!(locked.is_empty(), "{locked:?}");
 }
 
@@ -56,7 +66,10 @@ fn magic_word_enters_dfu_without_touching_gpio() {
     b.run_for(0.1);
     assert!(b.in_rom(), "PC 0x{:08x}", b.pc());
     assert_eq!(b.word(MAGIC_ADDR), 0);
-    let gpio: Vec<_> = writes(&b).into_iter().filter(|w| w.starts_with("GPIO")).collect();
+    let gpio: Vec<_> = writes(&b)
+        .into_iter()
+        .filter(|w| w.starts_with("GPIO"))
+        .collect();
     assert!(gpio.is_empty(), "{gpio:?}");
 }
 
@@ -88,8 +101,14 @@ fn caps_lock_led_blinks() {
     b.run_for(1.0);
     // BSRR on C5: reset half (LED on, active low), then set half (off)
     let w = writes(&b);
-    let on = w.iter().position(|w| w == "GPIOC+0x018 = 0x00200000").expect("LED on");
-    assert!(w[on..].iter().any(|w| w == "GPIOC+0x018 = 0x00000020"), "LED never off");
+    let on = w
+        .iter()
+        .position(|w| w == "GPIOC+0x018 = 0x00200000")
+        .expect("LED on");
+    assert!(
+        w[on..].iter().any(|w| w == "GPIOC+0x018 = 0x00000020"),
+        "LED never off"
+    );
 }
 
 #[test]

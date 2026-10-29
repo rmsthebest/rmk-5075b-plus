@@ -46,7 +46,10 @@ impl fmt::Display for Diag {
                 )
             }
             Diag::Locked { block, off, value } => {
-                write!(f, "LOCKED write dropped: {block}+0x{off:03x} = 0x{value:08x}")
+                write!(
+                    f,
+                    "LOCKED write dropped: {block}+0x{off:03x} = 0x{value:08x}"
+                )
             }
             Diag::ReadOnly { addr, size, value } => {
                 write!(

@@ -10,7 +10,9 @@
 use akko_sim::usb_host::cmd;
 use akko_sim::{Board, Rom};
 
-const APP: [u8; 16] = [0x00, 0x10, 0x00, 0x20, 0x09, 0x00, 0x00, 0x08, 0xFE, 0xE7, 0, 0, 0, 0, 0, 0];
+const APP: [u8; 16] = [
+    0x00, 0x10, 0x00, 0x20, 0x09, 0x00, 0x00, 0x08, 0xFE, 0xE7, 0, 0, 0, 0, 0, 0,
+];
 
 /// One command on bulk OUT EP1, then 50 ms, as trace.py's `command`.
 fn command(b: &mut Board, c: u8, a: u32, len: u32, data: &[u8]) {
@@ -39,11 +41,24 @@ fn trace(rom: Rom, scenario: &str) -> Vec<(String, u32)> {
         command(&mut b, 0x9B, 0x0800_0000, 0, &[]);
         b.run_for(0.1);
     }
-    let mut lines: Vec<(String, u32)> =
-        b.chip.bus_writes.take().unwrap().iter().map(|w| (w.to_string(), w.pc)).collect();
+    let mut lines: Vec<(String, u32)> = b
+        .chip
+        .bus_writes
+        .take()
+        .unwrap()
+        .iter()
+        .map(|w| (w.to_string(), w.pc))
+        .collect();
     // trace.py keeps these as comments.
     lines.extend(b.host_errors().into_iter().map(|e| (format!("# {e}"), 0)));
-    lines.extend(b.chip.fmc.errors.iter().filter(|e| e.starts_with("FMC ERROR")).map(|e| (format!("# {e}"), 0)));
+    lines.extend(
+        b.chip
+            .fmc
+            .errors
+            .iter()
+            .filter(|e| e.starts_with("FMC ERROR"))
+            .map(|e| (format!("# {e}"), 0)),
+    );
     lines
 }
 
@@ -79,11 +94,20 @@ fn renode_folded(lines: Vec<(String, u32)>) -> Vec<String> {
 }
 
 fn check(rom: Rom, scenario: &str) {
-    let path = format!("{}/../../../rom/sim/traces/{scenario}.txt", env!("CARGO_MANIFEST_DIR"));
+    let path = format!(
+        "{}/../../../rom/sim/traces/{scenario}.txt",
+        env!("CARGO_MANIFEST_DIR")
+    );
     let want: Vec<String> = std::fs::read_to_string(&path)
         .unwrap()
         .lines()
-        .map(|l| RENODE_DIFFERS.iter().find(|d| d.0 == l).map_or(l, |d| d.1).to_string())
+        .map(|l| {
+            RENODE_DIFFERS
+                .iter()
+                .find(|d| d.0 == l)
+                .map_or(l, |d| d.1)
+                .to_string()
+        })
         .collect();
     let ours = renode_folded(trace(rom, scenario));
     if let Some(i) = (0..want.len().max(ours.len())).find(|&i| want.get(i) != ours.get(i)) {

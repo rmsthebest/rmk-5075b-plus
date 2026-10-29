@@ -84,7 +84,11 @@ impl Radio {
     pub fn reset(&mut self) {
         let log = std::mem::take(&mut self.log);
         let errors = std::mem::take(&mut self.errors);
-        *self = Radio { log, errors, ..Radio::default() };
+        *self = Radio {
+            log,
+            errors,
+            ..Radio::default()
+        };
     }
 
     /// Bytes from the module, as they are.

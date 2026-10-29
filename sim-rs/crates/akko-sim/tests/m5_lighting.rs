@@ -53,7 +53,11 @@ fn reset_and_boot(t: &mut T) {
 /// The largest channel of LEDs 1-83: the brightness, for the default
 /// effect (saturation 255).
 fn brightest_key_led(t: &T) -> u32 {
-    t.led_colours()[1..84].iter().map(|&c| (c >> 16).max((c >> 8) & 0xFF).max(c & 0xFF)).max().unwrap()
+    t.led_colours()[1..84]
+        .iter()
+        .map(|&c| (c >> 16).max((c >> 8) & 0xFF).max(c & 0xFF))
+        .max()
+        .unwrap()
 }
 
 /// A lighting save landing in sector `n` (0x20000 + n * 4 KB), and nothing
@@ -61,12 +65,22 @@ fn brightest_key_led(t: &T) -> u32 {
 fn saved_to_sector(t: &mut T, n: u32) {
     t.part_should_show(Part::Nor, &format!("^PP 0x02{n}200"), 4.0);
     let re = regex::Regex::new(r"^(CE|BE|(SE|PP) 0x0[03-7])").unwrap();
-    let bad: Vec<String> = t.b.log(Part::Nor).into_iter().filter(|l| re.is_match(l)).collect();
+    let bad: Vec<String> =
+        t.b.log(Part::Nor)
+            .into_iter()
+            .filter(|l| re.is_match(l))
+            .collect();
     assert!(bad.is_empty(), "{bad:?}");
 }
 
 fn all_leds_should_be(t: &T, colour: u32) {
-    let others: Vec<usize> = t.led_colours().iter().enumerate().filter(|(_, c)| **c != colour).map(|(i, _)| i).collect();
+    let others: Vec<usize> = t
+        .led_colours()
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| **c != colour)
+        .map(|(i, _)| i)
+        .collect();
     assert!(others.is_empty(), "LEDs not {colour:06x}: {others:?}");
 }
 
@@ -119,13 +133,24 @@ fn a_frame_goes_out_every_16_ms_while_the_colours_change() {
 /// (sim/golden/qmk_spim2_init.txt).
 #[test]
 fn spim2_is_set_up_and_driven_as_qmk_does() {
-    let golden = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../sim/golden/qmk_spim2_init.txt")).unwrap();
+    let golden = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../sim/golden/qmk_spim2_init.txt"
+    ))
+    .unwrap();
     let golden: Vec<&str> = golden.trim().lines().collect();
     let mut t = T::boot();
     t.b.chip.writes = Some(Vec::new());
     t.b.run_for(3.5);
     let ours: Vec<String> =
-        t.b.chip.writes.iter().flatten().map(|w| w.to_string()).filter(|l| l.starts_with("SPIM2")).take(golden.len()).collect();
+        t.b.chip
+            .writes
+            .iter()
+            .flatten()
+            .map(|w| w.to_string())
+            .filter(|l| l.starts_with("SPIM2"))
+            .take(golden.len())
+            .collect();
     assert_eq!(ours, golden);
 }
 
@@ -243,7 +268,11 @@ fn fn_lctrl_steps_the_side_lights() {
     for h in [40, 80, 120, 160, 200] {
         t.fn_tap(RL_MOD, 1);
         t.b.run_for(0.1);
-        assert_eq!(side_colour(&t.led_colours()), hsv_to_rgb(h, 255, 120), "hue {h}");
+        assert_eq!(
+            side_colour(&t.led_colours()),
+            hsv_to_rgb(h, 255, 120),
+            "hue {h}"
+        );
     }
     t.fn_tap(RL_MOD, 1);
     t.b.run_for(0.1);
@@ -600,7 +629,10 @@ fn fn_space_shows_the_battery_level() {
         let mut want = vec![colour; n];
         want.resize(10, 0);
         assert_eq!(c[16..26], want, "{percent}%");
-        assert!(c[1..16].iter().chain(&c[26..84]).all(|&x| x == 0), "{percent}%");
+        assert!(
+            c[1..16].iter().chain(&c[26..84]).all(|&x| x == 0),
+            "{percent}%"
+        );
     }
     // (Above 15%, or the low-battery flash would power the LEDs too.)
     t.set_battery(35);
@@ -624,13 +656,28 @@ fn with_the_lights_off_a_low_battery_flashes_led_0() {
     t.fn_tap_and_wait(RGB_TOG, 1);
     t.set_battery(10);
     let seen = led_0_over(&mut t, 10.5);
-    let red: Vec<usize> = seen.iter().enumerate().filter(|(_, s)| s.0 == 0xFF0000).map(|(i, _)| i).collect();
+    let red: Vec<usize> = seen
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.0 == 0xFF0000)
+        .map(|(i, _)| i)
+        .collect();
     let powered = seen.iter().filter(|s| s.1).count();
-    let bad: Vec<usize> = red.iter().copied().filter(|&i| !seen[i].1 || seen[i].2).collect();
-    assert!(bad.is_empty(), "red without power, or with other LEDs lit: {bad:?}");
+    let bad: Vec<usize> = red
+        .iter()
+        .copied()
+        .filter(|&i| !seen[i].1 || seen[i].2)
+        .collect();
+    assert!(
+        bad.is_empty(),
+        "red without power, or with other LEDs lit: {bad:?}"
+    );
     // Two flashes of ~150 ms, 5 s apart, sampled every 20 ms.
     assert!((12..=18).contains(&red.len()), "{red:?}");
-    assert!(red.len() < powered && powered <= 24, "{powered} powered samples");
+    assert!(
+        red.len() < powered && powered <= 24,
+        "{powered} powered samples"
+    );
     assert!(red[red.len() - 1] - red[0] > 200, "one flash only");
     t.no_led_errors();
 }
@@ -686,7 +733,12 @@ fn a_key_wakes_a_host_that_allows_remote_wakeup() {
     t.b.run_for(0.03);
     t.key(3, 1, false);
     let line = t.log_matching(r"remote wakeup, RESUME held \d+ ms", 1.0);
-    let ms: u32 = regex::Regex::new(r"held (\d+) ms").unwrap().captures(&line).unwrap()[1].parse().unwrap();
+    let ms: u32 = regex::Regex::new(r"held (\d+) ms")
+        .unwrap()
+        .captures(&line)
+        .unwrap()[1]
+        .parse()
+        .unwrap();
     assert!((1..=15).contains(&ms), "RESUME held {ms} ms");
     t.b.run_for(0.1);
     t.key(3, 1, true);

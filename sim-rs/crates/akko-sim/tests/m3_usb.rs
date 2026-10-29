@@ -19,13 +19,21 @@ struct T {
 
 impl T {
     fn boot() -> T {
-        T { b: Board::boot(Image::M3Usb).unwrap(), cursor: 0 }
+        T {
+            b: Board::boot(Image::M3Usb).unwrap(),
+            cursor: 0,
+        }
     }
 
     fn boot_and_enumerate() -> T {
         let mut t = T::boot();
         t.b.run_for(0.3);
-        assert_eq!(t.b.host.state(), CONFIGURED, "not configured after 0.3 s: {:?}", t.b.host_errors());
+        assert_eq!(
+            t.b.host.state(),
+            CONFIGURED,
+            "not configured after 0.3 s: {:?}",
+            t.b.host_errors()
+        );
         t
     }
 
@@ -45,7 +53,15 @@ impl T {
         match self.b.wait_for(&mut self.cursor, secs, pred) {
             Some(e) => e,
             None => {
-                let tail: Vec<String> = self.b.host.events().iter().rev().take(12).map(|e| e.to_string()).collect();
+                let tail: Vec<String> = self
+                    .b
+                    .host
+                    .events()
+                    .iter()
+                    .rev()
+                    .take(12)
+                    .map(|e| e.to_string())
+                    .collect();
                 panic!("no {what} within {secs} s; last events, newest first: {tail:#?}")
             }
         }
@@ -53,7 +69,11 @@ impl T {
 
     fn cdc_should_show(&mut self, pattern: &str) {
         let re = Regex::new(pattern).unwrap();
-        self.wait(2.0, pattern, |e| matches!(e, UsbEvent::Cdc(l) if re.is_match(l)));
+        self.wait(
+            2.0,
+            pattern,
+            |e| matches!(e, UsbEvent::Cdc(l) if re.is_match(l)),
+        );
     }
 
     fn log_should_show(&mut self, line: &str) {
@@ -67,20 +87,35 @@ impl T {
     fn no_host_errors(&mut self) {
         assert_eq!(self.b.host_errors(), Vec::<String>::new());
         let diags = self.b.chip.take_diags();
-        assert!(diags.iter().all(|d| !matches!(d, Diag::Locked { .. } | Diag::Unmapped { .. })), "{diags:?}");
+        assert!(
+            diags
+                .iter()
+                .all(|d| !matches!(d, Diag::Locked { .. } | Diag::Unmapped { .. })),
+            "{diags:?}"
+        );
     }
 }
 
 #[test]
 fn usb_bring_up_matches_qmk() {
     // Clocks, reset, FIFO clock, PHY and the 48 MHz prescaler, as ChibiOS's wb32_usb_init.
-    let golden = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../sim/golden/qmk_usb_init.txt")).unwrap();
+    let golden = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../sim/golden/qmk_usb_init.txt"
+    ))
+    .unwrap();
     let re = Regex::new(r"^(RCC\+0x(014|034|040|06c|07c|088)|SFM)").unwrap();
     let mut t = T::boot();
     t.b.chip.writes = Some(Vec::new());
     t.b.run_for(0.3);
     let ours: Vec<String> =
-        t.b.chip.writes.iter().flatten().map(|w| w.to_string()).filter(|l| re.is_match(l)).collect();
+        t.b.chip
+            .writes
+            .iter()
+            .flatten()
+            .map(|w| w.to_string())
+            .filter(|l| re.is_match(l))
+            .collect();
     assert_eq!(ours.join("\n"), golden.trim());
 }
 
@@ -91,7 +126,9 @@ fn enumerates_as_a_cdc_acm_and_hid_composite_device() {
     t.log_should_show("string 2 = '5075B Plus M3 USB test'");
     // IN and OUT of one number are separate FIFOs: CDC data OUT and the
     // notification IN share EP1, the keyboard's OUT reuses EP2.
-    t.log_should_show("configured: if 0 class 02 eps [81], if 1 class 0a eps [01 82], if 2 class 03 eps [83 02]");
+    t.log_should_show(
+        "configured: if 0 class 02 eps [81], if 1 class 0a eps [01 82], if 2 class 03 eps [83 02]",
+    );
     t.no_host_errors();
 }
 
@@ -140,11 +177,26 @@ fn type_command_types_m3_ok_and_enter() {
     // it first without moving past the HID reports.
     let mut cdc = t.cursor;
     let re = Regex::new(r"hid: typed 6 keys").unwrap();
-    assert!(t.b.wait_for(&mut cdc, 2.0, |e| matches!(e, UsbEvent::Cdc(l) if re.is_match(l))).is_some());
+    assert!(
+        t.b.wait_for(
+            &mut cdc,
+            2.0,
+            |e| matches!(e, UsbEvent::Cdc(l) if re.is_match(l))
+        )
+        .is_some()
+    );
     for key in [0x10, 0x20, 0x2c, 0x12, 0x0e, 0x28] {
         let down = [0, 0, key, 0, 0, 0, 0, 0];
-        t.wait(1.0, "key down", |e| matches!(e, UsbEvent::Hid { ep: 3, data } if data == &down));
-        t.wait(1.0, "key up", |e| matches!(e, UsbEvent::Hid { ep: 3, data } if data == &[0; 8]));
+        t.wait(
+            1.0,
+            "key down",
+            |e| matches!(e, UsbEvent::Hid { ep: 3, data } if data == &down),
+        );
+        t.wait(
+            1.0,
+            "key up",
+            |e| matches!(e, UsbEvent::Hid { ep: 3, data } if data == &[0; 8]),
+        );
     }
     t.no_host_errors();
 }
@@ -153,7 +205,10 @@ fn type_command_types_m3_ok_and_enter() {
 fn caps_lock_led_shows_the_time_base_until_the_host_takes_over() {
     let mut t = T::boot();
     t.b.run_for(0.01);
-    assert!(t.led_on(GPIOC_ODR, CAPS_LED), "Caps Lock LED is off: the time base isn't moving");
+    assert!(
+        t.led_on(GPIOC_ODR, CAPS_LED),
+        "Caps Lock LED is off: the time base isn't moving"
+    );
     t.b.run_for(0.3);
     assert_eq!(t.b.host.state(), CONFIGURED);
     t.host(0x0003);
@@ -177,14 +232,23 @@ fn host_caps_lock_drives_the_caps_lock_led() {
 #[test]
 fn suspend_and_resume_are_reported_in_order() {
     let mut t = T::boot_and_enumerate();
-    assert!(t.led_on(GPIOB_ODR, WIN_LOCK_LED), "Win Lock LED is off while configured");
+    assert!(
+        t.led_on(GPIOB_ODR, WIN_LOCK_LED),
+        "Win Lock LED is off while configured"
+    );
     t.host(cmd::SUSPEND);
     t.b.run_for(0.02);
     assert_eq!(t.b.host.state(), SUSPENDED);
-    assert!(!t.led_on(GPIOB_ODR, WIN_LOCK_LED), "Win Lock LED is on while suspended");
+    assert!(
+        !t.led_on(GPIOB_ODR, WIN_LOCK_LED),
+        "Win Lock LED is on while suspended"
+    );
     t.host(cmd::RESUME);
     t.b.run_for(0.05);
-    assert!(t.led_on(GPIOB_ODR, WIN_LOCK_LED), "Win Lock LED is off after resume");
+    assert!(
+        t.led_on(GPIOB_ODR, WIN_LOCK_LED),
+        "Win Lock LED is off after resume"
+    );
     t.host(cmd::OPEN_CDC);
     t.b.run_for(0.02);
     t.cdc_should_show(r"\[\s+\d+\] usb: suspended");
@@ -205,7 +269,12 @@ fn suspend_works_after_every_bus_reset() {
     t.host(cmd::SUSPEND);
     t.b.run_for(0.02);
     assert_eq!(t.b.host.state(), SUSPENDED);
-    assert!(!t.b.host.events().iter().any(|e| e.to_string().contains("did not detect suspend")));
+    assert!(
+        !t.b.host
+            .events()
+            .iter()
+            .any(|e| e.to_string().contains("did not detect suspend"))
+    );
     t.no_host_errors();
 }
 

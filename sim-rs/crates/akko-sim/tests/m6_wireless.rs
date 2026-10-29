@@ -171,7 +171,14 @@ fn asleep_and_stopped() -> T {
     t.b.run_for(1.2);
     should_be_stopped(&mut t, true);
     // The vendor's PWR mode, STOP LP4 S32KON (from reset: CR0 0).
-    let writes: Vec<String> = t.b.chip.writes.take().unwrap().iter().map(|w| w.to_string()).collect();
+    let writes: Vec<String> =
+        t.b.chip
+            .writes
+            .take()
+            .unwrap()
+            .iter()
+            .map(|w| w.to_string())
+            .collect();
     for want in ["PWR+0x000 = 0x0003b004", "PWR+0x020 = 0x000003b3"] {
         assert!(writes.iter().any(|w| w == want), "no {want}");
     }
@@ -277,7 +284,11 @@ fn fn_e_held_3_s_pairs_bt1_with_its_name() {
     t.fn_hold(BT1, 3.1);
     radio_should_get(&mut t, "a6 31 d7", 1.0);
     radio_should_get(&mut t, "a6 52 f8", 1.0);
-    radio_should_get(&mut t, "a9 0b 41 6b 6b 6f 20 35 30 37 35 2d 31 89 00 00 00 00 00 00 00", 1.0);
+    radio_should_get(
+        &mut t,
+        "a9 0b 41 6b 6b 6f 20 35 30 37 35 2d 31 89 00 00 00 00 00 00 00",
+        1.0,
+    );
     radio_should_get(&mut t, "a6 51 f7", 1.0);
     no_radio_errors(&t);
 }
@@ -409,7 +420,10 @@ fn the_dongles_key_blinks_until_connected_then_shows_green_for_2_s() {
     t.fn_hold(DONGLE, 0.03);
     radio_should_get(&mut t, SEL_DONGLE, 1.0);
     let seen = led_colours_over(&mut t, LED_2G4, 2.5);
-    assert!(seen.contains(&RED) && seen.contains(&0) && !seen.contains(&GREEN), "{seen:06x?}");
+    assert!(
+        seen.contains(&RED) && seen.contains(&0) && !seen.contains(&GREEN),
+        "{seen:06x?}"
+    );
     module_sends(&mut t, CONNECTED);
     t.b.run_for(0.1);
     assert_eq!(t.led(LED_2G4), GREEN);
@@ -417,7 +431,10 @@ fn the_dongles_key_blinks_until_connected_then_shows_green_for_2_s() {
     assert!(!seen.contains(&RED), "{seen:06x?}");
     t.b.run_for(0.5);
     let seen = led_colours_over(&mut t, LED_2G4, 0.5);
-    assert!(!seen.contains(&GREEN) && !seen.contains(&RED), "{seen:06x?}");
+    assert!(
+        !seen.contains(&GREEN) && !seen.contains(&RED),
+        "{seen:06x?}"
+    );
 }
 
 /// Sleep timeout 1 min (src/power.rs): a minute without input on the
@@ -712,7 +729,10 @@ fn a_fast_knob_spin_through_the_dongle_keeps_every_step() {
         knob_up(&mut t, 0.001);
     }
     t.b.run_for(2.0);
-    let presses = t.b.log(Part::Radio)[t.radio..].iter().filter(|l| l.starts_with("<- a3 e9 00")).count();
+    let presses = t.b.log(Part::Radio)[t.radio..]
+        .iter()
+        .filter(|l| l.starts_with("<- a3 e9 00"))
+        .count();
     println!("knob steps through the dongle: {presses} of 40");
     assert_eq!(presses, 40);
     no_radio_errors(&t);

@@ -11,11 +11,11 @@ use radio::Radio;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
-use ws2812::Ws2812;
+use usb_host::{Host, UsbEvent};
 use wb32_sim::chip::ROM_BASE;
 use wb32_sim::gpio::{A, B, C, Matrix, Pin};
-use usb_host::{Host, UsbEvent};
 use wb32_sim::{LoadError, Wb32};
+use ws2812::Ws2812;
 
 /// Where the ROM stub's reset handler spins: "PC is here" means "entered DFU".
 pub const ROM_PARKED: u32 = 0x1FFF_E008;
@@ -126,7 +126,9 @@ impl Rom {
     pub fn dump_dir() -> PathBuf {
         std::env::var_os("ROM_WORK")
             .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../wb32-rom-re"))
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../wb32-rom-re")
+            })
             .join("dump")
     }
 
@@ -269,14 +271,19 @@ impl Board {
         // blocks too. Its build then goes over the ROM.
         let dir = Rom::dump_dir();
         for (file, addr) in [("rom.bin", ROM_BASE), ("info.bin", 0x1FFF_F000)] {
-            let bytes = std::fs::read(dir.join(file))
-                .map_err(|e| LoadError(format!("{}: {e} (../rom/README.md)", dir.join(file).display())))?;
+            let bytes = std::fs::read(dir.join(file)).map_err(|e| {
+                LoadError(format!(
+                    "{}: {e} (../rom/README.md)",
+                    dir.join(file).display()
+                ))
+            })?;
             b.chip.load(addr, &bytes)?;
         }
         if rom == Rom::Rust {
             let path = Rom::rust_path();
-            let data = std::fs::read(&path)
-                .map_err(|e| LoadError(format!("{}: {e} (sim-rs/run.sh builds it)", path.display())))?;
+            let data = std::fs::read(&path).map_err(|e| {
+                LoadError(format!("{}: {e} (sim-rs/run.sh builds it)", path.display()))
+            })?;
             b.chip.load_elf(&data)?;
         }
         b.host.undivided_usbpre_ok = true;
@@ -330,7 +337,10 @@ impl Board {
     pub fn word(&mut self, addr: u32) -> u32 {
         if addr >= 0xE000_0000 {
             let now = self.cpu.now;
-            return self.cpu.ppb.read(addr, Size::Word, now, &mut self.cpu.diags);
+            return self
+                .cpu
+                .ppb
+                .read(addr, Size::Word, now, &mut self.cpu.diags);
         }
         self.chip.read(addr, Size::Word)
     }
@@ -451,7 +461,9 @@ impl Board {
 
     /// A module frame "cmd arg sum".
     pub fn module_frame(&mut self, cmd: u8, arg: u8) {
-        self.radio.borrow_mut().send_frame(cmd, arg, &mut self.chip.uart3.rx);
+        self.radio
+            .borrow_mut()
+            .send_frame(cmd, arg, &mut self.chip.uart3.rx);
     }
 
     /// The colours of the last LED frame, 0xRRGGBB per LED.
@@ -464,7 +476,13 @@ impl Board {
     /// unmapped accesses.
     pub fn errors(&self) -> Vec<String> {
         let mut e = self.host_errors();
-        e.extend(self.nor.borrow().errors.iter().map(|m| format!("flash: {m}")));
+        e.extend(
+            self.nor
+                .borrow()
+                .errors
+                .iter()
+                .map(|m| format!("flash: {m}")),
+        );
         e.extend(self.leds.borrow().errors.iter().cloned());
         e.extend(self.radio.borrow().errors.iter().cloned());
         for s in [&self.chip.qspi.errors, &self.chip.spim2.errors] {
@@ -474,7 +492,12 @@ impl Board {
             self.chip
                 .diags()
                 .iter()
-                .filter(|d| matches!(d, wb32_sim::Diag::Locked { .. } | wb32_sim::Diag::Unmapped { .. }))
+                .filter(|d| {
+                    matches!(
+                        d,
+                        wb32_sim::Diag::Locked { .. } | wb32_sim::Diag::Unmapped { .. }
+                    )
+                })
                 .map(|d| d.to_string()),
         );
         e

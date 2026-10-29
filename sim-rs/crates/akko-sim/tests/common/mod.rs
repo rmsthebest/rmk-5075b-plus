@@ -46,7 +46,14 @@ pub struct T {
 impl T {
     /// Loaded and reset, from a blank flash; not run yet.
     pub fn start(image: Image) -> T {
-        T { b: Board::boot(image).unwrap(), image, usb: 0, nor: 0, radio: 0, trace: 0 }
+        T {
+            b: Board::boot(image).unwrap(),
+            image,
+            usb: 0,
+            nor: 0,
+            radio: 0,
+            trace: 0,
+        }
     }
 
     pub fn boot() -> T {
@@ -79,7 +86,15 @@ impl T {
                 e
             }
             None => {
-                let tail: Vec<String> = self.b.host.events().iter().rev().take(12).map(|e| e.to_string()).collect();
+                let tail: Vec<String> = self
+                    .b
+                    .host
+                    .events()
+                    .iter()
+                    .rev()
+                    .take(12)
+                    .map(|e| e.to_string())
+                    .collect();
                 panic!("no {what} within {secs} s; last events, newest first: {tail:#?}")
             }
         }
@@ -87,13 +102,21 @@ impl T {
 
     /// A host log line containing `line` (Renode matches substrings).
     pub fn log_should_show(&mut self, line: &str, secs: f64) {
-        self.wait(secs, line, |e| matches!(e, UsbEvent::Log(l) if l.contains(line)));
+        self.wait(
+            secs,
+            line,
+            |e| matches!(e, UsbEvent::Log(l) if l.contains(line)),
+        );
     }
 
     /// A host log line matching `pattern`; returns it.
     pub fn log_matching(&mut self, pattern: &str, secs: f64) -> String {
         let re = Regex::new(pattern).unwrap();
-        match self.wait(secs, pattern, |e| matches!(e, UsbEvent::Log(l) if re.is_match(l))) {
+        match self.wait(
+            secs,
+            pattern,
+            |e| matches!(e, UsbEvent::Log(l) if re.is_match(l)),
+        ) {
             UsbEvent::Log(l) => l,
             _ => unreachable!(),
         }
@@ -103,7 +126,10 @@ impl T {
     /// (in any event's text, as "HOST ERROR: ...").
     pub fn host_not_since(&self, text: &str) {
         let events = self.b.host.events();
-        let hit = events[self.usb..].iter().map(|e| e.to_string()).find(|l| l.contains(text));
+        let hit = events[self.usb..]
+            .iter()
+            .map(|e| e.to_string())
+            .find(|l| l.contains(text));
         assert!(hit.is_none(), "{hit:?}");
     }
 
@@ -222,8 +248,17 @@ impl T {
     /// One detent through the quadrature states, `edge` seconds apart. A
     /// leading: clockwise, as QMK decodes this knob.
     pub fn knob_step(&mut self, a_first: bool, edge: f64) {
-        let (first, second) = if a_first { (KNOB_A, KNOB_B) } else { (KNOB_B, KNOB_A) };
-        for (pin, level) in [(first, Some(false)), (second, Some(false)), (first, None), (second, None)] {
+        let (first, second) = if a_first {
+            (KNOB_A, KNOB_B)
+        } else {
+            (KNOB_B, KNOB_A)
+        };
+        for (pin, level) in [
+            (first, Some(false)),
+            (second, Some(false)),
+            (first, None),
+            (second, None),
+        ] {
             self.b.drive(pin, level);
             self.b.run_for(edge);
         }
@@ -275,7 +310,10 @@ impl T {
         let found = self.b.run_until(secs, |b| {
             let d = b.chip.usb.borrow();
             let trace = d.trace.as_ref().unwrap();
-            match trace[seen..].iter().position(|a: &UsbAccess| a.write && a.to_string() == want) {
+            match trace[seen..]
+                .iter()
+                .position(|a: &UsbAccess| a.write && a.to_string() == want)
+            {
                 Some(i) => {
                     seen += i + 1;
                     true
@@ -374,7 +412,10 @@ pub const SIDE: std::ops::Range<usize> = 84..106;
 pub fn layout() -> &'static Layout {
     static L: OnceLock<Layout> = OnceLock::new();
     L.get_or_init(|| {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../crates/akko-lighting/src/layout.rs");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../crates/akko-lighting/src/layout.rs"
+        );
         let src = std::fs::read_to_string(path).unwrap();
         let section = |name: &str| {
             let after = src.split(name).nth(1).unwrap();
@@ -390,7 +431,11 @@ pub fn layout() -> &'static Layout {
         let val = Regex::new(r"NO_LED|\d+").unwrap();
         let matrix_co = row
             .captures_iter(&section("pub const MATRIX_CO:"))
-            .map(|r| val.find_iter(&r[1]).map(|v| v.as_str().parse().ok()).collect())
+            .map(|r| {
+                val.find_iter(&r[1])
+                    .map(|v| v.as_str().parse().ok())
+                    .collect()
+            })
             .collect();
         Layout { points, matrix_co }
     })
@@ -410,7 +455,14 @@ pub fn cycle_left_right_time(colours: &[u32], s: u32, v: u32) -> u32 {
                 .all(|(&c, &(x, _))| c == hsv_to_rgb((x.wrapping_sub(*t)) & 0xFF, s, v))
         })
         .unwrap_or_else(|| {
-            panic!("no time fits cycle_left_right: {}", colours[..SIDE.start].iter().map(|c| format!("{c:06x}")).collect::<Vec<_>>().join(" "))
+            panic!(
+                "no time fits cycle_left_right: {}",
+                colours[..SIDE.start]
+                    .iter()
+                    .map(|c| format!("{c:06x}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
         })
 }
 
@@ -424,27 +476,55 @@ pub fn cycle_time(colours: &[u32]) -> u32 {
 pub fn swirl_hue(colours: &[u32]) -> u32 {
     let side = &colours[SIDE];
     (0..256)
-        .find(|h| (0..11).all(|i| side[i] == side[21 - i] && side[i] == hsv_to_rgb((11 * i as u32 + h) & 0xFF, 255, 120)))
+        .find(|h| {
+            (0..11).all(|i| {
+                side[i] == side[21 - i]
+                    && side[i] == hsv_to_rgb((11 * i as u32 + h) & 0xFF, 255, 120)
+            })
+        })
         .unwrap_or_else(|| {
-            panic!("the side lights aren't a swirl: {}", side.iter().map(|c| format!("{c:06x}")).collect::<Vec<_>>().join(" "))
+            panic!(
+                "the side lights aren't a swirl: {}",
+                side.iter()
+                    .map(|c| format!("{c:06x}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
         })
 }
 
 /// The side lights' colour, if they're all one colour, else fail.
 pub fn side_colour(colours: &[u32]) -> u32 {
     let side = &colours[SIDE];
-    assert!(side.iter().all(|&c| c == side[0]), "the side lights differ: {side:06x?}");
+    assert!(
+        side.iter().all(|&c| c == side[0]),
+        "the side lights differ: {side:06x?}"
+    );
     side[0]
 }
 
 /// Indices of the LEDs that aren't off.
 pub fn lit(colours: &[u32]) -> Vec<usize> {
-    colours.iter().enumerate().filter(|(_, c)| **c != 0).map(|(i, _)| i).collect()
+    colours
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| **c != 0)
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// Indices of the LEDs under keys that aren't off. (LED 0 has no key.)
 pub fn lit_keys(colours: &[u32]) -> Vec<usize> {
-    let keys: Vec<usize> =
-        layout().matrix_co.iter().flatten().flatten().copied().filter(|&i| i < SIDE.start).collect();
-    lit(colours).into_iter().filter(|i| keys.contains(i)).collect()
+    let keys: Vec<usize> = layout()
+        .matrix_co
+        .iter()
+        .flatten()
+        .flatten()
+        .copied()
+        .filter(|&i| i < SIDE.start)
+        .collect();
+    lit(colours)
+        .into_iter()
+        .filter(|i| keys.contains(i))
+        .collect()
 }

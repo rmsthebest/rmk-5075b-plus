@@ -132,7 +132,11 @@ impl Gpio {
     /// Starts counting `pin`'s rising edges. It starts out high (as
     /// gpio.py's chip select), so the first rise counts once it was low.
     pub fn watch(&mut self, pin: Pin) {
-        self.watched.push(Watch { pin, level: true, rising: 0 });
+        self.watched.push(Watch {
+            pin,
+            level: true,
+            rising: 0,
+        });
     }
 
     /// A watched pin's level and rising edges so far.
@@ -196,7 +200,11 @@ impl Gpio {
     pub fn read(&mut self, off: u32) -> u32 {
         if off >= EXTI {
             let i = ((off - EXTI) / 4) as usize;
-            return if (off - EXTI) % 4 == 0 { self.exti.get(i).copied().unwrap_or(0) } else { 0 };
+            return if (off - EXTI) % 4 == 0 {
+                self.exti.get(i).copied().unwrap_or(0)
+            } else {
+                0
+            };
         }
         if off >= AFIO {
             return match off - AFIO {
@@ -220,7 +228,11 @@ impl Gpio {
     pub fn write(&mut self, off: u32, v: u32, log: &mut impl FnMut(Write)) {
         if off >= EXTI {
             let o = off - EXTI;
-            log(Write { block: "EXTI", off: o, value: v });
+            log(Write {
+                block: "EXTI",
+                off: o,
+                value: v,
+            });
             let i = (o / 4) as usize;
             if o % 4 == 0 && i < self.exti.len() {
                 match i {
@@ -235,7 +247,11 @@ impl Gpio {
         } else if off >= AFIO {
             let o = off - AFIO;
             let v = v & 0xFFFF;
-            log(Write { block: "AFIO", off: o, value: v });
+            log(Write {
+                block: "AFIO",
+                off: o,
+                value: v,
+            });
             if let 0x08 | 0x0C | 0x10 | 0x14 = o {
                 self.exticr[((o - 8) / 4) as usize] = v;
             }
@@ -266,7 +282,11 @@ impl Gpio {
             }
         } else {
             let (port, o) = ((off / 0x400) as usize, off % 0x400);
-            log(Write { block: ["GPIOA", "GPIOB", "GPIOC", "GPIOD"][port], off: o, value: v });
+            log(Write {
+                block: ["GPIOA", "GPIOB", "GPIOC", "GPIOD"][port],
+                off: o,
+                value: v,
+            });
             let r = &mut self.regs[port];
             if let Some(&(_, bits)) = CFG_REGS.iter().find(|c| c.0 == o) {
                 let mut m = 0u32;

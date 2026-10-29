@@ -39,10 +39,10 @@ impl Sysctl {
     fn status(&self, off: u32) -> Option<u32> {
         let enabled = |o: u32, mask: u32| self.reg(ANCTL + o) & mask != 0;
         Some(match off {
-            0x30 => 1,                          // MHSI: on from reset
-            0x3C => enabled(0x38, 1) as u32,    // FHSI
-            0x48 => enabled(0x44, 1) as u32,    // LSI
-            0x58 => enabled(0x4C, 3) as u32,    // HSE: HSEON or BYPASS
+            0x30 => 1,                           // MHSI: on from reset
+            0x3C => enabled(0x38, 1) as u32,     // FHSI
+            0x48 => enabled(0x44, 1) as u32,     // LSI
+            0x58 => enabled(0x4C, 3) as u32,     // HSE: HSEON or BYPASS
             0x7C => 3 * enabled(0x78, 1) as u32, // PLL
             _ => return None,
         })
@@ -69,7 +69,11 @@ impl Sysctl {
         }
         self.regs.insert(off, v);
         let (block, off) = Self::block(off);
-        log(Write { block, off, value: v });
+        log(Write {
+            block,
+            off,
+            value: v,
+        });
         true
     }
 }

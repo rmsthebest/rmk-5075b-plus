@@ -24,7 +24,9 @@ fn caps_led_on(b: &mut Board) -> bool {
 /// to the current period, u64, and the cycles past that tick) plus how far
 /// SysTick is into that period (its reload minus its count).
 fn milliseconds(b: &mut Board) -> u64 {
-    let addr = Image::M2Blink.symbol("11time_driver6DRIVER").expect("wb32_hal::time_driver::DRIVER");
+    let addr = Image::M2Blink
+        .symbol("11time_driver6DRIVER")
+        .expect("wb32_hal::time_driver::DRIVER");
     let (lo, hi, frac) = (b.word(addr), b.word(addr + 4), b.word(addr + 8));
     let (rvr, cvr) = (b.word(SYST_RVR), b.word(SYST_CVR));
     (((hi as u64) << 32 | lo as u64) + (frac + rvr - cvr) as u64 / 96) / 1000
@@ -32,7 +34,11 @@ fn milliseconds(b: &mut Board) -> u64 {
 
 #[test]
 fn clock_setup_matches_qmk() {
-    let golden = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../sim/golden/qmk_clock_init.txt")).unwrap();
+    let golden = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../sim/golden/qmk_clock_init.txt"
+    ))
+    .unwrap();
     let golden: Vec<&str> = golden.trim().lines().collect();
     let mut b = boot();
     b.chip.writes = Some(Vec::new());
@@ -89,7 +95,12 @@ fn caps_led_blinks_for_10_s_then_returns_to_dfu() {
         let after = caps_led_on(&mut b);
         assert_ne!(before, after, "no toggle at {} s", i as f64 * 0.5);
         b.run_for(0.24);
-        assert_eq!(caps_led_on(&mut b), after, "extra toggle before {} s", i as f64 * 0.5 + 0.25);
+        assert_eq!(
+            caps_led_on(&mut b),
+            after,
+            "extra toggle before {} s",
+            i as f64 * 0.5 + 0.25
+        );
         b.run_for(0.24);
     }
     assert!(b.in_flash(), "PC 0x{:08x}", b.pc());

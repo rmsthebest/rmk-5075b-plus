@@ -59,13 +59,20 @@ impl Ws2812 {
     pub fn reset(&mut self) {
         let log = std::mem::take(&mut self.log);
         let errors = std::mem::take(&mut self.errors);
-        *self = Ws2812 { log, errors, ..Ws2812::default() };
+        *self = Ws2812 {
+            log,
+            errors,
+            ..Ws2812::default()
+        };
     }
 
     fn end_frame(&mut self) {
         let data = self.cur.take().unwrap_or_default();
         if data.len() % 12 != 0 {
-            self.errors.push(format!("leds: frame of {} bytes, not a whole number of LEDs", data.len()));
+            self.errors.push(format!(
+                "leds: frame of {} bytes, not a whole number of LEDs",
+                data.len()
+            ));
         }
         let mut leds = Vec::with_capacity(data.len() / 12);
         for led in data.chunks_exact(12) {
@@ -74,7 +81,8 @@ impl Ws2812 {
                 for &b in ch {
                     let (hi, lo) = (bit(b >> 4), bit(b & 0xF));
                     if hi.is_none() || lo.is_none() {
-                        self.errors.push(format!("leds: byte 0x{b:02x} is not two WS2812 bits"));
+                        self.errors
+                            .push(format!("leds: byte 0x{b:02x} is not two WS2812 bits"));
                     }
                     c[k] = c[k] << 2 | hi.unwrap_or(0) << 1 | lo.unwrap_or(0);
                 }
@@ -84,8 +92,16 @@ impl Ws2812 {
         }
         self.frames += 1;
         if leds != self.leds {
-            let first = leds.iter().zip(&self.leds).take_while(|(a, b)| a == b).count();
-            self.log.push(format!("frame {}, {} LEDs, first changed {first}", self.frames, leds.len()));
+            let first = leds
+                .iter()
+                .zip(&self.leds)
+                .take_while(|(a, b)| a == b)
+                .count();
+            self.log.push(format!(
+                "frame {}, {} LEDs, first changed {first}",
+                self.frames,
+                leds.len()
+            ));
         }
         self.leds = leds;
     }
@@ -150,18 +166,32 @@ mod tests {
 
     #[test]
     fn decodes_frames_and_catches_a_short_latch() {
-        let line = SsiLine { cr0: 0x07, baudr: 32 };
+        let line = SsiLine {
+            cr0: 0x07,
+            baudr: 32,
+        };
         let gpio = Gpio::default();
         let mut w = Ws2812::default();
-        for b in encode(&[0xFF0000, 0x00FF00, 0x123456]).into_iter().chain([0; 105]) {
+        for b in encode(&[0xFF0000, 0x00FF00, 0x123456])
+            .into_iter()
+            .chain([0; 105])
+        {
             w.shift(b, line, &gpio);
         }
         assert_eq!(w.leds, [0xFF0000, 0x00FF00, 0x123456]);
         assert_eq!((w.frames, w.errors.len()), (1, 0));
         assert_eq!(w.log, ["frame 1, 3 LEDs, first changed 0"]);
-        for b in encode(&[0xFF0000]).into_iter().chain([0; 3]).chain(encode(&[1])).chain([0]) {
+        for b in encode(&[0xFF0000])
+            .into_iter()
+            .chain([0; 3])
+            .chain(encode(&[1]))
+            .chain([0])
+        {
             w.shift(b, line, &gpio);
         }
-        assert_eq!(w.errors, ["leds: frame after only 3 zero bytes (latch needs 105)"]);
+        assert_eq!(
+            w.errors,
+            ["leds: frame after only 3 zero bytes (latch needs 105)"]
+        );
     }
 }
