@@ -95,8 +95,9 @@ impl Mode {
     }
 }
 
-/// A pin chosen at run time.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// A pin chosen at run time. Not `Copy`: whoever holds it owns the pin, and
+/// may change its mode and level.
+#[derive(PartialEq, Eq, Debug)]
 pub struct AnyPin {
     port: Port,
     pin: u8,
@@ -227,8 +228,8 @@ impl Input {
     pub fn level(&self) -> Level {
         self.pin.is_high().into()
     }
-    pub fn pin(&self) -> AnyPin {
-        self.pin
+    pub fn pin(&self) -> &AnyPin {
+        &self.pin
     }
 }
 
