@@ -70,6 +70,7 @@ use rmk::storage::Storage;
 use core::future::Future;
 use core::mem::MaybeUninit;
 use core::pin::Pin;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll};
 use embassy_time::{Duration, Timer};
 use wb32_hal::exti::ExtiInput;
@@ -152,26 +153,6 @@ static mut LIGHTING_RECORD: MaybeUninit<[u8; akko_lighting::record::LEN]> = Mayb
 #[unsafe(link_section = ".ram2")]
 static mut NOR: MaybeUninit<SharedNor> = MaybeUninit::uninit();
 
-/// Puts `value` in a .ram2 static (memory.x's RAM2, above the magic word),
-/// out of .bss and the main task, which share RAM with the stack.
-///
-/// # Safety
-/// Once per slot.
-unsafe fn ram2<T>(slot: *mut MaybeUninit<T>, value: T) -> &'static mut T {
-    unsafe { (*slot).write(value) }
-}
-
-/// `ram2` for a value that is all zero bytes, zeroed in place rather than
-/// built on the stack and copied.
-///
-/// # Safety
-/// Once per slot, and all zero bytes must be a valid `T` (byte arrays).
-unsafe fn ram2_zeroed<T>(slot: *mut MaybeUninit<T>) -> &'static mut T {
-    unsafe {
-        (*slot).as_mut_ptr().write_bytes(0, 1);
-        (*slot).assume_init_mut()
-    }
-}
 
 /// The keymap in RAM and the behaviour settings it borrows (Vial edits
 /// change them): 3.4 KB that would otherwise sit in main's future.
@@ -189,39 +170,114 @@ static mut POSITIONAL: MaybeUninit<PositionalConfig<ROW, COL>> = MaybeUninit::un
 #[unsafe(link_section = ".ram2")]
 static mut STORAGE: MaybeUninit<Storage<Partition<'static>>> = MaybeUninit::uninit();
 
-/// Opens RMK's storage into STORAGE (rmk's initialize_keymap_and_storage,
+/// Opens RMK's storage into its slot (rmk's initialize_keymap_and_storage,
 /// without returning it). Poll it from an `OwnFrame`.
-///
-/// # Safety
-/// Once.
-async unsafe fn init_storage(flash: Partition<'static>, config: &StorageConfig) -> &'static mut Storage<Partition<'static>> {
-    let storage = Storage::new(flash, config).await;
-    unsafe { (*&raw mut STORAGE).write(storage) }
+async fn init_storage(
+    slot: Slot<Storage<Partition<'static>>>,
+    flash: Partition<'static>,
+    config: &StorageConfig,
+) -> &'static mut Storage<Partition<'static>> {
+    slot.write(Storage::new(flash, config).await)
 }
 
 /// Builds the keymap's data and settings in their .ram2 slots; out of line,
 /// so the 3.3 KB `KeymapData` is built in a frame that's gone after
 /// start-up (see `OwnFrame`).
 #[inline(never)]
-fn keymap_parts() -> (
+fn keymap_parts(
+    data: Slot<KeymapData<ROW, COL, NUM_LAYER, NUM_ENCODER>>,
+    behavior: Slot<BehaviorConfig>,
+    positional: Slot<PositionalConfig<ROW, COL>>,
+) -> (
     &'static mut KeymapData<ROW, COL, NUM_LAYER, NUM_ENCODER>,
     &'static mut BehaviorConfig,
     &'static PositionalConfig<ROW, COL>,
 ) {
-    // SAFETY: called once, from main.
-    unsafe {
-        (
-            ram2(&raw mut KEYMAP_DATA, KeymapData::new_with_encoder(KEYMAP, ENCODER_MAP)),
-            ram2(&raw mut BEHAVIOR, BehaviorConfig::default()),
-            ram2(&raw mut POSITIONAL, PositionalConfig::default()),
-        )
-    }
+    (
+        data.write(KeymapData::new_with_encoder(KEYMAP, ENCODER_MAP)),
+        behavior.write(BehaviorConfig::default()),
+        positional.write(PositionalConfig::default()),
+    )
 }
 
 /// The previous run's panic message and its length, taken from boot-guard
 /// at start-up, before `custom_get_value` is hooked in; read-only after.
 #[unsafe(link_section = ".ram2")]
 static mut PANIC_MSG: MaybeUninit<([u8; akko_boot_guard::PANIC_MSG_MAX], usize)> = MaybeUninit::uninit();
+
+/// A .ram2 static (memory.x's RAM2, above the magic word: out of .bss and
+/// the main task, which share RAM with the stack), handed out once by
+/// `Ram2::take`.
+struct Slot<T: 'static>(&'static mut MaybeUninit<T>);
+
+impl<T> Slot<T> {
+    fn write(self, value: T) -> &'static mut T {
+        self.0.write(value)
+    }
+
+    /// For a value built in place.
+    fn uninit(self) -> &'static mut MaybeUninit<T> {
+        self.0
+    }
+}
+
+/// Types for which all zero bytes are a valid value.
+///
+/// # Safety
+/// Only for such types.
+unsafe trait Zeroable {}
+// SAFETY: any byte is a valid u8, and an array of valid values is valid.
+unsafe impl Zeroable for u8 {}
+unsafe impl<T: Zeroable, const N: usize> Zeroable for [T; N] {}
+
+impl<T: Zeroable> Slot<T> {
+    /// Zeroed in place, rather than built on the stack and copied.
+    fn zeroed(self) -> &'static mut T {
+        // SAFETY: the pointer is to the whole slot; all zero bytes are a
+        // valid `T`.
+        unsafe {
+            self.0.as_mut_ptr().write_bytes(0, 1);
+            self.0.assume_init_mut()
+        }
+    }
+}
+
+/// The .ram2 statics, each as a `Slot`.
+struct Ram2 {
+    led_frame: Slot<[[u8; 3]; akko_lighting::layout::LED_COUNT]>,
+    lighting: Slot<akko_lighting::Board>,
+    lighting_record: Slot<[u8; akko_lighting::record::LEN]>,
+    nor: Slot<SharedNor>,
+    keymap_data: Slot<KeymapData<ROW, COL, NUM_LAYER, NUM_ENCODER>>,
+    behavior: Slot<BehaviorConfig>,
+    positional: Slot<PositionalConfig<ROW, COL>>,
+    storage: Slot<Storage<Partition<'static>>>,
+    panic_msg: Slot<([u8; akko_boot_guard::PANIC_MSG_MAX], usize)>,
+}
+
+impl Ram2 {
+    /// The slots, the first time; `None` after.
+    fn take() -> Option<Self> {
+        static TAKEN: AtomicBool = AtomicBool::new(false);
+        if TAKEN.swap(true, Ordering::Relaxed) {
+            return None;
+        }
+        // SAFETY: TAKEN lets this run once, so each static is borrowed once.
+        unsafe {
+            Some(Ram2 {
+                led_frame: Slot(&mut *&raw mut LED_FRAME),
+                lighting: Slot(&mut *&raw mut LIGHTING),
+                lighting_record: Slot(&mut *&raw mut LIGHTING_RECORD),
+                nor: Slot(&mut *&raw mut NOR),
+                keymap_data: Slot(&mut *&raw mut KEYMAP_DATA),
+                behavior: Slot(&mut *&raw mut BEHAVIOR),
+                positional: Slot(&mut *&raw mut POSITIONAL),
+                storage: Slot(&mut *&raw mut STORAGE),
+                panic_msg: Slot(&mut *&raw mut PANIC_MSG),
+            })
+        }
+    }
+}
 
 /// VIA id_custom_set_value, get_value and save: `buf` is the 32-byte reply,
 /// pre-filled with the request <command> <channel> <arg>. Vial's lighting
@@ -373,15 +429,14 @@ impl<F: Future> Future for OwnFrame<F> {
 /// Takes the previous run's panic message from boot-guard into PANIC_MSG;
 /// out of line, for main's frame (see `OwnFrame`).
 #[inline(never)]
-fn keep_panic_message() {
+fn keep_panic_message(slot: Slot<([u8; akko_boot_guard::PANIC_MSG_MAX], usize)>) {
     let mut msg = [0; akko_boot_guard::PANIC_MSG_MAX];
     let mut buf = [0; akko_boot_guard::PANIC_MSG_MAX];
     let len = akko_boot_guard::take_panic_message(&mut buf).map_or(0, |text| {
         msg[..text.len()].copy_from_slice(text.as_bytes());
         text.len()
     });
-    // SAFETY: called once, from main, before anything reads it.
-    unsafe { ram2(&raw mut PANIC_MSG, (msg, len)) };
+    slot.write((msg, len));
 }
 
 /// A task per runnable of ours (see the end of `main`).
@@ -411,7 +466,8 @@ async fn main(spawner: Spawner) {
     rcc::init();
     time_driver::init(PRIO_TIME);
     let p = Pins::take().unwrap();
-    keep_panic_message();
+    let ram2 = Ram2::take().unwrap();
+    keep_panic_message(ram2.panic_msg);
 
     // Board pins as 5075b_plus.c's keyboard_post_init_kb; src/lighting.rs
     // switches the LED supply.
@@ -443,8 +499,7 @@ async fn main(spawner: Spawner) {
     );
 
     let nor = SpiNor::new(Qspi::new(p.PB3, p.PB4, p.PB5, SPI_DIVISOR), Output::new(p.PC12, Level::High));
-    // SAFETY: main runs once.
-    let nor: &'static SharedNor = unsafe { ram2(&raw mut NOR, SharedNor::new(nor)) };
+    let nor: &'static SharedNor = ram2.nor.write(SharedNor::new(nor));
     let jedec = nor.jedec_id();
     let (Some(flash), Some(lighting_flash)) = (
         nor.partition(STORAGE_START, STORAGE_LEN),
@@ -467,9 +522,8 @@ async fn main(spawner: Spawner) {
         storage_config: StorageConfig { start_addr: 0, num_sectors: 16, ..Default::default() },
     };
 
-    let (data, behavior, positional) = keymap_parts();
-    // SAFETY: main runs once.
-    let storage = OwnFrame(unsafe { init_storage(flash, &rmk_config.storage_config) }).await;
+    let (data, behavior, positional) = keymap_parts(ram2.keymap_data, ram2.behavior, ram2.positional);
+    let storage = OwnFrame(init_storage(ram2.storage, flash, &rmk_config.storage_config)).await;
     let keymap = OwnFrame(KeyMap::new_from_storage(data, Some(&mut *storage), behavior, positional)).await;
 
     rmk::host::set_custom_value_hook(custom_value);
@@ -479,25 +533,19 @@ async fn main(spawner: Spawner) {
         .with_host_service(&host_service);
     let caps = KeyboardIndicatorProcessor::new(power::CapsPin::new(caps_led), true, LedIndicatorType::CapsLock);
     let boot = bootloader::Bootloader::new();
-    // SAFETY: main runs once.
-    let store = OwnFrame(lighting::Store::load(lighting_flash, unsafe { ram2_zeroed(&raw mut LIGHTING_RECORD) })).await;
+    let store = OwnFrame(lighting::Store::load(lighting_flash, ram2.lighting_record.zeroed())).await;
     // The factory LED test: Left Ctrl held at power-up, without Esc
     // (hs_factory_scan; Esc held is boot-guard's, before this).
     let led_test = scan.is_down(LCTRL.0, LCTRL.1) && !scan.is_down(ESC.0, ESC.1);
-    // SAFETY: main runs once.
-    let (frame, board) = unsafe {
-        (
-            ram2_zeroed(&raw mut LED_FRAME),
-            // Built in place: it's 2 KB.
-            akko_lighting::Board::new_in(
-                &mut *&raw mut LIGHTING,
-                store.record(),
-                lighting::Lighting::recordings(),
-                led_test,
-                0,
-            ),
-        )
-    };
+    let frame = ram2.led_frame.zeroed();
+    // Built in place: it's 2 KB.
+    let board = akko_lighting::Board::new_in(
+        ram2.lighting.uninit(),
+        store.record(),
+        lighting::Lighting::recordings(),
+        led_test,
+        0,
+    );
     // Not configured until RMK says so.
     board.vendor.usb_active = false;
     let flags = store.record().map_or(0, |r| r.flags());
