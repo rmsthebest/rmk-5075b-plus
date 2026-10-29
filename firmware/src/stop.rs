@@ -113,7 +113,7 @@ pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
     let emr_was = EXTI.emr().read().0;
     // SAFETY: C11 is UART3's RX; it's an input only while stopped.
     let rx = unsafe { AnyPin::steal(Port::C, 11) };
-    cortex_m::interrupt::free(|_| {
+    critical_section::with(|cs| {
         let imr = EXTI.imr().read().0;
         // An event for an ExtiInput not yet handled: let it be.
         if EXTI.pr().read().0 & imr != 0 {
@@ -148,7 +148,7 @@ pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
         if diag.is_some() {
             diag_leds(true, false);
         }
-        let woke = wb32_hal::stop::enter(opts, |m| {
+        let woke = wb32_hal::stop::enter(cs, opts, |m| {
             if diag.is_some() {
                 diag_leds(m == Mark::Woke, true);
             }

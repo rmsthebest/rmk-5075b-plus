@@ -50,22 +50,12 @@ impl Qspi {
         // 8-bit frames, Motorola SPI, mode 0, transmit and receive.
         r.cr0().write_value(spi::regs::Cr0(0x07));
 
-        // FIFO depth probe, as ChibiOS's spi_lld_start: TXFTLR only holds
-        // values below the depth.
-        let mut fifo = 1;
-        while fifo < 256 {
-            r.txftlr().write_value(spi::regs::Txftlr(fifo as u32));
-            if r.txftlr().read().0 != fifo as u32 {
-                break;
-            }
-            fifo += 1;
-        }
-        r.txftlr().write_value(spi::regs::Txftlr(0));
+        let fifo = crate::ssi_fifo_depth(r);
         r.rxftlr().write_value(spi::regs::Rxftlr(0));
         r.ier().write_value(spi::regs::Ier(0));
         r.spienr().write_value(spi::regs::Spienr(1));
 
-        Qspi { fifo: if fifo <= 1 { 1 } else { fifo } }
+        Qspi { fifo }
     }
 
     pub fn fifo_depth(&self) -> usize {

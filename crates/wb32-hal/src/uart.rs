@@ -28,20 +28,8 @@ use wb32_pac::{Interrupt, RCC, UART3, interrupt, uart};
 use crate::gpio::{AnyPin, Mode, PC10, PC11};
 use crate::rcc::PCLK2_HZ;
 
-const IER_RDAIE: u32 = 1 << 0;
-const IER_THREIE: u32 = 1 << 1;
-const IER_RLSIE: u32 = 1 << 2;
-const LCR_WLS_8BIT: u32 = 3;
-const LCR_DLAB: u32 = 1 << 7;
-const LSR_DR: u32 = 1 << 0;
-const LSR_OE: u32 = 1 << 1;
-const LSR_PE: u32 = 1 << 2;
-const LSR_FE: u32 = 1 << 3;
-const LSR_THRE: u32 = 1 << 5;
-/// USR (DesignWare): sending or receiving; the TX FIFO empty.
-const USR_BUSY: u32 = 1 << 0;
-const USR_TFNF: u32 = 1 << 1;
-const USR_TFE: u32 = 1 << 2;
+/// LCR.WLS for 8 data bits.
+const WLS_8BIT: u8 = 3;
 /// The TX FIFO's depth: at most this many bytes per THR-empty interrupt.
 const TX_FIFO: usize = 16;
 
@@ -109,21 +97,19 @@ impl Uart3 {
         let divider = (PCLK2_HZ + baud / 2) / baud;
         r.mcr().modify(|w| w.0 &= 0x50);
         r.dlf().write_value(uart::regs::Dlf(divider & 0x0F));
-        r.lcr().write_value(uart::regs::Lcr(LCR_DLAB));
+        r.lcr().write(|w| w.set_dlab(true));
         r.dll().write_value(uart::regs::Dll((divider >> 4) & 0xFF));
         r.dlh().write_value(uart::regs::Dlh((divider >> 12) & 0xFF));
         r.lcr().write_value(uart::regs::Lcr(0));
-        r.lcr().write_value(uart::regs::Lcr(LCR_WLS_8BIT));
+        r.lcr().write(|w| w.set_wls(WLS_8BIT));
         r.srt().write_value(uart::regs::Srt(0));
-        r.sfe().write_value(uart::regs::Sfe(1));
-        r.ier().modify(|w| w.0 |= IER_RDAIE | IER_RLSIE);
+        r.sfe().write(|w| w.set_sfe(true));
+        r.ier().modify(|w| {
+            w.set_rdaie(true);
+            w.set_rlsie(true);
+        });
 
-        unsafe {
-            let mut nvic = cortex_m::Peripherals::steal().NVIC;
-            nvic.set_priority(Interrupt::UART3, prio);
-            cortex_m::peripheral::NVIC::unpend(Interrupt::UART3);
-            cortex_m::peripheral::NVIC::unmask(Interrupt::UART3);
-        }
+        crate::enable_irq(Interrupt::UART3, prio);
         Uart3 { _private: () }
     }
 
@@ -135,7 +121,7 @@ impl Uart3 {
         });
         if n != 0 {
             // As ChibiOS's notify3: the interrupt fires at once while THR is empty.
-            critical_section::with(|_| UART3.ier().modify(|w| w.0 |= IER_THREIE));
+            critical_section::with(|_| UART3.ier().modify(|w| w.set_threie(true)));
         }
         n
     }
@@ -170,8 +156,8 @@ impl Uart3 {
 /// waits for this: its clock stops with the chip's.
 pub fn idle() -> bool {
     let rings = critical_section::with(|cs| TX.borrow(cs).borrow().len == 0 && RX.borrow(cs).borrow().len == 0);
-    let usr = UART3.usr().read().0;
-    rings && usr & USR_TFE != 0 && usr & USR_BUSY == 0
+    let usr = UART3.usr().read();
+    rings && usr.tfe() && !usr.busy()
 }
 
 /// Called in the interrupt's critical section.
@@ -181,32 +167,32 @@ fn count_error() {
 
 fn on_interrupt() {
     let r = UART3;
-    let mut lsr = r.lsr().read().0;
+    let mut lsr = r.lsr().read();
     let mut got = false;
     critical_section::with(|cs| {
         let mut rx = RX.borrow(cs).borrow_mut();
-        while lsr & (LSR_DR | LSR_OE | LSR_PE | LSR_FE) != 0 {
-            if lsr & (LSR_OE | LSR_PE | LSR_FE) != 0 {
+        while lsr.dr() || lsr.oe() || lsr.pe() || lsr.fe() {
+            if lsr.oe() || lsr.pe() || lsr.fe() {
                 count_error();
             }
             let b = r.rbr().read().0 as u8;
-            if lsr & LSR_DR != 0 {
+            if lsr.dr() {
                 if rx.push(b) {
                     got = true;
                 } else {
                     count_error();
                 }
             }
-            lsr = r.lsr().read().0;
+            lsr = r.lsr().read();
         }
 
-        if r.ier().read().0 & IER_THREIE != 0 && lsr & LSR_THRE != 0 {
+        if r.ier().read().threie() && lsr.thre() {
             let mut tx = TX.borrow(cs).borrow_mut();
             if tx.len == 0 {
-                r.ier().modify(|w| w.0 &= !IER_THREIE);
+                r.ier().modify(|w| w.set_threie(false));
             }
             for _ in 0..TX_FIFO {
-                if r.usr().read().0 & USR_TFNF == 0 {
+                if !r.usr().read().tfnf() {
                     break;
                 }
                 let Some(b) = tx.pop() else { break };

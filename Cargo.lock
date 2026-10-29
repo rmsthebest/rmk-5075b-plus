@@ -716,6 +716,7 @@ dependencies = [
  "akko-lighting",
  "cortex-m",
  "cortex-m-rt",
+ "critical-section",
  "embassy-executor",
  "embassy-futures",
  "embassy-sync",

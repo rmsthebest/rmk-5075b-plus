@@ -147,10 +147,11 @@ pub enum Mark {
 
 /// Stops the chip until one of the EXTI lines the caller unmasked fires, and
 /// returns the pending lines (EXTI PR) on waking; `None`, without stopping,
-/// if an interrupt was already pending. Call with interrupts disabled
-/// (PRIMASK): the wake doesn't run a handler, the caller clears the lines
-/// it set up. `mark` is called as the wake gets past each [`Mark`].
-pub fn enter(opts: Opts, mark: impl Fn(Mark)) -> Option<u32> {
+/// if an interrupt was already pending. Interrupts stay off throughout
+/// (the critical section): the wake doesn't run a handler, the caller
+/// clears the lines it set up. `mark` is called as the wake gets past each
+/// [`Mark`].
+pub fn enter(_cs: critical_section::CriticalSection<'_>, opts: Opts, mark: impl Fn(Mark)) -> Option<u32> {
     // SAFETY: the caller has interrupts off; SysTick, SCB and these
     // registers are only touched here meanwhile.
     let syst = unsafe { &*SYST::PTR };

@@ -82,6 +82,33 @@ pub struct SpiNor {
     last_yield: Instant,
 }
 
+/// Lets other tasks run if reads have kept them waiting `YIELD_EVERY`.
+async fn pause(last_yield: &mut Instant) {
+    if last_yield.elapsed() >= YIELD_EVERY {
+        yield_now().await;
+        *last_yield = Instant::now();
+    }
+}
+
+/// Chip select held low (the chip selected) until dropped, however the
+/// transfer ends: a read future dropped at an `.await` in the middle of it
+/// would otherwise leave the chip selected, and the next command would go
+/// in as more of the read.
+struct Selected<'a>(&'a mut Output);
+
+impl<'a> Selected<'a> {
+    fn new(cs: &'a mut Output) -> Self {
+        cs.set_level(Level::Low);
+        Selected(cs)
+    }
+}
+
+impl Drop for Selected<'_> {
+    fn drop(&mut self) {
+        self.0.set_level(Level::High);
+    }
+}
+
 impl SpiNor {
     /// `cs` must start high (deselected).
     pub fn new(spi: Qspi, cs: Output) -> Self {
@@ -147,18 +174,10 @@ impl SpiNor {
         [cmd, (addr >> 16) as u8, (addr >> 8) as u8, addr as u8]
     }
 
-    /// Lets other tasks run if reads have kept them waiting `YIELD_EVERY`.
-    async fn pause(&mut self) {
-        if self.last_yield.elapsed() >= YIELD_EVERY {
-            yield_now().await;
-            self.last_yield = Instant::now();
-        }
-    }
-
     async fn read_at(&mut self, addr: u32, buf: &mut [u8]) -> Result<(), Error> {
-        self.pause().await;
+        pause(&mut self.last_yield).await;
         self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT).await?;
-        self.cs.set_level(Level::Low);
+        let _selected = Selected::new(&mut self.cs);
         let mut r = self.spi.write(&Self::header(READ, addr));
         for chunk in buf.chunks_mut(READ_CHUNK) {
             if r.is_err() {
@@ -166,9 +185,9 @@ impl SpiNor {
             }
             r = self.spi.read(chunk);
             // Chip select stays low: the chip just waits for more clocks.
-            self.pause().await;
+            // If this future is dropped here, `Selected` still raises it.
+            pause(&mut self.last_yield).await;
         }
-        self.cs.set_level(Level::High);
         Ok(r?)
     }
 

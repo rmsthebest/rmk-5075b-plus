@@ -57,12 +57,7 @@ impl<'d> Driver<'d> {
         disconnect();
         init_block();
         let inner = MusbDriver::new();
-        unsafe {
-            let mut nvic = cortex_m::Peripherals::steal().NVIC;
-            nvic.set_priority(Interrupt::USB, prio);
-            cortex_m::peripheral::NVIC::unpend(Interrupt::USB);
-            cortex_m::peripheral::NVIC::unmask(Interrupt::USB);
-        }
+        crate::enable_irq(Interrupt::USB, prio);
         Driver { inner }
     }
 }

@@ -101,27 +101,13 @@ impl Ws2812 {
         r.ser().modify(|w| w.0 |= 1);
         // 8-bit frames, Motorola SPI, mode 0, transmit and receive.
         r.cr0().write_value(spi::regs::Cr0(0x07));
-        // FIFO depth probe, as ChibiOS's spi_lld_start.
-        let mut fifo = 1;
-        while fifo < 256 {
-            r.txftlr().write_value(spi::regs::Txftlr(fifo));
-            if r.txftlr().read().0 != fifo {
-                break;
-            }
-            fifo += 1;
-        }
-        r.txftlr().write_value(spi::regs::Txftlr(0));
+        let fifo = crate::ssi_fifo_depth(r);
         r.rxftlr().write_value(spi::regs::Rxftlr(0));
         r.ier().write_value(spi::regs::Ier(0));
         let _ = r.icr().read();
-        critical_section::with(|cs| FIFO_LEN.borrow(cs).set(if fifo == 1 { 0 } else { fifo as usize }));
+        critical_section::with(|cs| FIFO_LEN.borrow(cs).set(if fifo == 1 { 0 } else { fifo }));
 
-        unsafe {
-            let mut nvic = cortex_m::Peripherals::steal().NVIC;
-            nvic.set_priority(Interrupt::SPIM2, prio);
-            cortex_m::peripheral::NVIC::unpend(Interrupt::SPIM2);
-            cortex_m::peripheral::NVIC::unmask(Interrupt::SPIM2);
-        }
+        crate::enable_irq(Interrupt::SPIM2, prio);
         rgb.fill([0; 3]);
         Ws2812 { rgb }
     }

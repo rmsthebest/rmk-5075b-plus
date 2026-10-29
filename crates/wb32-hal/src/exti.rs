@@ -64,11 +64,7 @@ impl ExtiInput {
         });
 
         let irq = irq_for_line(line);
-        unsafe {
-            let mut nvic = cortex_m::Peripherals::steal().NVIC;
-            nvic.set_priority(irq, prio);
-            cortex_m::peripheral::NVIC::unmask(irq);
-        }
+        crate::unmask_irq(irq, prio);
         ExtiInput { pin }
     }
 
