@@ -13,6 +13,7 @@ Library             OperatingSystem
 *** Variables ***
 ${SIM}              ${CURDIR}/..
 ${RMK}              ${CURDIR}/../../target/thumbv7m-none-eabi/release/akko-rmk
+${RMK_MAC}          ${CURDIR}/../../target/mac/thumbv7m-none-eabi/release/akko-rmk
 ${ROM_PARKED}       0x1FFFE008
 ${HOST_CMD}         0xF00
 ${HOST_STATE}       0xF04
@@ -265,6 +266,70 @@ The Mac Switch Swaps Gui And Alt
     Run For    0.05
     Key    5    1    1
     HID Should Show    1    08 00 00 00 00 00 00 00
+
+The Edit Keys Send Ctrl Or Cmd Shortcuts
+    [Documentation]    KC_CUT and friends, set over Vial (not in the default
+    ...    keymap): Ctrl+X in Windows mode, Cmd+C in Mac mode, not their HID
+    ...    usages, which most hosts ignore.
+    Boot And Enumerate
+    # dynamic_keymap_set_keycode: layer 0 (3, 1) = KC_CUT, layer 2 = KC_COPY.
+    Raw HID Send    0x05    0    3    1    0x00    0x7B
+    Run For    0.05
+    Raw HID Send    0x05    2    3    1    0x00    0x7C
+    Run For    0.05
+    Key    3    1    1
+    HID Should Show    1    01 00 1b 00 00 00 00 00
+    Key    3    1    0
+    HID Should Show    1    00 00 00 00 00 00 00 00
+    Drive    2    14    0
+    Run For    0.05
+    Key    3    1    1
+    HID Should Show    1    08 00 06 00 00 00 00 00
+
+Without The Mac Feature HS_SIRI Sends Nothing
+    Boot And Enumerate
+    Drive    2    14    0
+    Run For    0.05
+    Key    0    4    1
+    Run For    0.05
+    Should Not Be In Log    HOST HID 1: 08 00 2c    timeout=0
+
+The Mac Feature Sends The Vendor's Mac Keys
+    [Documentation]    Built with `mac`, in Mac mode: HS_SIRI is Cmd+Space,
+    ...    Mission Control Ctrl+Up, and the Mac layer's transparent F5/F6
+    ...    fall through to the Windows layer's F5/F6, as on QMK.
+    Set Test Variable    ${RMK}    ${RMK_MAC}
+    Boot And Enumerate
+    Drive    2    14    0
+    Run For    0.05
+    Key    0    4    1
+    HID Should Show    1    08 00 2c 00 00 00 00 00
+    Key    0    4    0
+    Run For    0.03
+    Key    0    3    1
+    HID Should Show    1    01 00 52 00 00 00 00 00
+    Key    0    3    0
+    Run For    0.03
+    Key    0    5    1
+    HID Should Show    1    00 00 3e 00 00 00 00 00
+    Key    0    5    0
+    Run For    0.03
+    Key    0    6    1
+    HID Should Show    1    00 00 3f 00 00 00 00 00
+
+With The Mac Feature The Switch Drops A Held Fn Layer
+    [Documentation]    As QMK's layer_move(0): Fn held in Mac mode, the switch
+    ...    to Windows, then (0, 13) is Delete, not the Fn layer's RGB_MOD.
+    Set Test Variable    ${RMK}    ${RMK_MAC}
+    Boot And Enumerate
+    Drive    2    14    0
+    Run For    0.05
+    Key    5    10    1
+    Run For    0.03
+    Drive    2    14    2
+    Run For    0.05
+    Key    0    13    1
+    HID Should Show    1    00 00 4c 00 00 00 00 00
 
 The Caps Lock LED Follows The Host
     Boot And Enumerate

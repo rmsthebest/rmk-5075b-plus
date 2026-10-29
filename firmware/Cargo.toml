@@ -38,6 +38,10 @@ always-dfu = ["akko-boot-guard/always-dfu"]
 # (src/main.rs `peek`, rom/tools/rompeek.py). Read-only; only for studying
 # the ROM (rom/README.md).
 rom-peek = []
+# The vendor's Mac mode, for a Mac host: HS_SIRI (Cmd+Space), Mission
+# Control as Ctrl+Up, the Mac layer's transparent keys falling through to the
+# Windows layer, and the Win/Mac switch dropping a held Fn layer.
+mac = []
 
 [[bin]]
 name = "m1a-bounce"

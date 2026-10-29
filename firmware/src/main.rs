@@ -563,6 +563,11 @@ async fn main(spawner: Spawner) {
         led_boost,
     );
     rmk::keyboard::set_action_hook(lighting::action_hook);
+    // The vendor's Mac mode (feature `mac`): the Mac layer's transparent
+    // keys (F5, F6) fall through to the Windows layer, and the Win/Mac
+    // switch drops a held Fn layer, as QMK's layers do.
+    #[cfg(feature = "mac")]
+    rmk::keymap::set_qmk_default_layer(true);
     let power = power::Power::new();
     let radio = radio::Radio::new(Uart3::new(p.PC10, p.PC11, radio::BAUD, PRIO_UART), usb_power);
     // Vial's "bootloader" button: DFU, as QK_BOOT (src/bootloader.rs).

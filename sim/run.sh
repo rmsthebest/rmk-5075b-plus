@@ -25,6 +25,9 @@ cargo build --release --bin m1a-bounce --features always-dfu
 cargo build --release --bin m2-blink
 cargo build --release --bin m3-usb
 cargo build --release --bin akko-rmk
+# The `mac` feature's image, in its own target dir so it doesn't replace the
+# default one (m4_rmk's Mac tests boot it).
+cargo build --release --bin akko-rmk --features mac --target-dir target/mac
 
 if [ $# -eq 0 ]; then
     set -- sim/tests/*.robot

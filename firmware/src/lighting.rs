@@ -63,6 +63,10 @@
 //! - HS_DIR (Fn+W) swaps WASD and the arrows, wherever they are in the
 //!   keymap, with a black blink; `action_hook` swaps the action.
 //!
+//! `action_hook` also makes the edit keys (KC_CUT/COPY/PSTE/FIND) Ctrl or
+//! Cmd shortcuts, and with the `mac` feature sends the vendor's HS_SIRI and
+//! Mission Control (src/main.rs has the rest of it).
+//!
 //! - Whether key presses wait out the debounce (src/scan.rs), set over
 //!   Vial channel 0xD6 (src/main.rs).
 //! - The radio's selected device and last BT device (src/radio.rs), as
@@ -398,10 +402,29 @@ pub fn action_hook(a: &mut Action, e: &KeyboardEvent, mods: ModifierCombination)
         Action::Key(KeyCode::Hid(HidKeyCode::RCtrl)) if CTRL_APP.load(Ordering::Relaxed) => {
             *a = Action::Key(KeyCode::Hid(HidKeyCode::Application));
         }
-        Action::Key(KeyCode::Hid(k)) if DIR.load(Ordering::Relaxed) => {
-            if let Some(to) = dir_swap(k) {
-                *a = Action::Key(KeyCode::Hid(to));
-            }
+        Action::Key(KeyCode::Hid(k)) if DIR.load(Ordering::Relaxed) && dir_swap(k).is_some() => {
+            *a = Action::Key(KeyCode::Hid(dir_swap(k).unwrap()));
+        }
+        // The edit keys as the shortcuts every OS knows (the HID usages
+        // mostly do nothing): Ctrl in Windows mode, Cmd in Mac mode. The
+        // vendor sends Ctrl in both.
+        Action::Key(KeyCode::Hid(k @ (HidKeyCode::Cut | HidKeyCode::Copy | HidKeyCode::Paste | HidKeyCode::Find))) => {
+            let key = match k {
+                HidKeyCode::Cut => HidKeyCode::X,
+                HidKeyCode::Copy => HidKeyCode::C,
+                HidKeyCode::Paste => HidKeyCode::V,
+                _ => HidKeyCode::F,
+            };
+            let m = if MAC.load(Ordering::Relaxed) { ModifierCombination::LGUI } else { ModifierCombination::LCTRL };
+            *a = Action::KeyWithModifier(key, m);
+        }
+        // The vendor's Mac keys (feature `mac`): HS_SIRI is Cmd+Space, and
+        // Mission Control is Ctrl+Up rather than its consumer usage.
+        #[cfg(feature = "mac")]
+        Action::User(user::HS_SIRI) => *a = Action::KeyWithModifier(HidKeyCode::Space, ModifierCombination::LGUI),
+        #[cfg(feature = "mac")]
+        Action::Key(KeyCode::Hid(HidKeyCode::MissionControl)) => {
+            *a = Action::KeyWithModifier(HidKeyCode::Up, ModifierCombination::LCTRL);
         }
         _ => {}
     }
