@@ -38,6 +38,7 @@ ${RADIO_FRAMES}     0xF0
 ${NO_ACKS}          0x6401
 ${BT1}              2 3
 ${BT2}              2 4
+${BT1}              2 3
 ${DONGLE}           2 6
 ${USB}              2 7
 ${KEY_A}            3 1
@@ -320,6 +321,18 @@ Fn Y Held 3 s Pairs The Dongle Anew
     Radio Should Get    ac 22 41 00 6b 00 6b 00 6f 00 20 00 32 00 2e 00 34 00 47 00 20 00 56 00 49 00 41 00 20 00 4b 00 42 00 00 00 fc
     Radio Should Get    ad 2d 34 f6 e4 e8
     Radio Should Get    a6 52 f8
+    Radio Should Get    a6 51 f7
+    No Radio Errors
+
+Fn E Held 3 s Pairs BT1 With Its Name
+    [Documentation]    BT1, clear, the name "Akko 5075-1" (DEVINFO, padded to 21
+    ...    bytes), pair: the bytes of crates/qmk-wireless/tests/wire_board.txt.
+    Boot
+    Run For    0.2
+    Fn Hold    ${BT1}    3.1
+    Radio Should Get    a6 31 d7
+    Radio Should Get    a6 52 f8
+    Radio Should Get    a9 0b 41 6b 6b 6f 20 35 30 37 35 2d 31 89 00 00 00 00 00 00 00
     Radio Should Get    a6 51 f7
     No Radio Errors
 
