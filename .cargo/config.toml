@@ -5,10 +5,10 @@ target = "thumbv7m-none-eabi"
 linker = "flip-link"
 rustflags = [
     "-C", "link-arg=-Tlink.x",
-    # Panic locations name their source file; without the registry prefix
-    # those strings are ~2.7 KB shorter. (Only matches this machine's cargo
-    # home; elsewhere it does nothing.)
-    "--remap-path-prefix=/home/tony/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/=",
+    # Panic locations name their source file. A --remap-path-prefix for
+    # cargo's registry makes those strings ~2.7 KB shorter, but its path is
+    # per machine, so it goes in a .cargo/config.toml above the repo (cargo
+    # merges the rustflags) until trim-paths is stable.
     # Library crates' panic locations without the "crates/" prefix: the
     # message has to fit boot-guard's 120-byte record.
     "--remap-path-prefix=crates/=",
@@ -24,5 +24,5 @@ KEYBOARD_TOML_PATH = { value = "firmware/rmk.toml", relative = true }
 # that resets the keymap to src/keymap.rs. A changed src/keymap.rs doesn't:
 # stored keys (each by layer, row and column) win over the compiled ones
 # until EE_CLR or StorageConfig's clear_layout. akko-main-1: the move to rmk
-# main (one keymap reset, agreed with the user 2026-10-28).
+# main (one keymap reset, 2026-10-28).
 RMK_COMMIT = "akko-main-1"
