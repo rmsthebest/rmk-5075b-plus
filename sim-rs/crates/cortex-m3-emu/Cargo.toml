@@ -1,0 +1,10 @@
+[package]
+name = "cortex-m3-emu"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A Cortex-M3 (ARMv7-M, Thumb-2) interpreter with a pluggable system bus"
+
+[dependencies]

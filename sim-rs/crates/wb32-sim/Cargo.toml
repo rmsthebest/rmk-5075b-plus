@@ -1,0 +1,12 @@
+[package]
+name = "wb32-sim"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "WB32FQ95 memory map and peripheral models for cortex-m3-emu"
+
+[dependencies]
+cortex-m3-emu.workspace = true
+object.workspace = true

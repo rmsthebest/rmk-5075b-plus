@@ -1,0 +1,94 @@
+//! The Akko 5075B Plus on wb32-sim, and the harness the tests drive it with.
+
+use std::path::PathBuf;
+use wb32_sim::chip::ROM_BASE;
+use wb32_sim::{LoadError, Wb32};
+
+/// Where the ROM stub's reset handler spins: "PC is here" means "entered DFU".
+pub const ROM_PARKED: u32 = 0x1FFF_E008;
+
+/// The firmware images sim-rs/run.sh snapshots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Image {
+    /// boot-guard with `always-dfu`: bounces straight into the ROM.
+    M1aBounce,
+    M1bStub,
+    M2Blink,
+    M3Usb,
+    AkkoRmk,
+    /// akko-rmk built with the `mac` feature.
+    AkkoRmkMac,
+}
+
+impl Image {
+    pub const ALL: [Image; 6] = [
+        Image::M1aBounce,
+        Image::M1bStub,
+        Image::M2Blink,
+        Image::M3Usb,
+        Image::AkkoRmk,
+        Image::AkkoRmkMac,
+    ];
+
+    pub fn file_name(self) -> &'static str {
+        match self {
+            Image::M1aBounce => "m1a-bounce",
+            Image::M1bStub => "m1b-stub",
+            Image::M2Blink => "m2-blink",
+            Image::M3Usb => "m3-usb",
+            Image::AkkoRmk => "akko-rmk",
+            Image::AkkoRmkMac => "akko-rmk-mac",
+        }
+    }
+
+    /// In `$AKKO_SIM_IMAGES`, by default sim-rs/target/images.
+    pub fn path(self) -> PathBuf {
+        let dir = std::env::var_os("AKKO_SIM_IMAGES")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/images")
+            });
+        dir.join(self.file_name())
+    }
+
+    pub fn read(self) -> Result<Vec<u8>, LoadError> {
+        let path = self.path();
+        std::fs::read(&path).map_err(|e| {
+            LoadError(format!(
+                "{}: {e} (sim-rs/run.sh builds the images)",
+                path.display()
+            ))
+        })
+    }
+}
+
+pub struct Board {
+    pub chip: Wb32,
+}
+
+impl Default for Board {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Board {
+    /// A blank board with the ROM stub in place of the boot ROM (we don't
+    /// ship its contents): initial SP, then a reset handler that spins at
+    /// ROM_PARKED. As ../sim/akko.resc.
+    pub fn new() -> Self {
+        let mut chip = Wb32::new();
+        let mut stub = Vec::new();
+        stub.extend_from_slice(&0x2000_1000u32.to_le_bytes());
+        stub.extend_from_slice(&(ROM_PARKED | 1).to_le_bytes());
+        stub.extend_from_slice(&0xE7FEu16.to_le_bytes()); // b .
+        chip.load(ROM_BASE, &stub).expect("the stub fits the ROM");
+        Board { chip }
+    }
+
+    /// Loads an image's ELF. Returns its entry point.
+    pub fn load(&mut self, image: Image) -> Result<u32, LoadError> {
+        let data = image.read()?;
+        self.chip.load_elf(&data)
+    }
+}

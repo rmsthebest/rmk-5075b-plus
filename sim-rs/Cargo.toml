@@ -1,0 +1,24 @@
+# Our own simulator for the Akko 5075B Plus (README.md), replacing the Renode
+# one in ../sim once both agree. A host workspace of its own: the repo root's
+# builds for thumbv7m.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "GPL-2.0-or-later"
+publish = false
+
+[workspace.dependencies]
+cortex-m3-emu = { path = "crates/cortex-m3-emu" }
+wb32-sim = { path = "crates/wb32-sim" }
+object = { version = "0.37", default-features = false, features = ["read_core", "elf", "std"] }
+
+[profile.dev]
+# The tests run whole firmware images: an unoptimised interpreter is too slow.
+opt-level = 2
+
+[profile.release]
+debug = 1

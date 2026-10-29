@@ -1,0 +1,4 @@
+# Cargo merges this with the repo's .cargo/config.toml, which builds for
+# thumbv7m by default. The simulator runs on the host.
+[build]
+target = "host-tuple"

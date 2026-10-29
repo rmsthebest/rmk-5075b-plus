@@ -1,0 +1,12 @@
+[package]
+name = "akko-sim"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Akko 5075B Plus board on wb32-sim: key matrix, radio, LEDs, SPI flash, USB host, and the test harness"
+
+[dependencies]
+cortex-m3-emu.workspace = true
+wb32-sim.workspace = true
