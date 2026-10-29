@@ -1,5 +1,5 @@
 //! The parser and send queue, case for case with
-//! ~/stuff/akko/tools/wls_host_test/test_parser_queue.c, then the
+//! tools/wls_host_test/test_parser_queue.c, then the
 //! wireless.c rules the C test doesn't cover.
 
 use std::collections::VecDeque;

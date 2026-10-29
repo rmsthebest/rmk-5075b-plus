@@ -1,6 +1,6 @@
 //! The encoder against QMK's bytes. Both files come from
-//! ~/stuff/akko/tools/wls_host_test/run.sh, which runs the fixed tree's
-//! module.c on the host:
+//! tools/wls_host_test/run.sh, which runs the fixed QMK tree's module.c on
+//! the host:
 //! - wire_expected.txt (dump_wire.c): every md_send_* with test bytes, then
 //!   md_devs_change for each device, without and with reset, with the stub
 //!   strings ("Test", 4-byte wchar_t, so the dongle product is too long and

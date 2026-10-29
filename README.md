@@ -38,6 +38,7 @@ git submodule update --init              # third_party/rmk and third_party/musb
 cargo build --release --bin akko-rmk     # target thumbv7m-none-eabi (needs flip-link)
 sim/run.sh                               # every sim suite (about 20 min); SIM_CHANGED=1 for the affected ones
 cargo test -p qmk-wireless --target x86_64-unknown-linux-gnu
+tools/wls_host_test/run.sh               # QMK's wireless C on the host (QMK_TREE), against the same test data
 cargo test -p akko-lighting --target x86_64-unknown-linux-gnu
 python3 -I tools/rgbref/run.py           # akko-lighting against QMK's C, frame by frame
 python3 -I tools/bench.py                # workbench on :8475: sim runs, freeze, flash RMK or QMK
