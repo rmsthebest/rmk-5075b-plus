@@ -19,7 +19,7 @@
   {"id": "vial-light", "check": "Vial lighting tab", "how": "Effect, speed and colour change from Vial."}
  ]},
  {"group": "Wireless", "items": [
-  {"id": "bt-pair", "check": "Bluetooth pairing", "how": "Hold Fn+E 3 s: pairs as \"Akko 5075-1\". Fn+R, Fn+T: BT2, BT3."},
+  {"id": "bt-pair", "check": "Bluetooth pairing", "how": "Hold Fn+E a full 3 s (a short press only selects BT1): pairs as \"Akko 5075-1\". Fn+R, Fn+T: BT2, BT3."},
   {"id": "dongle-pair", "check": "Dongle pairing", "how": "Hold Fn+Y 3 s: re-pairs with the dongle."},
   {"id": "usb-back", "check": "Back to USB", "how": "Fn+U from 2.4G: types over the cable again."},
   {"id": "reselect", "check": "Reconnect kick", "how": "Fn+Y while on 2.4G: it reconnects."},
