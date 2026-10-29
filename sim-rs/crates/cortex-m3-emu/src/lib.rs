@@ -6,5 +6,9 @@
 //! memory map and how peripherals see each other.
 
 pub mod bus;
+pub mod decode;
+pub mod disasm;
 
 pub use bus::{Bus, Memory, Size};
+pub use decode::{Insn, ItState, Op, decode};
+pub use disasm::disasm;
