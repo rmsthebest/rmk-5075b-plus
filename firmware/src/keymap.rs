@@ -21,6 +21,39 @@ const fn df(layer: u8) -> KeyAction {
     KeyAction::Single(Action::DefaultLayer(layer))
 }
 
+/// The board's own keycodes (keyboard.json "keycodes"), as User(n).
+#[allow(dead_code)] // the whole list, used or not
+pub mod user {
+    pub const KC_BT1: u8 = 0;
+    pub const KC_BT2: u8 = 1;
+    pub const KC_BT3: u8 = 2;
+    pub const KC_2G4: u8 = 3;
+    pub const KC_USB: u8 = 4;
+    pub const RP_P0: u8 = 5;
+    pub const RP_P1: u8 = 6;
+    pub const RP_P2: u8 = 7;
+    pub const RP_END: u8 = 8;
+    pub const RL_MOD: u8 = 9;
+    pub const HS_BATQ: u8 = 10;
+    pub const HS_DIR: u8 = 11;
+    pub const BT_TEST: u8 = 12;
+    pub const HS_SIRI: u8 = 13;
+    pub const HS_CT_A: u8 = 14;
+    pub const KC_ENCW: u8 = 15;
+    /// QMK's magic keycode 0x700B, as third_party/rmk passes it (User(0x80 | n)).
+    pub const GU_TOGG: u8 = 0x8B;
+}
+
+/// The layers (keymap.c's enum layers).
+#[allow(dead_code)]
+pub mod layer {
+    pub const BL: u8 = 0;
+    pub const FL: u8 = 1;
+    pub const MBL: u8 = 2;
+    pub const MFL: u8 = 3;
+    pub const FBL: u8 = 4;
+}
+
 /// Matrix positions the Win/Mac switch taps (see src/scan.rs).
 pub const SWITCH_WIN: (u8, u8) = (5, 3);
 pub const SWITCH_MAC: (u8, u8) = (5, 4);

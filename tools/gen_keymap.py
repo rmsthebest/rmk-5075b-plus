@@ -180,6 +180,22 @@ def main():
     w("    KeyAction::Single(Action::DefaultLayer(layer))")
     w("}")
     w("")
+    w("/// The board's own keycodes (keyboard.json \"keycodes\"), as User(n).")
+    w("#[allow(dead_code)] // the whole list, used or not")
+    w("pub mod user {")
+    for i, k in enumerate(kb["keycodes"]):
+        w("    pub const %s: u8 = %d;" % (k["key"], i))
+    w("    /// QMK's magic keycode 0x700B, as third_party/rmk passes it (User(0x80 | n)).")
+    w("    pub const GU_TOGG: u8 = %s;" % re.search(r"user\((0x[0-9A-F]+)\)", KEYCODES["GU_TOGG"]).group(1))
+    w("}")
+    w("")
+    w("/// The layers (keymap.c's enum layers).")
+    w("#[allow(dead_code)]")
+    w("pub mod layer {")
+    for n, i in layer_index.items():
+        w("    pub const %s: u8 = %d;" % (n.lstrip("_"), i))
+    w("}")
+    w("")
     w("/// Matrix positions the Win/Mac switch taps (see src/scan.rs).")
     for (r, c), layer in sorted(SWITCH_KEYS.items()):
         w("pub const %s: (u8, u8) = (%d, %d);" % ("SWITCH_WIN" if layer == "_BL" else "SWITCH_MAC", r, c))

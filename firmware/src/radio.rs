@@ -61,12 +61,10 @@ use qmk_wireless::frame::{RAW_LEN, devctrl, utf16z};
 use qmk_wireless::rx::FRAME_TIMEOUT_MS;
 use qmk_wireless::{Device, DeviceStrings, Event, Link};
 
+use crate::keymap::user;
+
 pub const BAUD: u32 = 115_200;
 
-/// The keymap's pairing keys (keyboard.json "keycodes" 0-4).
-const USER_BT1: u8 = 0;
-const USER_2G4: u8 = 3;
-const USER_USB: u8 = 4;
 
 /// WLS_KEYCODE_PAIR_TIME.
 const PAIR_HOLD_MS: u32 = 3000;
@@ -411,10 +409,10 @@ impl Radio {
     async fn on_action_event(&mut self, e: ActionEvent) {
         let pressed = e.keyboard_event.pressed;
         let dev = match e.action {
-            Action::User(n @ USER_BT1..=USER_USB) => match n {
-                USER_2G4 => Device::Dongle,
-                USER_USB => Device::Usb,
-                n => Device::from_u8(n - USER_BT1 + 1).unwrap(),
+            Action::User(n @ user::KC_BT1..=user::KC_USB) => match n {
+                user::KC_2G4 => Device::Dongle,
+                user::KC_USB => Device::Usb,
+                n => Device::from_u8(n - user::KC_BT1 + 1).unwrap(),
             },
             _ => {
                 // keycode_shadow: the long press now sees another key.

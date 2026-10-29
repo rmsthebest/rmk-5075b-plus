@@ -98,6 +98,7 @@ use akko_lighting::record::{self, Record};
 use akko_lighting::engine::MAX_BRIGHTNESS;
 use akko_lighting::vialrgb;
 
+use crate::keymap::{layer, user};
 use crate::{power, radio};
 use akko_lighting::{Board, Key};
 use rmk::event::{ActionEvent, ConnectionStatusChangeEvent, KeyboardEvent, KeyboardEventSource};
@@ -264,18 +265,6 @@ pub fn vialrgb(buf: &mut [u8]) -> bool {
     true
 }
 
-/// The keymap's vendor keycodes (keyboard.json "keycodes", User(n)).
-const USER_RP_P0: u8 = 5;
-const USER_RP_END: u8 = 8;
-const USER_RL_MOD: u8 = 9;
-const USER_HS_BATQ: u8 = 10;
-const USER_HS_DIR: u8 = 11;
-const USER_HS_CT_A: u8 = 14;
-const USER_KC_ENCW: u8 = 15;
-/// GU_TOGG, QMK's magic keycode 0x700B.
-const USER_GU_TOGG: u8 = 0x80 | 0x0B;
-/// The Mac default layer (_MBL), which the switch selects.
-const LAYER_MBL: u8 = 2;
 /// HS_CT_A's hold.
 const CT_A_HOLD: u32 = 3000;
 /// How long after USB is configured the battery report waits: the host's
@@ -290,9 +279,6 @@ const USB_LIGHTS_OFF_MS: u32 = 7000;
 /// looks for the lights coming back on (a host's resume, the cable), which
 /// can wait this long. A key wakes it at once.
 const SUSPENDED_FRAME_MS: u32 = 250;
-/// The Fn layers, whose MO keys recording lets through.
-const LAYER_FL: u8 = 1;
-const LAYER_MFL: u8 = 3;
 
 /// The board's key for an action.
 fn board_key(a: &Action) -> Key {
@@ -311,13 +297,14 @@ fn board_key(a: &Action) -> Key {
             LightAction::RgbSpd => Key::RgbSpd,
             _ => Key::Other,
         },
-        Action::User(n @ USER_RP_P0..USER_RP_END) => Key::RpPlay(n - USER_RP_P0),
-        Action::User(USER_RP_END) => Key::RpEnd,
-        Action::User(USER_RL_MOD) => Key::RlMod,
-        Action::User(USER_KC_ENCW) => Key::Encw,
-        Action::User(USER_HS_BATQ) => Key::BatQ,
+        Action::User(n @ user::RP_P0..user::RP_END) => Key::RpPlay(n - user::RP_P0),
+        Action::User(user::RP_END) => Key::RpEnd,
+        Action::User(user::RL_MOD) => Key::RlMod,
+        Action::User(user::KC_ENCW) => Key::Encw,
+        Action::User(user::HS_BATQ) => Key::BatQ,
         Action::KeyboardControl(KeyboardAction::ClearEeprom) => Key::EeClr,
-        Action::LayerOn(LAYER_FL | LAYER_MFL) => Key::Fn,
+        // The Fn layers, whose MO keys recording lets through.
+        Action::LayerOn(layer::FL | layer::MFL) => Key::Fn,
         Action::LayerOn(_) => Key::Momentary,
         _ => Key::Other,
     }
@@ -386,16 +373,16 @@ pub fn action_hook(a: &mut Action, e: &KeyboardEvent, mods: ModifierCombination)
     match *a {
         // The Win/Mac switch's taps: a GPIO on QMK, never the board's.
         Action::DefaultLayer(layer) => {
-            MAC.store(layer == LAYER_MBL, Ordering::Relaxed);
+            MAC.store(layer == layer::MBL, Ordering::Relaxed);
             return true;
         }
-        Action::User(USER_GU_TOGG) => {
+        Action::User(user::GU_TOGG) => {
             if e.pressed {
                 NO_GUI.fetch_xor(true, Ordering::Relaxed);
             }
             return true;
         }
-        Action::User(USER_HS_DIR) => {
+        Action::User(user::HS_DIR) => {
             if e.pressed {
                 DIR.fetch_xor(true, Ordering::Relaxed);
             }
@@ -576,10 +563,10 @@ impl Lighting {
             self.update_leds();
             return;
         }
-        if e.action == Action::User(USER_HS_CT_A) {
+        if e.action == Action::User(user::HS_CT_A) {
             self.ct_a_since = e.keyboard_event.pressed.then(now_ms);
         }
-        if e.action == Action::User(USER_HS_DIR) && e.keyboard_event.pressed {
+        if e.action == Action::User(user::HS_DIR) && e.keyboard_event.pressed {
             self.board.confirm_blink(now_ms());
         }
         // Encoder turns have no key; the board records nothing for them.
