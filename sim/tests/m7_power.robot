@@ -42,13 +42,15 @@ ${ALL_UP}           a1 00 00 00 00 00 00 00 00 a1
 # of main's join (the knob's 5 ms poll and the 16 ms frames dominate).
 # No polls (knob, radio 50 ms, suspended frames 250 ms, heartbeat 500 ms):
 # on 7.55 M, 74 sleeps; off 0.90 M, 75 (the 16 ms frames); asleep 0.12 M, 18.
-${MAX_INSNS_LIGHTS_ON}      8500000
+# Our runnables as tasks (a wake polls only its task): on 6.00 M, off 0.21 M,
+# asleep 0.07 M, key held 33.4 M; press 3-4 steps.
+${MAX_INSNS_LIGHTS_ON}      6800000
 ${MAX_WAKES_LIGHTS_ON}      90
-${MAX_INSNS_LIGHTS_OFF}     1000000
+${MAX_INSNS_LIGHTS_OFF}     300000
 ${MAX_WAKES_LIGHTS_OFF}     90
-${MAX_INSNS_ASLEEP}         150000
+${MAX_INSNS_ASLEEP}         100000
 ${MAX_WAKES_ASLEEP}         25
-${MAX_INSNS_KEY_HELD}       40000000
+${MAX_INSNS_KEY_HELD}       37000000
 # Press (release) to IN endpoint armed, in 100 us steps: worst over the
 # presses in `Press To Report Latency`. Releases wait out the 5 ms debounce.
 ${MAX_PRESS_WORST}          4

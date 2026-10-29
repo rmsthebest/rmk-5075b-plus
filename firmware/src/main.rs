@@ -384,8 +384,29 @@ fn keep_panic_message() {
     unsafe { ram2(&raw mut PANIC_MSG, (msg, len)) };
 }
 
+/// A task per runnable of ours (see the end of `main`).
+macro_rules! runnable_tasks {
+    ($($task:ident($ty:ty);)*) => {$(
+        #[embassy_executor::task]
+        async fn $task(mut r: $ty) -> ! {
+            use rmk::core_traits::Runnable as _;
+            r.run().await
+        }
+    )*};
+}
+
+runnable_tasks! {
+    scan_task(scan::Scan);
+    knob_task(knob::Knob);
+    caps_task(KeyboardIndicatorProcessor<power::CapsPin>);
+    boot_task(bootloader::Bootloader);
+    lights_task(lighting::Lighting);
+    radio_task(radio::Radio);
+    power_task(power::Power);
+}
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     paint_stack();
     rcc::init();
     time_driver::init(PRIO_TIME);
@@ -452,13 +473,12 @@ async fn main(_spawner: Spawner) {
     let keymap = OwnFrame(KeyMap::new_from_storage(data, Some(&mut *storage), behavior, positional)).await;
 
     rmk::host::set_custom_value_hook(custom_value);
-    let mut knob = knob;
     let mut keyboard = Keyboard::new(&keymap);
     let host_service = HostService::new(&keymap, &rmk_config);
     let mut usb = UsbTransport::new(usb::Driver::new(p.PA11, p.PA12, PRIO_USB), rmk_config.device_config)
         .with_host_service(&host_service);
-    let mut caps = KeyboardIndicatorProcessor::new(power::CapsPin::new(caps_led), true, LedIndicatorType::CapsLock);
-    let mut boot = bootloader::Bootloader::new();
+    let caps = KeyboardIndicatorProcessor::new(power::CapsPin::new(caps_led), true, LedIndicatorType::CapsLock);
+    let boot = bootloader::Bootloader::new();
     // SAFETY: main runs once.
     let store = OwnFrame(lighting::Store::load(lighting_flash, unsafe { ram2_zeroed(&raw mut LIGHTING_RECORD) })).await;
     // The factory LED test: Left Ctrl held at power-up, without Esc
@@ -484,7 +504,7 @@ async fn main(_spawner: Spawner) {
     lighting::set_flags(flags, store.record().map_or(0, |r| r.flags2()));
     power::set_setting(store.record().map_or(akko_lighting::record::SLEEP_DEFAULT, |r| r.sleep()));
     radio::set_saved_flags(flags);
-    let mut lights = lighting::Lighting::new(
+    let lights = lighting::Lighting::new(
         board,
         store,
         Ws2812::new(p.PB15, frame, PRIO_LEDS),
@@ -495,8 +515,8 @@ async fn main(_spawner: Spawner) {
         led_boost,
     );
     rmk::keyboard::set_action_hook(lighting::action_hook);
-    let mut power = power::Power::new();
-    let mut radio = radio::Radio::new(Uart3::new(p.PC10, p.PC11, radio::BAUD, PRIO_UART), usb_power);
+    let power = power::Power::new();
+    let radio = radio::Radio::new(Uart3::new(p.PC10, p.PC11, radio::BAUD, PRIO_UART), usb_power);
     // Vial's "bootloader" button: DFU, as QK_BOOT (src/bootloader.rs).
     rmk::boot::set_bootloader_hook(akko_boot_guard::request_bootloader);
 
@@ -504,23 +524,27 @@ async fn main(_spawner: Spawner) {
         Timer::after(STABLE_AFTER).await;
         akko_boot_guard::mark_stable();
     };
+    // Ours run as tasks of their own: a join polls every child each time
+    // any of them wakes (about 6k instructions a wake with all of them in
+    // it), a task only itself. RMK's borrow the keymap and stay in main's
+    // join, which they wake only when there's input or a host request.
+    watchdog::start();
+    spawner.spawn(scan_task(scan).unwrap());
+    spawner.spawn(knob_task(knob).unwrap());
+    spawner.spawn(caps_task(caps).unwrap());
+    spawner.spawn(boot_task(boot).unwrap());
+    spawner.spawn(lights_task(lights).unwrap());
+    spawner.spawn(radio_task(radio).unwrap());
+    spawner.spawn(power_task(power).unwrap());
     // As run_all!, but each one polled from its own frame (`OwnFrame`):
     // inlined, a join's poll frame is the sum of its children's, and it is
     // under every poll for the whole run.
     use rmk::core_traits::Runnable as _;
-    watchdog::start();
     embassy_futures::join::join3(
         rmk::join_all!(
-            OwnFrame(scan.run()),
-            OwnFrame(knob.run()),
             OwnFrame(keyboard.run()),
             OwnFrame(storage.run()),
             OwnFrame(usb.run()),
-            OwnFrame(caps.run()),
-            OwnFrame(boot.run()),
-            OwnFrame(lights.run()),
-            OwnFrame(radio.run()),
-            OwnFrame(power.run()),
             OwnFrame(radio::vial(&host_service)),
         ),
         stable,
