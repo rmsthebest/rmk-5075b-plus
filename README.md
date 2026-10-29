@@ -4,15 +4,61 @@
 
 Rust firmware ([RMK](https://github.com/HaoboGu/rmk) on [Embassy](https://embassy.dev)) for the
 Akko 5075B Plus, a 75% wireless keyboard on a WestberryTech WB32FQ95 (Cortex-M3, 96 MHz). It
-replaces the vendor's QMK build with feature parity:
+does everything the vendor's QMK build does:
 - USB, Bluetooth 1-3 and the 2.4G dongle;
-- Vial, over USB and through the 2.4G dongle;
+- Vial (the vendor ships VIA), over USB and through the 2.4G dongle;
 - the RGB matrix and side lights;
 - the knob;
 - battery reporting;
 - sleep and stop mode.
 
+It also reacts faster, keeps the CPU asleep between events, and fixes the vendor's wireless bugs.
+
 There was no Rust support for the WB32, so this repo also carries a PAC and a HAL for the chip.
+
+## Compared with the vendor's QMK
+
+The comparison is with the vendor's firmware as shipped: the vendor's QMK source, built with
+symbols, which we checked function by function against the stock image. Our own fixes to that QMK
+build aren't published, so they don't count here. Both images ran in the same simulation, and
+`sim/tests/m7_power.robot` and `sim/compare/qmk_power.robot` take the numbers.
+
+| | Vendor QMK | This firmware |
+|---|---|---|
+| Key press to report ready | 5 ms or more | 0.4 ms |
+| Key release to report ready | 5 ms or more | 4.6 ms on average |
+| CPU awake, idle, lights on | 100% | 7.7% |
+| CPU awake, idle, lights off | 100% | 0.3% |
+| CPU awake, a key held | 100% | 44% |
+| CPU awake, host asleep | not measured | 0.1% |
+| Wake-ups per second, idle | never sleeps (SysTick 100,000/s) | about 75 |
+| Est. CPU current, idle, lights on | 13.4 mA | 1.0 mA |
+| Est. CPU current, idle, lights off | 13.4 mA | 0.04 mA |
+| Est. CPU current, a key held | 13.4 mA | 5.8 mA |
+
+- **Latency.** The vendor build uses QMK's default debounce, `sym_defer_g` at 5 ms: a change is
+  reported only after the whole matrix has been quiet for 5 ms. Here a press goes out at once, and
+  only the release waits out its 5 ms. The scan parks on the rows' interrupts when no key is down,
+  so a press wakes it. The host's 1 ms USB polling comes on top for both. QMK's latency is taken
+  from its source: in the simulation, its reports go to the radio module.
+- **CPU time.** QMK's main loop polls the matrix without pause, and its CPU never sleeps. Here
+  every task waits for an interrupt or a deadline: the scan parks, SysTick is tickless, and the
+  knob, radio and power tasks don't poll. "CPU awake" is the simulator's instructions per
+  emulated second, at an assumed 1.25 cycles per instruction (the datasheet promises zero-wait
+  flash through the cache), against 96 MHz.
+- **Current.** This is an estimate of the CPU's share only: the time awake × the datasheet's
+  ~140 µA/MHz at 3.3 V ([WB32FQ95xC datasheet](https://www.westberrytech.com/uploads/file/WB32FQ95xx/EN_DS1905020_WB32FQ95xC_V01.pdf)),
+  about 13.4 mA at 96 MHz. The datasheet gives no sleep-mode current, so the clocks and peripherals
+  in sleep aren't counted, and neither are the LEDs or the radio module, which cost the same under
+  both. Measure on the board before quoting battery life.
+- **Wireless.** The link to the BT/2.4G module (`crates/qmk-wireless`) fixes the vendor's bugs, and
+  its tests check it against QMK's C (`tools/wls_host_test`). The UART parser resyncs after a bad
+  frame and checks bounds, the retry limit works, re-pairing the dongle can't overflow the send
+  buffer, and a key release is never dropped while the link is down.
+- **Recovery.** A watchdog and a panic handler restart a hung or crashed keyboard. A second crash
+  within 60 s goes to the ROM bootloader, and Vial can read the panic message. The vendor build
+  has no watchdog.
+- **Battery over USB.** The host sees the battery level (Linux shows it in upower); the vendor build doesn't report it over USB.
 
 ## What's here
 
@@ -24,7 +70,7 @@ There was no Rust support for the WB32, so this repo also carries a PAC and a HA
 | `crates/akko-boot-guard` | `akko-boot-guard` | Reset-time escape into ROM DFU, crash record and crash policy | This board |
 | `crates/akko-lighting` | `akko-lighting` | QMK rgb_matrix port plus this board's lights and indicators | This board (the rgb_matrix part is generic in nature, but tied to this layout) |
 | `firmware` | `firmware` | The `akko-rmk` image and the bring-up images `m1a-bounce`, `m1b-stub`, `m2-blink`, `m3-usb` | This board |
-| `third_party/rmk` | `rmk` | Submodule: [our fork](https://github.com/rmsthebest/rmk), branch `akko-0.9`: RMK 0.9.0 with our hooks and fixes (`rmk/README-akko.md`) | |
+| `third_party/rmk` | `rmk` | Submodule: [our fork](https://github.com/rmsthebest/rmk), branch `akko-main`: RMK main with our hooks and fixes (`rmk/README-akko.md`) | |
 | `third_party/musb` | `musb` | Submodule: [our fork](https://github.com/rmsthebest/musb), branch `wb32`: musb 0.3.1 with WB32 support and fixes (`README-wb32.md`) | |
 | `sim/` | | Renode simulation of the board and the test suites (`sim/README.md`) | |
 | `rom/` | | The chip's ROM bootloader, studied: read-out (`rom-peek` feature), disassembly tools, the ROM in Renode, write-up (`rom/README.md`). The ROM itself isn't in the repo | |
