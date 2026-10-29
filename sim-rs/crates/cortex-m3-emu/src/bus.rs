@@ -54,6 +54,14 @@ pub trait Bus {
         IrqLines::default()
     }
 
+    /// The core is about to execute the instruction at `pc`, for a chip
+    /// that logs which instruction made an access.
+    fn executing(&mut self, _pc: u32) {}
+
+    /// The core wrote its private peripheral bus (NVIC, SCB, SysTick...),
+    /// for a chip that logs writes. The core handles the write itself.
+    fn ppb_write(&mut self, _addr: u32, _size: Size, _value: u32) {}
+
     /// The core went to sleep (WFI/WFE); `deep` is SCR.SLEEPDEEP.
     fn sleep(&mut self, _deep: bool) {}
 }

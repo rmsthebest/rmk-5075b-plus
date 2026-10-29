@@ -18,6 +18,8 @@ that pins it (`-` until the test is ported).
 | The core is a Cortex-M3 r2p0 (CPUID 0x412FC230) with 4 priority bits, an MPU and 37 IRQs (0-36, I2S last). | Vendor wb32fq95xx.h (`__CM3_REV`, `__NVIC_PRIO_BITS`, `__MPU_PRESENT`, IRQn) | `cortex-m3-emu` `Config`, `ppb.rs` |
 | The ROM feeds the IWDG only while RCC+0x104 is non-zero. What sets it is unknown. | ROM disassembly, rom/notes.md. Open: read 0x40010D04 on the board after starting an IWDG | - |
 
+| AIRCR reads with bits 14:11 clear (ARMv7-M: reserved, RAZ). Renode's reads with bit 13 set, which shows in the ROM's priority-grouping write (0x05FA2300 in Renode's traces). | ARM DDI 0403E B3.2.6; unconfirmed on the board | `rom_traces.rs` |
+
 ## Open questions for the board
 
 Things to read with Vial peek (0xDA) in an image that's being flashed anyway:
@@ -26,3 +28,4 @@ Things to read with Vial peek (0xDA) in an image that's being flashed anyway:
 - RCC+0x104 with and without the IWDG running.
 - Instructions per second: cycles taken by a known busy loop, against SysTick. The sim runs at Renode's 100 MIPS for now; the board's flash wait states make it slower (asm::delay(HCLK/1000) took about 3000 TIM2 ticks, 2026-10-27).
 - CPUID, to confirm r2p0.
+- AIRCR (0xE000_ED0C), to confirm bit 13 reads 0.

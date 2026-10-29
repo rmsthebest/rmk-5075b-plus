@@ -305,6 +305,7 @@ impl Cpu {
     pub(crate) fn write(&mut self, bus: &mut impl Bus, addr: u32, size: Size, value: u32) {
         if (0xE000_0000..0xE010_0000).contains(&addr) {
             let now = self.now;
+            bus.ppb_write(addr, size, value);
             self.ppb.write(addr, size, value, now, &mut self.diags);
             self.ppb_side_effects(0);
             return;
@@ -358,6 +359,7 @@ impl Cpu {
         }
         self.cur_pc = self.r[PC];
         self.cur_it = self.it;
+        bus.executing(self.cur_pc);
         if !self.thumb {
             self.fault(Fault::InvState);
             return;

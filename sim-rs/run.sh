@@ -6,7 +6,8 @@
 # rather than the repo's own target/, so a Renode run going on at the same
 # time keeps its images. They are then copied to sim-rs/target/images/, which
 # is all the tests read: a cargo build during a run can't swap an image under
-# them. AKKO_SIM_IMAGES= points the tests at another snapshot.
+# them. AKKO_SIM_IMAGES= points the tests at another snapshot. The ROM
+# suites also read the ROM dump from $ROM_WORK/dump (../rom/README.md).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,6 +19,8 @@ cargo build --release --target-dir "$build" --bin m2-blink
 cargo build --release --target-dir "$build" --bin m3-usb
 cargo build --release --target-dir "$build" --bin akko-rmk
 cargo build --release --target-dir "$build-mac" --bin akko-rmk --features mac
+# rom/rust's bootloader, in its own target dir as rom/sim/run.sh builds it.
+(cd rom/rust && cargo build --release)
 
 images=sim-rs/target/images
 rm -rf "$images.new" && mkdir -p "$images.new"
@@ -26,6 +29,7 @@ for bin in m1a-bounce m1b-stub m2-blink m3-usb akko-rmk; do
     cp "$build/$rel/$bin" "$images.new/$bin"
 done
 cp "$build-mac/$rel/akko-rmk" "$images.new/akko-rmk-mac"
+cp "rom/rust/target/$rel/wb32-rom-dfu" "$images.new/wb32-rom-dfu"
 rm -rf "$images" && mv "$images.new" "$images"
 
 cd sim-rs

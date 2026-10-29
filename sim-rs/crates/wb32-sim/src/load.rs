@@ -5,8 +5,8 @@
 use crate::chip::{Region, Wb32};
 use cortex_m3_emu::Size;
 use object::Endianness;
-use object::elf::{EM_ARM, FileHeader32, PT_LOAD};
-use object::read::elf::{FileHeader, ProgramHeader};
+use object::elf::{EM_ARM, FileHeader32, PT_LOAD, SHF_ALLOC, SHT_NOBITS};
+use object::read::elf::{FileHeader, ProgramHeader, SectionHeader};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +52,9 @@ impl Wb32 {
     }
 
     /// Loads every PT_LOAD segment's file bytes at its physical address.
-    /// Returns the ELF entry point.
+    /// Returns the ELF entry point. A segment with no allocated section in
+    /// it (a linker's segment for the ELF and program headers, as rom/rust
+    /// has at 0x1FFF_0000) is skipped, as Renode's LoadELF does.
     pub fn load_elf(&mut self, data: &[u8]) -> Result<u32, LoadError> {
         let err = |e: object::read::Error| LoadError(format!("not a 32-bit ARM ELF: {e}"));
         let hdr = FileHeader32::<Endianness>::parse(data).map_err(err)?;
@@ -63,8 +65,19 @@ impl Wb32 {
                 hdr.e_machine(endian)
             )));
         }
+        let sections = hdr.section_headers(endian, data).map_err(err)?;
         for ph in hdr.program_headers(endian, data).map_err(err)? {
             if ph.p_type(endian) != PT_LOAD {
+                continue;
+            }
+            let file = ph.p_offset(endian)..ph.p_offset(endian) + ph.p_filesz(endian);
+            let holds_a_section = sections.iter().any(|sh| {
+                sh.sh_flags(endian) & SHF_ALLOC != 0
+                    && sh.sh_type(endian) != SHT_NOBITS
+                    && sh.sh_size(endian) != 0
+                    && file.contains(&sh.sh_offset(endian))
+            });
+            if !holds_a_section {
                 continue;
             }
             let bytes = ph

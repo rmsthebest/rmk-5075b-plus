@@ -7,7 +7,9 @@
 //!   0x2000_0000  SRAM, 36 KB on the die
 //!   0x4000_0000  GPIO, AFIO, EXTI (gpio.rs)    0x4000_2000  TIM2 (tim2.rs)
 //!   0x4001_0000  PWR, ANCTL, IWDG, RCC (sysctl.rs)
+//!   0x4001_4000  USB device controller, CRC, SFM (usb.rs)
 //!   0x4001_5400  flash cache controller: remembers writes, as cache.py
+//!   0x4001_6400  SYS, 0x4001_7800 FMC (fmc.rs)
 //! Flash and ROM are read-only to the core; tests and loaders write them
 //! through `flash_mut`/`rom_mut`.
 //!
@@ -15,12 +17,16 @@
 //! of the word, and writes them into it (read, modify, write).
 
 use crate::diag::Diag;
+use crate::fmc::{self, Fmc};
 use crate::gpio::{Gpio, Matrix};
+use crate::usb::{self, Musb};
 use crate::sysctl::Sysctl;
 use crate::tim2::{self, Tim2};
 use cortex_m3_emu::{Bus, IrqLines, Memory, Size};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::rc::Rc;
 
 pub const FLASH_BASE: u32 = 0x0800_0000;
 pub const FLASH_SIZE: usize = 0x4_0000;
@@ -33,6 +39,9 @@ pub const GPIO_BASE: u32 = 0x4000_0000;
 pub const TIM2_BASE: u32 = 0x4000_2000;
 pub const SYSCTL_BASE: u32 = 0x4001_0000;
 pub const CACHE_BASE: u32 = 0x4001_5400;
+pub const USB_BASE: u32 = 0x4001_4000;
+pub const SYS_BASE: u32 = 0x4001_6400;
+pub const FMC_BASE: u32 = 0x4001_7800;
 
 pub struct Wb32 {
     flash: Memory,
@@ -43,11 +52,61 @@ pub struct Wb32 {
     pub sysctl: Sysctl,
     pub tim2: Tim2,
     cache: BTreeMap<u32, u32>,
+    /// Shared with the USB host, which drives its bus side.
+    pub usb: Rc<RefCell<Musb>>,
+    pub fmc: Fmc,
     /// The time `advance` last brought the chip to.
     now: u64,
+    /// The instruction executing (`Bus::executing`).
+    pc: u32,
     /// Register writes, in order, while `Some`: what the Renode models log
     /// as "MMIO W" (../../sim/trace.sh), plus TIM2's.
     pub writes: Option<Vec<Write>>,
+    /// Every write to a peripheral (the core's NVIC/SCB/SysTick included)
+    /// and every flash write the FMC makes, in order, while `Some`: what
+    /// Renode logs with `LogAllPeripheralsAccess` (../../rom/sim/trace.py).
+    pub bus_writes: Option<Vec<BusWrite>>,
+}
+
+/// A write as Renode's peripheral access log names it: "name+0xoff = 0xv".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BusWrite {
+    pub periph: &'static str,
+    pub off: u32,
+    pub value: u32,
+    /// The instruction that made it (Renode tags its log lines with one).
+    pub pc: u32,
+}
+
+impl fmt::Display for BusWrite {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}+{:#x} = {:#x}", self.periph, self.off, self.value)
+    }
+}
+
+/// Renode's peripheral names (../../sim/wb32fq95.repl, akko.resc,
+/// ../../rom/sim/rom.resc) and their bases.
+const RENODE_NAMES: [(&str, u32, u32); 13] = [
+    ("nvic", 0xE000_E000, 0x1000),
+    ("dwt", 0xE000_1000, 0x1000),
+    ("gpio", GPIO_BASE, 0x2000),
+    ("tim2", TIM2_BASE, 0x400),
+    ("qspi", 0x4000_3000, 0x100),
+    ("uart3", 0x4000_8400, 0x100),
+    ("spim2", 0x4000_9000, 0x100),
+    ("sysctl", SYSCTL_BASE, 0x1000),
+    ("usb", USB_BASE, 0x1000),
+    ("cache", CACHE_BASE, 0x400),
+    ("sys", SYS_BASE, 0x100),
+    ("fmc", FMC_BASE, 0x200),
+    ("flash", FLASH_BASE, FLASH_SIZE as u32),
+];
+
+fn renode_name(addr: u32) -> Option<(&'static str, u32)> {
+    RENODE_NAMES
+        .iter()
+        .find(|(_, base, size)| addr.wrapping_sub(*base) < *size)
+        .map(|&(name, base, _)| (name, addr - base))
 }
 
 /// A register write: "BLOCK+0xOFF = 0xVALUE", as the Renode models log it.
@@ -71,6 +130,9 @@ enum Periph {
     Tim2(u32),
     Sysctl(u32),
     Cache(u32),
+    Usb(u32),
+    Sys(u32),
+    Fmc(u32),
 }
 
 fn periph(addr: u32) -> Option<Periph> {
@@ -81,8 +143,14 @@ fn periph(addr: u32) -> Option<Periph> {
         Some(Periph::Tim2(o))
     } else if let Some(o) = inside(SYSCTL_BASE, 0x1000) {
         Some(Periph::Sysctl(o))
+    } else if let Some(o) = inside(CACHE_BASE, 0x400) {
+        Some(Periph::Cache(o))
+    } else if let Some(o) = inside(USB_BASE, 0x1000) {
+        Some(Periph::Usb(o))
+    } else if let Some(o) = inside(SYS_BASE, 0x100) {
+        Some(Periph::Sys(o))
     } else {
-        inside(CACHE_BASE, 0x400).map(Periph::Cache)
+        inside(FMC_BASE, 0x200).map(Periph::Fmc)
     }
 }
 
@@ -111,8 +179,12 @@ impl Wb32 {
             sysctl: Sysctl::default(),
             tim2: Tim2::default(),
             cache: BTreeMap::new(),
+            usb: Rc::new(RefCell::new(Musb::new())),
+            fmc: Fmc::default(),
             now: 0,
+            pc: 0,
             writes: None,
+            bus_writes: None,
         }
     }
 
@@ -131,6 +203,16 @@ impl Wb32 {
         self.tim2 = Tim2::default();
         self.tim2.sync(self.now);
         self.cache.clear();
+        *self.usb.borrow_mut() = Musb::new();
+        self.fmc = Fmc::default();
+    }
+
+    fn log_bus_write(&mut self, addr: u32, value: u32) {
+        if let Some(log) = &mut self.bus_writes
+            && let Some((periph, off)) = renode_name(addr)
+        {
+            log.push(BusWrite { periph, off, value, pc: self.pc });
+        }
     }
 
     pub fn now(&self) -> u64 {
@@ -143,6 +225,9 @@ impl Wb32 {
             Periph::Tim2(o) => self.tim2.read(o, self.now),
             Periph::Sysctl(o) => self.sysctl.read(o),
             Periph::Cache(o) => self.cache.get(&o).copied().unwrap_or(0),
+            Periph::Usb(o) => self.usb.borrow_mut().read(o, Size::Word),
+            Periph::Sys(o) => fmc::sys_read(o),
+            Periph::Fmc(o) => self.fmc.read(o),
         }
     }
 
@@ -168,6 +253,27 @@ impl Wb32 {
             Periph::Cache(o) => {
                 log(Write { block: "CACHE", off: o, value });
                 self.cache.insert(o, value);
+            }
+            Periph::Usb(o) => {
+                if o >= 0x400 {
+                    let block = if o < 0xC00 { "CRC" } else { "SFM" };
+                    log(Write { block, off: o % 0x400, value });
+                }
+                self.usb.borrow_mut().write(o, value);
+            }
+            Periph::Sys(_) => {}
+            Periph::Fmc(o) => {
+                if let Some(fill) = self.fmc.write(o, value) {
+                    for (i, w) in fill.words.into_iter().enumerate() {
+                        let a = fill.addr + 4 * i as u32;
+                        match self.region(a, Size::Word) {
+                            Some(Region::Flash(f)) => self.flash.write(f, Size::Word, w),
+                            Some(Region::Rom(r)) => self.rom.write(r, Size::Word, w),
+                            _ => {}
+                        }
+                        self.log_bus_write(a, w);
+                    }
+                }
             }
         }
     }
@@ -230,6 +336,7 @@ impl Bus for Wb32 {
             Some(Region::Flash(o)) => self.flash.read(o, size),
             Some(Region::Rom(o)) => self.rom.read(o, size),
             Some(Region::Sram(o)) => self.sram.read(o, size),
+            None if let Some(Periph::Usb(o)) = periph(addr) => self.usb.borrow_mut().read(o, size),
             None if let Some(p) = periph(addr & !3) => {
                 let shift = (addr & 3) * 8;
                 (self.periph_read(p) >> shift) & size.mask()
@@ -252,7 +359,12 @@ impl Bus for Wb32 {
             Some(Region::Flash(_) | Region::Rom(_)) => {
                 self.diags.push(Diag::ReadOnly { addr, size, value })
             }
+            None if let Some(Periph::Usb(o)) = periph(addr) => {
+                self.log_bus_write(addr, value);
+                self.periph_write(Periph::Usb(o), value)
+            }
             None if let Some(p) = periph(addr & !3) => {
+                self.log_bus_write(addr, value);
                 let value = if size == Size::Word {
                     value
                 } else {
@@ -289,8 +401,18 @@ impl Bus for Wb32 {
         self.tim2.next_event()
     }
 
+    fn executing(&mut self, pc: u32) {
+        self.pc = pc;
+    }
+
+    fn ppb_write(&mut self, addr: u32, _size: Size, value: u32) {
+        self.log_bus_write(addr, value);
+    }
+
     fn irq_lines(&mut self) -> IrqLines {
-        let level = self.gpio.irq_level() | (self.tim2.irq() as u64) << tim2::IRQ;
+        let level = self.gpio.irq_level()
+            | (self.tim2.irq() as u64) << tim2::IRQ
+            | (self.usb.borrow().irq() as u64) << usb::IRQ;
         IrqLines { level, raised: 0 }
     }
 }
