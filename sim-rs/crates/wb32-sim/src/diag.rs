@@ -22,6 +22,9 @@ pub enum Diag {
         off: u32,
         value: u32,
     },
+    /// A MAINCLK switch (RCC_MAINCLKUEN) to a source that isn't stable:
+    /// MAINCLK stays where it was (RM 7.2.9).
+    ClockNotReady { src: u32 },
 }
 
 impl fmt::Display for Diag {
@@ -50,6 +53,10 @@ impl fmt::Display for Diag {
                     f,
                     "LOCKED write dropped: {block}+0x{off:03x} = 0x{value:08x}"
                 )
+            }
+            Diag::ClockNotReady { src } => {
+                let name = ["MHSI", "FHSI", "PLL", "HSE"][src as usize & 3];
+                write!(f, "MAINCLK switch to {name} before it was stable: ignored")
             }
             Diag::ReadOnly { addr, size, value } => {
                 write!(

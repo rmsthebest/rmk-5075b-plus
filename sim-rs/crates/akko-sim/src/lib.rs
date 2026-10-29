@@ -318,16 +318,13 @@ impl Board {
         self.nor.borrow_mut().reset();
         self.radio.borrow_mut().reset();
         self.leds.borrow_mut().reset();
-        let undivided = self.host.undivided_usbpre_ok;
         self.host = Host::after_reset(&self.host, self.cpu.now);
-        self.host.undivided_usbpre_ok = undivided;
         self.cpu.reset(&mut self.chip);
     }
 
     /// A board running a ROM bootloader, entered as ../../rom/sim/rom.resc
     /// does: a reset, then SP and PC from the ROM's vector table (the
-    /// dump's are 0x2000_0450 and 0x1FFF_E091), as boot-guard's jump. The
-    /// host takes the ROM's 48 MHz USB clock (USBPRE 0x08).
+    /// dump's are 0x2000_0450 and 0x1FFF_E091), as boot-guard's jump.
     pub fn start_rom(rom: Rom) -> Result<Board, LoadError> {
         let mut b = Board::new();
         // The dump always, as rom.resc: rom/rust reads the information
@@ -349,7 +346,6 @@ impl Board {
             })?;
             b.chip.load_elf(&data)?;
         }
-        b.host.undivided_usbpre_ok = true;
         b.reset();
         b.cpu.set_msp(b.chip.read(ROM_BASE, Size::Word));
         let pc = b.chip.read(ROM_BASE + 4, Size::Word);

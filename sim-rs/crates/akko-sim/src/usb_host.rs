@@ -1,11 +1,11 @@
 //! The scripted USB host on the board's USB port: the host half of
 //! ../../sim/peripherals/usb.py, with ../../rom/sim/peripherals/usb_rom.py's
-//! additions (USBPRE 0x08 as an option, the bulk OUT command, bulk IN
-//! reports) folded in.
+//! additions (the bulk OUT command, bulk IN reports) folded in.
 //!
 //! It attaches once D+/D- (PA11/PA12) are in their USB alternate function,
-//! the USB and FIFO clocks are on, USBPRE gives 48 MHz and the PHY is
-//! enabled. Then, like Linux: 100 ms debounce, reset, GET_DESCRIPTOR(device,
+//! the USB and FIFO clocks are on, the clock tree gives USB 48 MHz (MAINCLK
+//! through USBPRE: the firmware's 96 MHz / 2, the ROM's 48 MHz undivided)
+//! and the PHY is enabled. Then, like Linux: 100 ms debounce, reset, GET_DESCRIPTOR(device,
 //! 64), reset, SET_ADDRESS, the device/config/string descriptors,
 //! SET_CONFIGURATION, then HID SET_IDLE and report descriptors. After that it
 //! polls every IN endpoint (interrupt ones at bInterval). It runs in 100 us
@@ -848,9 +848,6 @@ pub struct Host {
     next_enumerate: bool,
     /// When the next step is due (core ticks).
     pub next_at: u64,
-    /// Accept USBPRE 0x08 (no divider) as 48 MHz too: the ROM runs its PLL
-    /// at 48 MHz, where our firmware runs 96 MHz and divides by 2 (0x09).
-    pub undivided_usbpre_ok: bool,
 }
 
 impl Host {
@@ -868,7 +865,6 @@ impl Host {
             task: None,
             next_enumerate: false,
             next_at: now + STEP,
-            undivided_usbpre_ok: false,
         }
     }
 
@@ -1013,9 +1009,13 @@ impl Host {
         }
         if state == DETACHED {
             if ms_edge && self.attached(chip) {
-                let pre = chip.sysctl.reg(RCC_USBPRE);
-                if !(pre == 0x09 || (self.undivided_usbpre_ok && pre == 0x08)) {
-                    cx.err(format!("USB clock is not 48 MHz (USBPRE = 0x{pre:x})"));
+                let c = chip.sysctl.clocks();
+                if c.usb != 48_000_000 {
+                    let pre = chip.sysctl.reg(RCC_USBPRE);
+                    cx.err(format!(
+                        "USB clock is {} Hz, not 48 MHz (MAINCLK {} Hz, USBPRE 0x{pre:x})",
+                        c.usb, c.mainclk
+                    ));
                     return self.collect_device_log();
                 }
                 cx.log("device attached");

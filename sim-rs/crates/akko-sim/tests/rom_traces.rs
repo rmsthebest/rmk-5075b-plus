@@ -102,6 +102,12 @@ fn check(rom: Rom, scenario: &str) {
         .unwrap()
         .lines()
         .map(|l| {
+            // Renode's RCC resets to 0; the RM's RCC_AHBENR1 is 0x3D
+            // (7.3.12), and the ROM sets bits with a read-modify-write.
+            if let Some(v) = l.strip_prefix("sysctl+0xc40 = 0x") {
+                let v = u32::from_str_radix(v, 16).unwrap() | 0x3D;
+                return format!("sysctl+0xc40 = 0x{v:x}");
+            }
             RENODE_DIFFERS
                 .iter()
                 .find(|d| d.0 == l)

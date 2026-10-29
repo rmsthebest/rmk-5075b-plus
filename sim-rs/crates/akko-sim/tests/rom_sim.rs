@@ -197,6 +197,19 @@ fn reset_resets_the_chip(rom: Rom) {
     assert_eq!(t.b.pc(), 0x0800_0008);
 }
 
+/// Its clocks once enumerated (the clock tree from the RM, sysctl.rs):
+/// 48 MHz for the core and APB1, APB2 left off. rom/rust's must match.
+fn the_rom_runs_at_48_mhz_with_apb2_off(rom: Rom) {
+    let mut t = T::start(rom);
+    t.wait_for_enumeration();
+    let c = t.b.chip.sysctl.clocks();
+    assert_eq!(
+        (c.mainclk, c.hclk, c.pclk1, c.pclk2),
+        (48_000_000, 48_000_000, 48_000_000, 0)
+    );
+    assert_eq!(t.b.chip.take_diags(), vec![]);
+}
+
 macro_rules! on_both {
     ($($name:ident),* $(,)?) => {
         mod dump {
@@ -218,4 +231,5 @@ on_both!(
     go_jumps_to_the_app_with_vtor_at_0,
     go_outside_flash_is_refused,
     reset_resets_the_chip,
+    the_rom_runs_at_48_mhz_with_apb2_off,
 );

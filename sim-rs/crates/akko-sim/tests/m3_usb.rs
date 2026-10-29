@@ -1,6 +1,8 @@
 //! ../../sim/tests/m3_usb.robot: USB through musb, with the m3-usb image
 //! (CDC-ACM log and commands plus an HID boot keyboard) on the scripted host.
 
+mod common;
+
 use akko_sim::usb_host::{CONFIGURED, DETACHED, ENUMERATING, SUSPENDED, UsbEvent, cmd};
 use akko_sim::{Board, Image};
 use regex::Regex;
@@ -99,11 +101,7 @@ impl T {
 #[test]
 fn usb_bring_up_matches_qmk() {
     // Clocks, reset, FIFO clock, PHY and the 48 MHz prescaler, as ChibiOS's wb32_usb_init.
-    let golden = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../sim/golden/qmk_usb_init.txt"
-    ))
-    .unwrap();
+    let golden = common::golden("qmk_usb_init.txt");
     let re = Regex::new(r"^(RCC\+0x(014|034|040|06c|07c|088)|SFM)").unwrap();
     let mut t = T::boot();
     t.b.chip.writes = Some(Vec::new());
@@ -331,12 +329,16 @@ fn a_panic_resets_into_the_firmware_a_second_one_enters_dfu() {
 
 #[test]
 fn without_a_host_it_returns_to_dfu_after_30_s() {
+    // The 30 s count from when the firmware starts them: after the clocks
+    // are up (HSE and the PLL, ~2.2 ms) and USB's enable has blocked for
+    // its 50 ms of D+ low (asm::delay cycles: ~100 ms at the core's rate).
     let mut t = T::boot();
     t.host(cmd::UNPLUG);
     t.b.run_for(29.9);
     assert!(t.b.in_flash(), "PC 0x{:08x}", t.b.pc());
-    t.b.run_for(0.2);
-    assert!(t.b.in_rom(), "PC 0x{:08x}", t.b.pc());
+    assert!(t.b.run_until(0.3, |b| b.in_rom()), "PC 0x{:08x}", t.b.pc());
+    let s = t.b.cpu.now as f64 / cortex_m3_emu::TICK_HZ as f64;
+    assert!((30.05..30.2).contains(&s), "DFU at {s} s");
 }
 
 #[test]

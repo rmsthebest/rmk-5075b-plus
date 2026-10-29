@@ -75,12 +75,29 @@ fn systick_runs_tickless() {
     assert_eq!(b.word(SYST_RVR), (1 << 24) - 1);
 }
 
+/// rcc::init: HSE (12 MHz), the PLL at HSE / 2 x 16, MAINCLK from it, AHB
+/// and both APBs undivided (the clock tree from the RM, sysctl.rs).
+#[test]
+fn the_clocks_are_96_mhz_after_start_up() {
+    let mut b = boot();
+    b.run_for(0.01);
+    let c = b.chip.sysctl.clocks();
+    assert_eq!(
+        (c.mainclk, c.hclk, c.pclk1, c.pclk2),
+        (96_000_000, 96_000_000, 96_000_000, 96_000_000)
+    );
+}
+
 #[test]
 fn time_base_counts_milliseconds() {
+    // From after start-up: the time base starts once the clocks are up
+    // (rcc::init waits ~2.2 ms for HSE and the PLL to lock).
     let mut b = boot();
+    b.run_for(0.1);
+    let start = milliseconds(&mut b);
     b.run_for(1.0);
-    let ms = milliseconds(&mut b);
-    assert!((999..=1001).contains(&ms), "time base at {ms} ms after 1 s");
+    let ms = milliseconds(&mut b) - start;
+    assert!((999..=1001).contains(&ms), "time base {ms} ms over 1 s");
 }
 
 #[test]

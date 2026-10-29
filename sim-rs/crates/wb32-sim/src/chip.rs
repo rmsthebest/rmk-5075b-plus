@@ -22,7 +22,7 @@ use crate::diag::Diag;
 use crate::fmc::{self, Fmc};
 use crate::gpio::{Gpio, Matrix};
 use crate::ssi::{QSPI_IRQ, SPIM2_IRQ, Ssi};
-use crate::sysctl::Sysctl;
+use crate::sysctl::{Refused, Sysctl};
 use crate::tim2::{self, Tim2};
 use crate::uart::{UART3_IRQ, Uart};
 use crate::usb::{self, Musb};
@@ -264,7 +264,7 @@ impl Wb32 {
             Periph::Qspi(o) => self.qspi.read(o),
             Periph::Spim2(o) => self.spim2.read(o),
             Periph::Uart3(o) => self.uart3.read(o),
-            Periph::Sysctl(o) => self.sysctl.read(o),
+            Periph::Sysctl(o) => self.sysctl.read(o, self.now),
             Periph::Cache(o) => self.cache.get(&o).copied().unwrap_or(0),
             Periph::Usb(o) => self.usb.borrow_mut().read(o, Size::Word),
             Periph::Sys(o) => fmc::sys_read(o),
@@ -292,12 +292,14 @@ impl Wb32 {
             Periph::Qspi(o) => self.qspi.write(o, value, &self.gpio, &mut log),
             Periph::Spim2(o) => self.spim2.write(o, value, &self.gpio, &mut log),
             Periph::Uart3(o) => self.uart3.write(o, value, self.now, &self.gpio, &mut log),
-            Periph::Sysctl(o) => {
-                if !self.sysctl.write(o, value, &mut log) {
+            Periph::Sysctl(o) => match self.sysctl.write(o, value, self.now, &mut log) {
+                Ok(()) => {}
+                Err(Refused::Locked) => {
                     let (block, off) = Sysctl::block(o);
                     self.diags.push(Diag::Locked { block, off, value });
                 }
-            }
+                Err(Refused::NotReady { src }) => self.diags.push(Diag::ClockNotReady { src }),
+            },
             Periph::Cache(o) => {
                 log(Write {
                     block: "CACHE",

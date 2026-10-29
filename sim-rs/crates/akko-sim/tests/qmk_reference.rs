@@ -12,11 +12,6 @@ use common::*;
 use regex::Regex;
 use wb32_sim::diag::Diag;
 
-fn golden(name: &str) -> String {
-    let path = format!("{}/../../../sim/golden/{name}", env!("CARGO_MANIFEST_DIR"));
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
-}
-
 fn boot_qmk() -> T {
     T::start(Image::Qmk)
 }
@@ -81,7 +76,7 @@ fn qmk_clock_setup_matches_the_golden_trace() {
     assert_eq!(&ours[..golden.len()], &golden[..]);
     assert_eq!(
         &ours[golden.len()..golden.len() + 2],
-        ["RCC+0x040 = 0x00000100", "RCC+0x040 = 0x00000102"]
+        ["RCC+0x040 = 0x0000013d", "RCC+0x040 = 0x0000013f"]
     );
 }
 
@@ -92,6 +87,19 @@ fn qmk_clock_init_matches_its_golden_trace() {
     let golden: Vec<&str> = golden.trim().lines().collect();
     let ours = trace(boot_qmk(), 0.5, r"^(PWR|ANCTL|RCC|CACHE)");
     assert_eq!(&ours[..golden.len().min(ours.len())], &golden[..]);
+}
+
+/// The build in daily use runs at 96 MHz on the board (its UART divider
+/// for 115200 assumes it): the clock tree gives that from its set-up.
+#[test]
+fn qmk_runs_at_96_mhz() {
+    let mut t = boot_qmk();
+    t.b.run_for(0.5);
+    let c = t.b.chip.sysctl.clocks();
+    assert_eq!(
+        (c.mainclk, c.hclk, c.pclk1, c.pclk2),
+        (96_000_000, 96_000_000, 96_000_000, 96_000_000)
+    );
 }
 
 #[test]

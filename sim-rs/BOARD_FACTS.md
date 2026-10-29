@@ -13,7 +13,7 @@ that pins it (`-` until the test is ported).
 | The chip is a WB32FQ95xC: 256 KB flash, 36 KB SRAM, SYS_ID 0x3A50E980. | Board: wb32-dfu-updater_cli on download | `chip::tests` (sizes only) |
 | Out of stop mode every clock is back at its reset value, USBPRE, USBCLKENR and the USB FIFO clock included. | RM2905025 5.3.4 | - |
 | Stop entry is skipped while any EXTI request bit is pending. | RM2905025 5.4 | - |
-| PWR_CFGR is reset only by power-on reset. | RM2905025 5.4 | - |
+| PWR_CFGR is reset only by power-on reset; so are PWR SR1, GPREG0 and GPREG1. | RM2905025 5.4.5-5.4.8 | `sysctl::tests::a_system_reset_keeps_pwr_sr1_gpreg_and_cfgr` |
 | SYSRESETREQ keeps SRAM: the panic record and the bootloader magic at 0x2000_6FFC survive it. | Board: boot-guard's panic record survives the reset into the ROM bootloader and back (M3, tools/m3-check.py, 2026-10-26) | - |
 | The core is a Cortex-M3 r2p0 (CPUID 0x412FC230) with 4 priority bits, an MPU and 37 IRQs (0-36, I2S last). | Vendor wb32fq95xx.h (`__CM3_REV`, `__NVIC_PRIO_BITS`, `__MPU_PRESENT`, IRQn) | `cortex-m3-emu` `Config`, `ppb.rs` |
 | The ROM feeds the IWDG only while RCC+0x104 is non-zero. What sets it is unknown. | ROM disassembly, rom/notes.md. Open: read 0x40010D04 on the board after starting an IWDG | - |
@@ -24,6 +24,11 @@ that pins it (`-` until the test is ported).
 | B1 (USB_POWER_EN) high switches D+'s pull-up off and the host loses the device; low, it's attached. The vendor raises it for wireless (`usb_power_disconnect`) and lowers it for USB (`usb_power_connect`). The host then holds SE0, which the device's controller sees as a bus reset (USB 2.0 7.1.7.3). With the cable out, the device's own pull-up holds J: an idle bus, a suspend after 3 ms (7.1.7.6). | Vendor 5075b_plus.c, config.h; USB 2.0 7.1.7; unconfirmed on the board | `board_wiring.rs` `wireless_mode_lifts_b1_...`, `the_cable_out_suspends_...` |
 | A7 is high while the cable is in (VBUS); A15 (BAT_FULL_PIN, pulled up) is low while the charger charges, which is with the cable in and the battery not full. | Vendor config.h, 5075b_plus.c (`bat_full_flag = readPin(BAT_FULL_PIN)`); unconfirmed on the board | `parts::tests`, `board_wiring.rs` `the_charger_drives_a15_...` |
 | A8 (LED_POWER_EN) powers the WS2812 chain: low, the LEDs are dark and take no data; powered again they start dark until a frame. | Vendor 5075b_plus.c; WS2812 power-on state; unconfirmed on the board | `ws2812::tests::unpowered_...`, `board_wiring.rs` `the_lighting_off_...` |
+| The HSE crystal is 12 MHz, so QMK's PLL set-up (HSE / 2 x 16) gives 96 MHz, which its UART divider for 115200 (DLL 52, DLF 1) assumes, and that works on the board. | ChibiOS GENERIC_WB32_FQ95XX mcuconf.h `WB32_HSECLK`; board (QMK's wireless link works) | `qmk_reference.rs` `qmk_runs_at_96_mhz`, `m2_hal.rs` `the_clocks_are_96_mhz_after_start_up` |
+| The clock tree: MAINCLK from MHSI after reset, switched by MAINCLKUEN only to a stable source; AHB, APB1 and APB2 each divide MAINCLK (RATIO + 2 while DIVEN), each APB off until its SRCEN; the PLL is its input (MHSI or HSE, through PLLPRE, which SRCEN gates) times 24, 20, 16 or 12. | RM2905025 7.2, 7.3, 11.4.11 | `sysctl::tests` |
+| Ready flags rise a start-up time after the enable: MHSI 2 us, FHSI 0.5 us, LSI 85 us, the PLL 200 us after its input is stable (DS maximums); the HSE crystal's isn't given, 2 ms is assumed. | DS1905020 tables 5.2-6 to 5.2-9 | `sysctl::tests::qmks_pll_set_up_gives_96_mhz_once_locked` |
+| Non-zero reset values: RCC AHBENR0 0x7B, AHBENR1 0x3D, AHBENR2 0x03, IWDGCLKENR 0x01; ANCTL MHSIENR and FHSIENR 1 (both stable); PWR CFGR 0x3BE. ANAKEY1/2 read 0. Firmware sets AHBENR1 bits with a read-modify-write, so the goldens recorded in Renode (whose RCC resets to 0) are compared with 0x3D or-ed in. | RM2905025 5.4.8-5.4.10, 7.3.11-7.3.16, 11.4.2-11.4.5 | `sysctl::tests::reset_values_and_the_keys_read_0`, `common::golden`, `rom_traces.rs` |
+| The ROM bootloader runs at 48 MHz with APB2 off, and feeds USB MAINCLK undivided (USBPRE 0x08); the firmware's 96 MHz goes through USBPRE / 2 (0x09). | The ROM dump in the sim (rom/rust agrees); RM 7.3.5 | `rom_sim.rs` `the_rom_runs_at_48_mhz_with_apb2_off` |
 | SPIM2_MO is B15 on AF5; QSPI SCK/MI/MO are B3/B4/B5 on AF5; UART3 TX/RX are C10/C11 on AF7. A peripheral wired to a pin on another function sees nothing. | WB32FQ95 datasheet, alternate-function table | `ws2812::tests::b15_must_be_on_af5`, `nor::tests`, `radio::tests` |
 
 ## Open questions for the board
@@ -34,5 +39,6 @@ Things to read with Vial peek (0xDA) in an image that's being flashed anyway:
 - RCC+0x104 with and without the IWDG running.
 - Instructions per second: cycles taken by a known busy loop, against SysTick. The sim runs at Renode's 100 MIPS for now; the board's flash wait states make it slower (asm::delay(HCLK/1000) took about 3000 TIM2 ticks, 2026-10-27).
 - CPUID, to confirm r2p0.
+- The HSE crystal's start-up time (ANCTL HSESR after HSECR0, timed with SysTick at MHSI); the sim assumes 2 ms.
 - The radio module's timings (sim-rs `radio.rs`, assumed): a bonded select to CONNECTED (300 ms), a pairing (2 s), its 30 min sleep. Log them from the keyboard's side (the time between frames) in an image that's being flashed anyway.
 - AIRCR (0xE000_ED0C), to confirm bit 13 reads 0.
