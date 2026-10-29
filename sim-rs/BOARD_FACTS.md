@@ -19,6 +19,7 @@ that pins it (`-` until the test is ported).
 | The ROM feeds the IWDG only while RCC+0x104 is non-zero. What sets it is unknown. | ROM disassembly, rom/notes.md. Open: read 0x40010D04 on the board after starting an IWDG | - |
 
 | AIRCR reads with bits 14:11 clear (ARMv7-M: reserved, RAZ). Renode's reads with bit 13 set, which shows in the ROM's priority-grouping write (0x05FA2300 in Renode's traces). | ARM DDI 0403E B3.2.6; unconfirmed on the board | `rom_traces.rs` |
+| SysTick: RVR = N-1 gives a period of N clocks; a CVR write clears it, and RVR loads on the next clock; a disabled counter doesn't count. Renode's model differs on all three: its period is RVR clocks, a CVR write reloads at once and runs about 3 clocks ahead, and the count starts at a CVR write even before ENABLE. akko-rmk's tickless time driver restarts SysTick twice a millisecond, so Renode's wakes drift about 7 cycles/ms early, which moves its LED frames against the m7 key presses (2026-10-29: probes from SRAM and the firmware's own CVR reads, identical instructions in both). | ARM DDI 0403E B3.3; unconfirmed on the board | `cpu.rs` `systick_*` |
 
 ## Open questions for the board
 

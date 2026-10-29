@@ -474,3 +474,86 @@ fn cyccnt_counts_at_96_mhz() {
     let want = 202 * Config::default().insn_ticks / Config::default().dwt_ticks;
     assert_eq!(cpu.r[2] as u64, want);
 }
+
+// SysTick against ARM DDI 0403E B3.3, where Renode's model differs
+// (BOARD_FACTS.md): a period is RVR + 1 clocks, a CVR write reloads on the
+// next clock, and a disabled counter doesn't count.
+
+const SYST_CSR: u32 = 0xE000_E010;
+const SYST_RVR: u32 = 0xE000_E014;
+const SYST_CVR: u32 = 0xE000_E018;
+
+struct Syst {
+    ppb: cortex_m3_emu::ppb::Ppb,
+    diags: Vec<CoreDiag>,
+    clock: u64,
+}
+
+impl Syst {
+    fn new() -> Syst {
+        let config = Config::default();
+        Syst {
+            ppb: cortex_m3_emu::ppb::Ppb::new(config),
+            diags: Vec::new(),
+            clock: config.systick_ticks,
+        }
+    }
+    /// At `clocks` SysTick clocks (96 MHz) from 0.
+    fn write(&mut self, clocks: u64, addr: u32, v: u32) {
+        let now = clocks * self.clock;
+        self.ppb.tick(now);
+        self.ppb.write(addr, Size::Word, v, now, &mut self.diags);
+    }
+    fn cvr(&mut self, clocks: u64) -> u32 {
+        let now = clocks * self.clock;
+        self.ppb.tick(now);
+        self.ppb.read(SYST_CVR, Size::Word, now, &mut self.diags)
+    }
+}
+
+#[test]
+fn systick_period_is_reload_plus_one() {
+    // "A RELOAD value of N-1 for a period of N clocks": 480 wraps of 1000.
+    let mut s = Syst::new();
+    s.write(0, SYST_RVR, 999);
+    s.write(0, SYST_CVR, 0);
+    s.write(0, SYST_CSR, 7);
+    // The interrupt pends at each zero, and not a clock before.
+    for k in 1..=480u64 {
+        s.cvr(k * 1000 - 1);
+        assert_eq!(s.ppb.pending & 1 << 15, 0, "early at wrap {k}");
+        s.cvr(k * 1000);
+        assert_ne!(s.ppb.pending & 1 << 15, 0, "wrap {k}");
+        s.ppb.pending &= !(1 << 15);
+    }
+    assert_eq!(s.cvr(480 * 1000), 0, "at the 480th zero");
+    assert_eq!(s.cvr(480 * 1000 + 1), 999, "reloaded on the next clock");
+    assert_eq!(s.cvr(480 * 1000 + 3), 997);
+}
+
+#[test]
+fn systick_cvr_write_reloads_on_the_next_clock() {
+    let mut s = Syst::new();
+    s.write(0, SYST_RVR, 0x00FF_FFFF);
+    s.write(0, SYST_CVR, 0);
+    s.write(0, SYST_CSR, 5);
+    s.write(1000, SYST_RVR, 95999);
+    s.write(1000, SYST_CVR, 0);
+    assert_eq!(s.cvr(1000), 0, "cleared");
+    assert_eq!(s.cvr(1001), 95999, "RVR on the next clock");
+    assert_eq!(s.cvr(1481), 95519);
+    assert_eq!(s.cvr(1000 + 96000), 0, "a full RVR + 1 to the zero");
+}
+
+#[test]
+fn systick_counts_only_while_enabled() {
+    // The firmware clears CVR, then enables 7 instructions later: the count
+    // starts at the enable.
+    let mut s = Syst::new();
+    s.write(0, SYST_RVR, 0x00FF_FFFF);
+    s.write(0, SYST_CVR, 0);
+    s.write(500, SYST_CSR, 5);
+    assert_eq!(s.cvr(500), 0);
+    assert_eq!(s.cvr(501), 0x00FF_FFFF, "loaded on the first enabled clock");
+    assert_eq!(s.cvr(500 + 12058), 0x00FF_FFFF - 12057);
+}

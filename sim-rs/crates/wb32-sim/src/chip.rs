@@ -28,7 +28,7 @@ use crate::uart::{UART3_IRQ, Uart};
 use crate::usb::{self, Musb};
 use cortex_m3_emu::{Bus, IrqLines, Memory, Size};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::rc::Rc;
 
@@ -69,6 +69,9 @@ pub struct Wb32 {
     now: u64,
     /// The instruction executing (`Bus::executing`).
     pc: u32,
+    /// Times an instruction at each of these addresses ran, while `Some`:
+    /// Renode's `cpu AddHook` counters (m7_power's handler counts).
+    pub pc_hits: Option<HashMap<u32, u64>>,
     /// Register writes, in order, while `Some`: what the Renode models log
     /// as "MMIO W" (../../sim/trace.sh), plus TIM2's.
     pub writes: Option<Vec<Write>>,
@@ -209,6 +212,7 @@ impl Wb32 {
             fmc: Fmc::default(),
             now: 0,
             pc: 0,
+            pc_hits: None,
             writes: None,
             bus_writes: None,
         }
@@ -456,6 +460,9 @@ impl Bus for Wb32 {
 
     fn executing(&mut self, pc: u32) {
         self.pc = pc;
+        if let Some(n) = self.pc_hits.as_mut().and_then(|h| h.get_mut(&pc)) {
+            *n += 1;
+        }
     }
 
     fn ppb_write(&mut self, addr: u32, _size: Size, value: u32) {

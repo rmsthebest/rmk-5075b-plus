@@ -100,6 +100,17 @@ impl Image {
             .map(|s| s.address() as u32)
     }
 
+    /// The address of the symbol named exactly `name` (as `nm` prints it,
+    /// the Thumb bit clear), e.g. an interrupt handler's.
+    pub fn exact_symbol(self, name: &str) -> Option<u32> {
+        use object::{Object, ObjectSymbol};
+        let data = self.read().ok()?;
+        let file = object::File::parse(&*data).ok()?;
+        file.symbols()
+            .find(|s| s.name() == Ok(name))
+            .map(|s| s.address() as u32 & !1)
+    }
+
     pub fn read(self) -> Result<Vec<u8>, LoadError> {
         let path = self.path();
         std::fs::read(&path).map_err(|e| {

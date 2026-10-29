@@ -53,7 +53,11 @@ ${MAX_WAKES_ASLEEP}         25
 ${MAX_INSNS_KEY_HELD}       37000000
 # Press (release) to IN endpoint armed, in 100 us steps: worst over the
 # presses in `Press To Report Latency`. Releases wait out the 5 ms debounce.
-${MAX_PRESS_WORST}          4
+# A press is 3-4 steps, unless it lands on a WS2812 frame send (about 0.55 ms,
+# lights on): the scan waits for it, 9 steps. Which press lands on one hangs
+# on SysTick's timing, where Renode's model is off (sim-rs/BOARD_FACTS.md):
+# here none does, in sim-rs (spec timing) one does.
+${MAX_PRESS_WORST}          10
 ${MAX_RELEASE_WORST}        55
 
 *** Keywords ***

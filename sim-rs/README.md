@@ -49,4 +49,6 @@ QMK binary and its golden traces) and the keyboard itself:
 
 - Step 6c: `m6_wireless.rs`, all 28 tests of m6_wireless.robot (18 s), stop mode included. Stop mode is modelled as in Renode: SysTick off, SLEEPDEEP and a WFI that any interrupt ends; what a stop does to the clocks on the chip (BOARD_FACTS.md) isn't modelled yet in either sim. A seeded UART bug (LSR never shows a byte) fails all 28. The whole suite (186 tests) takes about 100 s.
 
-Next: m7_power (step 7).
+- Step 7: `m7_power.rs`, all 5 tests of m7_power.robot (3.7 s; Renode takes minutes), with the handler counts as a PC-hit counter in the chip (`Wb32::pc_hits`, Renode's `cpu AddHook`s). On the same image Renode and ours agree within a frame: lights on 5.91 M vs 6.00 M insns/s (one more 16 ms frame in our second), off 0.21 M vs 0.22 M, asleep 0.07 M both, key held 33.43 M vs 33.37 M, wakes within 1/s. Their timing drifts apart from SysTick's enable on, and it is Renode's SysTick that's off: it breaks ARM DDI 0403E B3.3 in three ways (BOARD_FACTS.md, pinned by `cpu.rs` `systick_*`), found by running the same probes from SRAM in both and logging the firmware's own CVR reads. Renode's default mode also counts instructions in translation blocks (96,555 in the first millisecond against 96,186 with `cpu MaximumBlockSize 1`, which matches ours exactly). With spec timing, one m7 press lands on a WS2812 frame and waits 9 steps for it, so the press bound is now 10 in both suites.
+
+Next: switch over (step 8).
