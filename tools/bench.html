@@ -60,6 +60,7 @@ pre { background: var(--log); border: 1px solid var(--line); border-radius: 10px
     <button data-act="capture">Capture 60 s</button>
     <button data-act="crash" data-confirm="Click again to crash RMK">Test crash recovery</button>
     <button data-act="hang" data-confirm="Click again to hang RMK">Test watchdog</button>
+    <button data-act="dfu">Enter DFU</button>
     <button data-act="reset">Leave DFU</button>
     <button id="cancel">Cancel</button>
   </div>
@@ -114,6 +115,7 @@ function render(s) {
       || (a === "flash-rmk" && !(f && f.ok))
       || (a === "flash-qmk" && !s.qmk.present)
       || (a === "reset" && k.mode !== "dfu")
+      || (a === "dfu" && k.mode !== "rmk")
       || (a === "capture" && !(k.mode === "rmk" || k.mode === "qmk"));
   });
   $("cancel").disabled = !running || !j.cancellable;

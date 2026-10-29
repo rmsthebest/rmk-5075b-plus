@@ -15,8 +15,10 @@ Safety rules, as tools/flash.sh and the sim-first workflow:
     after precheck.py passes on it again and its hash matches the stamp.
   - "Flash QMK" flashes ../akko_5075b_plus_fixes.bin and only if its hash is
     the known-good one below.
-  - Nothing enters DFU from here: the keyboard is put there by hand (unplug,
-    hold Esc, plug in), and flashing waits for it.
+  - DFU: "Enter DFU", and flashing, send a running akko-rmk there over USB
+    (VIA's bootloader jump, as Vial's button). Anything else (QMK, or an
+    image that doesn't answer) is put there by hand (unplug, hold Esc, plug
+    in), and flashing waits for it.
 """
 
 import hashlib
@@ -185,8 +187,34 @@ class Cancelled(Exception):
 JOB = Job()
 
 
+def rmk_to_dfu(job):
+    """Sends a running akko-rmk to the DFU bootloader with VIA's bootloader
+    jump (0x0B), as Vial's button does; waits up to 5 s. False if akko-rmk
+    isn't connected over USB or didn't go."""
+    path = rmk_raw_hid()
+    if not path:
+        return False
+    job.say("Sending akko-rmk to the DFU bootloader (VIA bootloader jump)...")
+    fd = os.open(path, os.O_RDWR)
+    try:
+        os.write(fd, bytes([0x00, 0x0B]) + bytes(31))
+    except OSError:
+        pass  # it may leave the bus before the write returns
+    finally:
+        os.close(fd)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if keyboard_state()["mode"] == "dfu":
+            return True
+        time.sleep(0.25)
+    return False
+
+
 def wait_for_dfu(job):
+    if keyboard_state()["mode"] != "dfu" and rmk_to_dfu(job):
+        job.say("In the DFU bootloader.")
     if keyboard_state()["mode"] == "dfu":
+        time.sleep(0.5)
         return
     job.prompt = "Unplug the keyboard, hold Esc, plug it back in (keep Esc held for a second)."
     job.say("Waiting for the DFU bootloader...")
@@ -494,6 +522,15 @@ def provoke(job, channel, confirm, said, expect):
     raise RuntimeError("the keyboard didn't come back within 15 s")
 
 
+def do_enter_dfu(job):
+    if keyboard_state()["mode"] == "dfu":
+        job.say("Already in the DFU bootloader.")
+        return
+    if not rmk_to_dfu(job):
+        raise RuntimeError("akko-rmk isn't connected over USB (cable in, USB mode), or it didn't go to DFU")
+    job.say("In the DFU bootloader. Flash, or Leave DFU to restart.")
+
+
 def do_reset(job):
     job.run(DFU, "-R")
 
@@ -505,6 +542,7 @@ ACTIONS = {
     "capture": ("Capture 60 s", do_capture),
     "crash": ("Test crash recovery", do_crash),
     "hang": ("Test watchdog", do_hang),
+    "dfu": ("Enter DFU", do_enter_dfu),
     "reset": ("Leave DFU", do_reset),
 }
 
