@@ -69,6 +69,9 @@ on its first start. The lighting and keyboard settings live in their own record 
 
 ## 5. Check it works
 
+The workbench's sign-off checklist (`tools/signoff.json`) has these checks and more. It records each
+result against the image last flashed from the bench.
+
 - **Typing**, over USB and over 2.4G, including the Win/Mac switch.
 - **Lighting:** Fn+L toggles it, and Fn+Del steps the mode. The side lights follow.
 - **Knob:** clockwise turns the volume up. A fast spin shouldn't lose steps, over 2.4G either.

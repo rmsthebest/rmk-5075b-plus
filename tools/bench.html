@@ -39,6 +39,21 @@ button.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
   font-size: 17px; font-weight: 600; margin-bottom: 12px; }
 .status { margin: 8px 0; font-weight: 600; }
 .st-ok { color: var(--ok); } .st-failed { color: var(--bad); } .st-cancelled { color: var(--warn); }
+.signoff { margin-top: 24px; }
+.signoff h2 { font-size: 17px; margin: 0 0 4px; }
+.signoff h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 18px 0 6px; }
+.check { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.check .what { flex: 1; min-width: 0; }
+.check .how { color: var(--muted); font-size: 13px; }
+.check .res { font-size: 12px; margin-top: 2px; }
+.check .res.pass { color: var(--ok); } .check .res.fail { color: var(--bad); } .check .res.skip { color: var(--warn); }
+.check .res.old { color: var(--muted); }
+.check .marks { display: flex; gap: 6px; flex-shrink: 0; }
+.check .marks button { padding: 6px 10px; font-size: 13px; }
+.check .marks button.on-pass { background: var(--ok); border-color: var(--ok); color: #fff; }
+.check .marks button.on-fail { background: var(--bad); border-color: var(--bad); color: #fff; }
+.check .marks button.on-skip { background: var(--warn); border-color: var(--warn); color: #fff; }
+@media (max-width: 640px) { .check { flex-direction: column; align-items: stretch; } }
 pre { background: var(--log); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
   height: 46vh; overflow: auto; font: 12.5px/1.4 ui-monospace, monospace; white-space: pre-wrap; margin: 0; }
 </style>
@@ -67,6 +82,11 @@ pre { background: var(--log); border: 1px solid var(--line); border-radius: 10px
   <div class="prompt" id="prompt"></div>
   <div class="status" id="status"></div>
   <pre id="log"></pre>
+  <section class="signoff">
+    <h2>Sign-off checklist</h2>
+    <div class="small" id="signoff-summary"></div>
+    <div id="signoff"></div>
+  </section>
 </main>
 <script>
 const token = new URLSearchParams(location.search).get("t");
@@ -131,6 +151,52 @@ function render(s) {
     if (atEnd) el.scrollTop = el.scrollHeight;
   }
   since = j.len;
+  renderSignoff(s.signoff);
+}
+
+let lastSignoff = "";
+function renderSignoff(so) {
+  const key = JSON.stringify(so);
+  if (key === lastSignoff) return;
+  lastSignoff = key;
+  const all = so.groups.flatMap(g => g.items);
+  const current = id => so.results[id] && so.results[id].image === so.image ? so.results[id].result : null;
+  const n = r => all.filter(i => current(i.id) === r).length;
+  $("signoff-summary").textContent = `On ${so.image || "no image"}${so.flashed ? "" : " (nothing flashed from here yet: the frozen image)"}: ` +
+    `${n("pass")} passed, ${n("fail")} failed, ${n("skip")} skipped, ${all.length - n("pass") - n("fail") - n("skip")} to do`;
+  const root = $("signoff");
+  root.textContent = "";
+  for (const g of so.groups) {
+    const h = document.createElement("h3"); h.textContent = g.group; root.append(h);
+    for (const it of g.items) {
+      const row = document.createElement("div"); row.className = "check";
+      const what = document.createElement("div"); what.className = "what";
+      const name = document.createElement("div"); name.textContent = it.check; name.style.fontWeight = 600;
+      const how = document.createElement("div"); how.className = "how"; how.textContent = it.how;
+      const res = document.createElement("div"); res.className = "res";
+      const r = so.results[it.id];
+      if (r) {
+        const old = r.image !== so.image;
+        res.classList.add(old ? "old" : r.result);
+        res.textContent = `${r.result} · ${r.time}` + (old ? ` · on ${r.image}, not this image` : "");
+      }
+      what.append(name, how, res);
+      const marks = document.createElement("div"); marks.className = "marks";
+      for (const [label, result] of [["Pass", "pass"], ["Fail", "fail"], ["Skip", "skip"]]) {
+        const b = document.createElement("button"); b.textContent = label;
+        if (current(it.id) === result) b.classList.add("on-" + result);
+        b.onclick = () => mark(it.id, current(it.id) === result ? "clear" : result);
+        marks.append(b);
+      }
+      row.append(what, marks); root.append(row);
+    }
+  }
+}
+
+async function mark(id, result) {
+  await fetch("/api/check", { method: "POST", headers: { "X-Token": token, "Content-Type": "application/json" },
+    body: JSON.stringify({ id, result }) });
+  poll();
 }
 
 async function poll() {

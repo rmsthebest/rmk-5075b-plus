@@ -8,6 +8,9 @@ Everything is a button, so the keyboard being flashed can be the only one
 plugged in. Only the stdlib is used; the page is served on localhost only and
 every action needs the token in the URL the script opens.
 
+The sign-off checklist (tools/signoff.json) records pass/fail/skip per
+item in target/bench/signoff.json, against the image last flashed from here.
+
 Safety rules, as tools/flash.sh and the sim-first workflow:
   - "Run sim tests" builds every image and runs sim/run.sh. Only when all
     suites pass is akko-rmk frozen (ELF + bin copied to target/bench/) with a
@@ -45,6 +48,10 @@ RMK_ELF = ROOT / "target/thumbv7m-none-eabi/release/akko-rmk"
 FROZEN_ELF = BENCH / "akko-rmk.elf"
 FROZEN_BIN = BENCH / "akko-rmk.bin"
 STAMP = BENCH / "akko-rmk.json"
+# The image last flashed from here, and the sign-off checklist's results.
+FLASHED = BENCH / "flashed.json"
+CHECKS = Path(__file__).with_name("signoff.json")
+RESULTS_FILE = BENCH / "signoff.json"
 LOGS = BENCH / "logs"
 QMK_BIN = ROOT.parent / "akko_5075b_plus_fixes.bin"
 QMK_SHA = "d5e10b44ed718de45f0da4c4e08914578baa9104895e88a2c3e67e912c3af306"
@@ -272,6 +279,34 @@ def do_flash_rmk(job):
         raise RuntimeError("no tested image (or it changed since the tests): run the sim tests first")
     job.run(sys.executable, "-I", "tools/precheck.py", FROZEN_ELF, FROZEN_BIN)
     flash(job, FROZEN_BIN)
+    FLASHED.write_text(json.dumps({"sha256": st["sha256"], "git": st["git"], "time": time.strftime("%Y-%m-%d %H:%M")}))
+
+
+def signoff_state():
+    """The checklist (tools/signoff.json) with each item's last result, and
+    the image results are recorded against: the one last flashed from here
+    (or the frozen one, if nothing was)."""
+    results = json.loads(RESULTS_FILE.read_text()) if RESULTS_FILE.exists() else {}
+    image = json.loads(FLASHED.read_text()) if FLASHED.exists() else None
+    if image is None and STAMP.exists():
+        image = json.loads(STAMP.read_text())
+    return {"groups": json.loads(CHECKS.read_text()), "results": results,
+            "image": image and image["sha256"][:12], "flashed": FLASHED.exists()}
+
+
+def record_check(item, result, note):
+    ids = {i["id"] for g in json.loads(CHECKS.read_text()) for i in g["items"]}
+    if item not in ids or result not in ("pass", "fail", "skip", "clear"):
+        return False
+    results = json.loads(RESULTS_FILE.read_text()) if RESULTS_FILE.exists() else {}
+    if result == "clear":
+        results.pop(item, None)
+    else:
+        results[item] = {"result": result, "image": signoff_state()["image"],
+                         "time": time.strftime("%Y-%m-%d %H:%M"), "note": note[:200]}
+    BENCH.mkdir(parents=True, exist_ok=True)
+    RESULTS_FILE.write_text(json.dumps(results, indent=1))
+    return True
 
 
 def do_flash_qmk(job):
@@ -574,6 +609,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({
                 "keyboard": keyboard_state(), "image": image_state(),
                 "qmk": {"present": QMK_BIN.exists(), "path": str(QMK_BIN)},
+                "signoff": signoff_state(),
                 "job": {"name": JOB.name, "status": JOB.status, "prompt": JOB.prompt,
                         "cancellable": JOB.cancellable, "log": JOB.log[since:], "len": len(JOB.log)},
             }))
@@ -585,6 +621,14 @@ class Handler(BaseHTTPRequestHandler):
         what = urlparse(self.path).path.removeprefix("/api/")
         if what == "cancel":
             return self.send(200, json.dumps({"ok": JOB.stop()}))
+        if what == "check":
+            n = min(int(self.headers.get("Content-Length", "0")), 4096)
+            try:
+                body = json.loads(self.rfile.read(n) or b"{}")
+                ok = record_check(str(body.get("id", "")), str(body.get("result", "")), str(body.get("note", "")))
+            except ValueError:
+                ok = False
+            return self.send(200 if ok else 400, json.dumps({"ok": ok}))
         if what in ACTIONS:
             label, fn = ACTIONS[what]
             return self.send(200, json.dumps({"ok": JOB.start(label, fn)}))

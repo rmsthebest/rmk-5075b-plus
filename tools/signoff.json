@@ -1,0 +1,49 @@
+[
+ {"group": "Keys", "items": [
+  {"id": "type-usb", "check": "Typing over USB", "how": "Every row, modifiers, a few shortcuts."},
+  {"id": "type-dongle", "check": "Typing over 2.4G", "how": "Fn+Y, then type for a while."},
+  {"id": "type-bt", "check": "Typing over Bluetooth", "how": "Fn+E (BT1), then type."},
+  {"id": "win-mac", "check": "Win/Mac switch", "how": "Mac: Alt and GUI swap places, the top row is brightness/media. Back to Win: as before."},
+  {"id": "fn-row", "check": "Fn + top row (Windows)", "how": "My Computer, Mail, Search, Home, media keys."},
+  {"id": "gu-togg", "check": "Win key lock", "how": "Fn+Left Win: the Win key does nothing and its LED is on. Again: back."},
+  {"id": "hs-dir", "check": "WASD/arrow swap", "how": "Fn+W: WASD and the arrows swap, a black blink. Again: back. Kept across a replug."},
+  {"id": "ct-app", "check": "Right Ctrl as App", "how": "Hold Fn+Right Ctrl 3 s: Right Ctrl opens the context menu, a black blink. Again: back."},
+  {"id": "caps", "check": "Caps Lock LED", "how": "Follows the computer's Caps Lock, on USB and wireless."},
+  {"id": "knob", "check": "Knob", "how": "Turns the volume, press mutes; a fast spin over 2.4G keeps every step."}
+ ]},
+ {"group": "Lighting", "items": [
+  {"id": "light-toggle", "check": "Lights on/off", "how": "Fn+L toggles the matrix and the side lights."},
+  {"id": "light-adjust", "check": "Effect and adjustments", "how": "Fn+Del: next effect. Fn+-/=: speed. Fn+Up/Down: brightness. Fn+Left/Right: saturation."},
+  {"id": "side-mode", "check": "Side lights", "how": "Fn+Left Ctrl steps the side-light modes, the last one off."},
+  {"id": "light-kept", "check": "Lighting kept", "how": "Change the effect, wait 10 s, unplug and replug: same effect."},
+  {"id": "vial-light", "check": "Vial lighting tab", "how": "Effect, speed and colour change from Vial."}
+ ]},
+ {"group": "Wireless", "items": [
+  {"id": "bt-pair", "check": "Bluetooth pairing", "how": "Hold Fn+E 3 s: pairs as \"Akko 5075-1\". Fn+R, Fn+T: BT2, BT3."},
+  {"id": "dongle-pair", "check": "Dongle pairing", "how": "Hold Fn+Y 3 s: re-pairs with the dongle."},
+  {"id": "usb-back", "check": "Back to USB", "how": "Fn+U from 2.4G: types over the cable again."},
+  {"id": "reselect", "check": "Reconnect kick", "how": "Fn+Y while on 2.4G: it reconnects."},
+  {"id": "conn-leds", "check": "Connection LEDs", "how": "A device key blinks while connecting and shows its colour once connected."},
+  {"id": "stuck-key", "check": "No stuck key", "how": "On 2.4G hold a key, unplug the dongle, let go, plug it back in: nothing stays held."}
+ ]},
+ {"group": "Power", "items": [
+  {"id": "battery-level", "check": "Battery level", "how": "Fn+Space shows the level."},
+  {"id": "charging", "check": "Charging", "how": "Cable in on battery: the charge indication; the computer shows the battery."},
+  {"id": "sleep-wake", "check": "Sleep and wake", "how": "On 2.4G, 2 min idle: lights off. A key wakes it and it reconnects."},
+  {"id": "host-suspend", "check": "Computer suspend", "how": "The computer sleeps: the lights go off. A key on 2.4G wakes the computer (the key itself isn't typed: accepted)."},
+  {"id": "battery-day", "check": "Battery over a day", "how": "Fn+Space morning and evening on 2.4G, about the same drain as QMK or better."}
+ ]},
+ {"group": "Vial", "items": [
+  {"id": "vial-usb", "check": "Vial over USB", "how": "The keymap loads; change a key; it survives a replug."},
+  {"id": "vial-dongle", "check": "Vial through the dongle", "how": "vial.rocks in Chrome on 2.4G: the keymap loads and a key change works."}
+ ]},
+ {"group": "Boot and recovery", "items": [
+  {"id": "bench-dfu", "check": "Bench Enter DFU", "how": "Enter DFU, then Leave DFU, without touching the cable."},
+  {"id": "qk-boot", "check": "Fn+Right Shift+Esc", "how": "Goes to DFU, settings kept. Leave DFU brings it back."},
+  {"id": "esc-cold", "check": "Esc at a cold start", "how": "Switch to USB with no cable, hold Esc, plug in: DFU."},
+  {"id": "crash", "check": "Crash recovery", "how": "Bench: Test crash recovery."},
+  {"id": "hang", "check": "Watchdog", "how": "Bench: Test watchdog."},
+  {"id": "factory-reset", "check": "Factory reset", "how": "Hold Fn+Grave 3 s: keymap and lighting back to default, same device kept."},
+  {"id": "led-test", "check": "LED test", "how": "Hold Left Ctrl while plugging in: red, green, blue, white."}
+ ]}
+]
