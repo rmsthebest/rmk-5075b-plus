@@ -1,5 +1,7 @@
 # RMK firmware for the Akko 5075B Plus
 
+![The Akko 5075B Plus running this firmware](docs/keyboard.jpg)
+
 Rust firmware ([RMK](https://github.com/HaoboGu/rmk) on [Embassy](https://embassy.dev)) for the
 Akko 5075B Plus, a 75% wireless keyboard on a WestberryTech WB32FQ95 (Cortex-M3, 96 MHz). It
 replaces the vendor's QMK build with feature parity:
