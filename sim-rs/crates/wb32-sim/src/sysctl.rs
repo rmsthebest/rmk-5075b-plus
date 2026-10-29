@@ -119,6 +119,8 @@ pub struct Sysctl {
     on: BTreeMap<u32, u64>,
     /// The source MAINCLK runs from (MAINCLKSRC's encoding).
     mainclk_src: u32,
+    /// `clocks()`, kept up to date by every write (read per instruction).
+    clocks: Clocks,
 }
 
 impl Default for Sysctl {
@@ -128,6 +130,13 @@ impl Default for Sysctl {
             regs: BTreeMap::new(),
             on: BTreeMap::new(),
             mainclk_src: 0,
+            clocks: Clocks {
+                mainclk: MHSI_HZ,
+                hclk: MHSI_HZ,
+                pclk1: 0,
+                pclk2: 0,
+                usb: 0,
+            },
         };
         s.reset();
         s
@@ -145,6 +154,7 @@ impl Sysctl {
         self.regs = RESET.into_iter().chain(kept).collect();
         self.on = [(MHSIENR, 0), (FHSIENR, 0)].into();
         self.mainclk_src = 0;
+        self.clocks = self.compute_clocks();
     }
 
     pub fn reg(&self, off: u32) -> u32 {
@@ -217,6 +227,10 @@ impl Sysctl {
 
     /// The clocks as the registers now set them.
     pub fn clocks(&self) -> Clocks {
+        self.clocks
+    }
+
+    fn compute_clocks(&self) -> Clocks {
         let mainclk = self.source_hz(self.mainclk_src);
         // RATIO n divides by n + 2 while DIVEN is set.
         let div = |v: u32| {
@@ -298,6 +312,7 @@ impl Sysctl {
             }
             self.mainclk_src = src;
         }
+        self.clocks = self.compute_clocks();
         Ok(())
     }
 }

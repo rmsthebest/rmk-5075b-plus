@@ -5,8 +5,11 @@
 //! through a [`Bus`] the chip model implements, so the chip decides its own
 //! memory map and how peripherals see each other.
 //!
-//! Time is counted in core ticks of 1/[`TICK_HZ`] s, a rate every clock
-//! here divides: 100 MIPS is 24 ticks an instruction, 96 MHz 25 a cycle.
+//! Time is counted in core ticks of 1/[`TICK_HZ`] s, a rate the chip's
+//! clocks divide (96 MHz is 25 ticks a cycle, 8 MHz 300). The core runs at
+//! the bus's HCLK ([`Bus::hclk_hz`]): an instruction takes its cycles, and
+//! SysTick and DWT CYCCNT count HCLK (SysTick's external reference is
+//! HCLK / 8).
 
 pub mod bus;
 pub mod cpu;
@@ -25,29 +28,18 @@ use std::fmt;
 
 pub const TICK_HZ: u64 = 2_400_000_000;
 
+/// The core clock (HCLK) a [`Bus`] runs it at unless it says otherwise.
+pub const DEFAULT_HCLK_HZ: u64 = 96_000_000;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
-    /// Ticks per instruction while awake.
-    pub insn_ticks: u64,
-    /// Ticks per SysTick count (both clock sources, as in Renode).
-    pub systick_ticks: u64,
-    /// Ticks per DWT CYCCNT count.
-    pub dwt_ticks: u64,
     /// The implemented priority bits (__NVIC_PRIO_BITS 4: 0xF0).
     pub prio_mask: u8,
 }
 
 impl Default for Config {
-    /// Renode's Cortex-M timing, so the two simulators agree: 100 MIPS
-    /// (its default PerformanceInMips), SysTick and CYCCNT at 96 MHz (the
-    /// .repl's systickFrequency and DWT frequency).
     fn default() -> Self {
-        Config {
-            insn_ticks: TICK_HZ / 100_000_000,
-            systick_ticks: TICK_HZ / 96_000_000,
-            dwt_ticks: TICK_HZ / 96_000_000,
-            prio_mask: 0xF0,
-        }
+        Config { prio_mask: 0xF0 }
     }
 }
 

@@ -35,7 +35,11 @@ const HANDLERS: [&str; 12] = [
     "UART3",
     "SPIM2",
 ];
-// The robot file's bounds, per emulated second (its header has the history).
+// Per emulated second. Until 2026-10-29 these were the robot file's bounds
+// (its header has the history); since the core runs at HCLK (96 MHz, not
+// Renode's flat 100 MIPS; hardware-gaps step 3) they're kept here:
+//   step 3: on 6.00 M, 74 sleeps; off 0.22 M, 76; asleep 0.07 M, 18; key held
+//   33.4 M; press 5 steps (all 10), release 43-56 (mean 48.5).
 const MAX_INSNS_LIGHTS_ON: f64 = 6_800_000.0;
 const MAX_WAKES_LIGHTS_ON: f64 = 90.0;
 const MAX_INSNS_LIGHTS_OFF: f64 = 300_000.0;
@@ -45,12 +49,12 @@ const MAX_WAKES_ASLEEP: f64 = 25.0;
 const MAX_INSNS_KEY_HELD: f64 = 37_000_000.0;
 // Press (release) to IN endpoint armed, in 100 us steps: worst over the
 // presses in `press_to_report_latency`. Releases wait out the 5 ms debounce.
-// A press is 3-4 steps, unless it lands on a WS2812 frame send (about 0.55
-// ms, lights on): the scan waits for it, 9 steps. Which press lands on one
-// hangs on SysTick's timing, where Renode's model is off (BOARD_FACTS.md):
-// here one does, in Renode none does.
-const MAX_PRESS_WORST: u32 = 10;
-const MAX_RELEASE_WORST: u32 = 55;
+// A press is 5 steps (3-4 at Renode's 100 MIPS), unless it lands on a WS2812
+// frame send (about 0.55 ms, lights on): the scan waits for it, about 10
+// steps. Which press lands on one hangs on SysTick's timing: none does at
+// step 3.
+const MAX_PRESS_WORST: u32 = 11;
+const MAX_RELEASE_WORST: u32 = 60;
 
 /// From a blank flash, configured, then past the USB key's 2 s of white and
 /// the first settings save.

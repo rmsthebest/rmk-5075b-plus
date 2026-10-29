@@ -232,6 +232,9 @@ impl Bus for BoardBus<'_> {
     fn sleep(&mut self, deep: bool) {
         self.chip.sleep(deep)
     }
+    fn hclk_hz(&self) -> u64 {
+        self.chip.hclk_hz()
+    }
 }
 
 impl Default for Board {

@@ -6,6 +6,8 @@ about 2 min). This Renode sim runs the same suites as a cross-check (the workben
 `qmk_power.rs`). Where the two sims differ, sim-rs follows the chip
 and the ARM spec; `../sim-rs/BOARD_FACTS.md` lists where Renode's models don't (its SysTick,
 and ICSR.RETTOBASE, which breaks QMK's SPI flash here: the QMK golden traces end there).
+Since sim-rs times the core from the chip's clock tree (96 MHz for our images, not a flat
+100 MIPS), its m7_power and qmk_power keep their own bounds; the robot files keep Renode's.
 
 Runs our images, and the known-good QMK build, on a simulated WB32FQ95, so most
 changes can be checked without flashing the keyboard.

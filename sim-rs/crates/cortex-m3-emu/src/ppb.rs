@@ -51,6 +51,7 @@ pub struct Ppb {
     /// CYCCNT at `cyc_since` (and frozen there while counting is off).
     cyc_base: u32,
     cyc_since: u64,
+    hclk_hz: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -66,6 +67,9 @@ pub struct SysTick {
 
 const CSR_ENABLE: u32 = 1;
 const CSR_TICKINT: u32 = 2;
+/// The processor clock; clear, the external reference (the WB32's HCLK / 8,
+/// RM2905025 7.2.3).
+const CSR_CLKSOURCE: u32 = 4;
 const CSR_COUNTFLAG: u32 = 1 << 16;
 
 impl Ppb {
@@ -97,11 +101,14 @@ impl Ppb {
             dwt_ctrl: 0,
             cyc_base: 0,
             cyc_since: 0,
+            hclk_hz: crate::DEFAULT_HCLK_HZ,
         }
     }
 
     pub fn reset(&mut self, now: u64) {
+        let hz = self.hclk_hz;
         *self = Ppb::new(self.config);
+        self.hclk_hz = hz;
         self.cyc_since = now;
     }
 
@@ -154,25 +161,58 @@ impl Ppb {
 
     // ---- SysTick and DWT, both clocked from virtual time ----
 
+    /// The core clock: SysTick and CYCCNT count it.
+    pub fn hclk_hz(&self) -> u64 {
+        self.hclk_hz
+    }
+
+    /// The core clock changes at `now`: the counters carry on from where
+    /// they are at the new rate.
+    pub fn set_hclk(&mut self, hz: u64, now: u64) {
+        let value = self.systick_value(now);
+        let cyc = self.cyccnt(now);
+        self.hclk_hz = hz;
+        if self.systick.csr & CSR_ENABLE != 0 {
+            self.systick_restart(value, now);
+        }
+        self.cyc_base = cyc;
+        self.cyc_since = now;
+    }
+
+    fn systick_hz(&self) -> u64 {
+        if self.systick.csr & CSR_CLKSOURCE != 0 {
+            self.hclk_hz
+        } else {
+            self.hclk_hz / 8
+        }
+    }
+
+    /// Ticks until `clocks` SysTick clocks have passed.
+    fn systick_ticks(&self, clocks: u64) -> u64 {
+        to_ticks(clocks, self.systick_hz())
+    }
+
     fn systick_period(&self, reload: u32) -> u64 {
-        (reload as u64 + 1) * self.config.systick_ticks
+        self.systick_ticks(reload as u64 + 1)
     }
 
     /// Sets the counter to `value` as of `now`, and when it next reaches 0.
     fn systick_restart(&mut self, value: u32, now: u64) {
+        let rvr = self.systick.rvr;
+        let next_zero = if value == 0 {
+            // It reloads on the next clock, then counts down from RVR.
+            if rvr == 0 {
+                u64::MAX
+            } else {
+                now + self.systick_ticks(rvr as u64 + 1)
+            }
+        } else {
+            now + self.systick_ticks(value as u64)
+        };
         let st = &mut self.systick;
         st.value = value;
         st.since = now;
-        st.next_zero = if value == 0 {
-            // It reloads on the next clock, then counts down from RVR.
-            if st.rvr == 0 {
-                u64::MAX
-            } else {
-                now + self.config.systick_ticks * (st.rvr as u64 + 1)
-            }
-        } else {
-            now + self.config.systick_ticks * value as u64
-        };
+        st.next_zero = next_zero;
     }
 
     fn systick_value(&self, now: u64) -> u32 {
@@ -180,7 +220,7 @@ impl Ppb {
         if st.csr & CSR_ENABLE == 0 {
             return st.value;
         }
-        let clocks = (now - st.since) / self.config.systick_ticks;
+        let clocks = to_clocks(now - st.since, self.systick_hz());
         if clocks <= st.value as u64 {
             return st.value - clocks as u32;
         }
@@ -232,7 +272,7 @@ impl Ppb {
             return self.cyc_base;
         }
         self.cyc_base
-            .wrapping_add(((now - self.cyc_since) / self.config.dwt_ticks) as u32)
+            .wrapping_add(to_clocks(now - self.cyc_since, self.hclk_hz) as u32)
     }
 
     // ---- register access ----
@@ -367,11 +407,12 @@ impl Ppb {
             }),
             _ => match a - SCS {
                 0x010 => {
-                    let was_on = self.systick.csr & CSR_ENABLE != 0;
+                    let was = self.systick.csr;
                     let value = self.systick_value(now);
                     self.systick.csr = (self.systick.csr & CSR_COUNTFLAG) | (v & 7);
                     let on = v & CSR_ENABLE != 0;
-                    if on && !was_on {
+                    let rate_changed = (was ^ v) & CSR_CLKSOURCE != 0;
+                    if on && (was & CSR_ENABLE == 0 || rate_changed) {
                         self.systick_restart(value, now);
                     } else if !on {
                         self.systick.value = value;
@@ -537,4 +578,15 @@ impl Ppb {
             | bit(self.pending, 5) << 14
             | bit(self.pending, 11) << 15
     }
+}
+
+/// Ticks until `clocks` clocks at `hz` have passed (rounded up, so the
+/// count has reached it then).
+fn to_ticks(clocks: u64, hz: u64) -> u64 {
+    (clocks as u128 * crate::TICK_HZ as u128).div_ceil(hz as u128) as u64
+}
+
+/// Whole clocks at `hz` in `ticks`.
+fn to_clocks(ticks: u64, hz: u64) -> u64 {
+    (ticks as u128 * hz as u128 / crate::TICK_HZ as u128) as u64
 }

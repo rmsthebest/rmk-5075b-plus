@@ -87,6 +87,13 @@ pub struct Cpu {
     pub(crate) pending_sync: Option<(u16, u32)>,
     /// Set when an instruction wrote the PC.
     branched: bool,
+    /// The core clock the bus last gave, and the part of a tick spent
+    /// at it that hasn't made a whole one yet (in units of 1/hclk_hz).
+    hclk_hz: u64,
+    tick_frac: u64,
+    /// `now` and `tick_frac` before the instruction, for one that undoes
+    /// itself (a BKPT a debugger takes).
+    insn_t0: (u64, u64),
 }
 
 impl Cpu {
@@ -122,6 +129,9 @@ impl Cpu {
             cur_it: ItState::default(),
             pending_sync: None,
             branched: false,
+            hclk_hz: crate::DEFAULT_HCLK_HZ,
+            tick_frac: 0,
+            insn_t0: (0, 0),
         }
     }
 
@@ -433,8 +443,27 @@ impl Cpu {
         self.take_sync(bus);
     }
 
+    /// Follows the bus's core clock.
+    fn sync_clock(&mut self, bus: &impl Bus) {
+        let hz = bus.hclk_hz().max(1);
+        if hz != self.hclk_hz {
+            self.ppb.set_hclk(hz, self.now);
+            self.hclk_hz = hz;
+            self.tick_frac = 0;
+        }
+    }
+
+    /// Time passes for `cycles` core clocks.
+    fn spend(&mut self, cycles: u64) {
+        let n = cycles as u128 * crate::TICK_HZ as u128 + self.tick_frac as u128;
+        let hz = self.hclk_hz as u128;
+        self.now += (n / hz) as u64;
+        self.tick_frac = (n % hz) as u64;
+    }
+
     fn step_inner(&mut self, bus: &mut impl Bus) {
         bus.advance(self.now);
+        self.sync_clock(bus);
         self.ppb.tick(self.now);
         self.update_irqs(bus);
         if !self.lockstep && self.take_pending(bus) {
@@ -474,7 +503,8 @@ impl Cpu {
         };
         let insn = decode(hw1, hw2, self.it.in_block());
         self.instructions += 1;
-        self.now += self.config.insn_ticks;
+        self.insn_t0 = (self.now, self.tick_frac);
+        self.spend(1);
         self.r[PC] = self.cur_pc.wrapping_add(insn.len as u32);
         self.branched = false;
         if insn.unpredictable {
@@ -500,6 +530,7 @@ impl Cpu {
     /// Asleep: jump to the next thing that can wake the core, or the deadline.
     fn sleep_until(&mut self, bus: &mut impl Bus, deadline: u64) {
         bus.advance(self.now);
+        self.sync_clock(bus);
         self.ppb.tick(self.now);
         self.update_irqs(bus);
         if self.should_wake() {
@@ -905,7 +936,7 @@ impl Cpu {
                 self.r[PC] = self.cur_pc;
                 self.it = self.cur_it;
                 self.instructions -= 1;
-                self.now -= self.config.insn_ticks;
+                (self.now, self.tick_frac) = self.insn_t0;
                 self.debug_halt = true;
             }
             Op::Bkpt { .. } => {

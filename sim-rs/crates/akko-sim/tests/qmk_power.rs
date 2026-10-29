@@ -12,10 +12,11 @@ use common::*;
 
 const RGB_TOG: (u8, u8) = (3, 9);
 const KEY_A: (u8, u8) = (3, 1);
-// QMK never sleeps: the CPU's 100 M instructions/s, as in Renode. Its
-// SysTick runs at 100 kHz (Renode's at 100.1 kHz, its RVR period:
-// BOARD_FACTS.md).
-const MIN_INSNS: f64 = 99_900_000.0;
+// QMK never sleeps: one instruction a cycle at its 96 MHz HCLK until step 4
+// of the hardware-gaps plan gives instructions their TRM cycles (Renode's
+// flat 100 M/s before 2026-10-29). Its SysTick runs at 100 kHz (Renode's
+// at 100.1 kHz, its RVR period: BOARD_FACTS.md).
+const MIN_INSNS: f64 = 95_900_000.0;
 const SYSTICK_HZ: f64 = 100_000.0;
 
 fn boot() -> T {

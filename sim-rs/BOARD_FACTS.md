@@ -29,6 +29,8 @@ that pins it (`-` until the test is ported).
 | Ready flags rise a start-up time after the enable: MHSI 2 us, FHSI 0.5 us, LSI 85 us, the PLL 200 us after its input is stable (DS maximums); the HSE crystal's isn't given, 2 ms is assumed. | DS1905020 tables 5.2-6 to 5.2-9 | `sysctl::tests::qmks_pll_set_up_gives_96_mhz_once_locked` |
 | Non-zero reset values: RCC AHBENR0 0x7B, AHBENR1 0x3D, AHBENR2 0x03, IWDGCLKENR 0x01; ANCTL MHSIENR and FHSIENR 1 (both stable); PWR CFGR 0x3BE. ANAKEY1/2 read 0. Firmware sets AHBENR1 bits with a read-modify-write, so the goldens recorded in Renode (whose RCC resets to 0) are compared with 0x3D or-ed in. | RM2905025 5.4.8-5.4.10, 7.3.11-7.3.16, 11.4.2-11.4.5 | `sysctl::tests::reset_values_and_the_keys_read_0`, `common::golden`, `rom_traces.rs` |
 | The ROM bootloader runs at 48 MHz with APB2 off, and feeds USB MAINCLK undivided (USBPRE 0x08); the firmware's 96 MHz goes through USBPRE / 2 (0x09). | The ROM dump in the sim (rom/rust agrees); RM 7.3.5 | `rom_sim.rs` `the_rom_runs_at_48_mhz_with_apb2_off` |
+| The core, SysTick (CLKSOURCE 1) and DWT CYCCNT run at HCLK; SysTick's external reference (CLKSOURCE 0) is HCLK/8. A clock switch carries both counters on from their values at the new rate. | RM2905025 7.2.3 (clock tree figure); ARM DDI 0403E B3.3 | `cpu.rs` `systick_external_reference_is_hclk_over_8`, `a_clock_change_rebases_systick_and_cyccnt`, `instructions_take_a_clock_of_the_bus_hclk` |
+| The ROM's start-up disconnect is 15 SysTick periods of 4.8 M core clocks: 1.5 s at its 48 MHz (0.72 s in Renode's flat 100 MIPS). | rom/rust main.rs, clock.rs (from the dump) | `rom_traces.rs` (boot runs 1.78 s) |
 | SPIM2_MO is B15 on AF5; QSPI SCK/MI/MO are B3/B4/B5 on AF5; UART3 TX/RX are C10/C11 on AF7. A peripheral wired to a pin on another function sees nothing. | WB32FQ95 datasheet, alternate-function table | `ws2812::tests::b15_must_be_on_af5`, `nor::tests`, `radio::tests` |
 
 ## Open questions for the board
@@ -37,7 +39,7 @@ Things to read with Vial peek (0xDA) in an image that's being flashed anyway:
 - Reset values of the registers the models assume (RCC, ANCTL, the GPIO MODER/PUPDR).
 - SYS MEMSZ (0x4001_6404); rom/sim assumes 0x03.
 - RCC+0x104 with and without the IWDG running.
-- Instructions per second: cycles taken by a known busy loop, against SysTick. The sim runs at Renode's 100 MIPS for now; the board's flash wait states make it slower (asm::delay(HCLK/1000) took about 3000 TIM2 ticks, 2026-10-27).
+- Instructions per second: cycles taken by a known busy loop, against SysTick. The sim runs one instruction per HCLK cycle until hardware-gaps step 4; the board's flash wait states make it slower (asm::delay(HCLK/1000) took about 3000 TIM2 ticks, 2026-10-27).
 - CPUID, to confirm r2p0.
 - The HSE crystal's start-up time (ANCTL HSESR after HSECR0, timed with SysTick at MHSI); the sim assumes 2 ms.
 - The radio module's timings (sim-rs `radio.rs`, assumed): a bonded select to CONNECTED (300 ms), a pairing (2 s), its 30 min sleep. Log them from the keyboard's side (the time between frames) in an image that's being flashed anyway.

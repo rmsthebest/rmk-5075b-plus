@@ -465,6 +465,11 @@ impl Bus for Wb32 {
         self.tim2.next_event().min(self.uart3.next_event())
     }
 
+    /// The clock tree's AHB clock (sysctl.rs).
+    fn hclk_hz(&self) -> u64 {
+        self.sysctl.clocks().hclk
+    }
+
     fn executing(&mut self, pc: u32) {
         self.pc = pc;
         if let Some(n) = self.pc_hits.as_mut().and_then(|h| h.get_mut(&pc)) {

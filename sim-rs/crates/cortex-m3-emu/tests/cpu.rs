@@ -10,6 +10,8 @@ struct TestBus {
     flash: Memory,
     ram: Memory,
     irq: u64,
+    /// HCLK, which the core and SysTick run from.
+    hz: u64,
 }
 
 impl Bus for TestBus {
@@ -35,9 +37,15 @@ impl Bus for TestBus {
             raised: 0,
         }
     }
+    fn hclk_hz(&self) -> u64 {
+        self.hz
+    }
 }
 
 const CODE: u32 = 0x40;
+/// Ticks per core clock: the bus's default HCLK, which SysTick (CLKSOURCE
+/// 1) counts too.
+const CLOCK: u64 = cortex_m3_emu::TICK_HZ / cortex_m3_emu::DEFAULT_HCLK_HZ;
 const STACK: u32 = 0x2000_0800;
 
 /// Assembles `(encoding, expected disassembly)` pairs at `at`; 32-bit
@@ -79,6 +87,7 @@ fn machine_at(at: u32, code: &[(u32, &str)]) -> (Cpu, TestBus) {
         flash: Memory::new(0x1000),
         ram: Memory::new(0x1000),
         irq: 0,
+        hz: cortex_m3_emu::DEFAULT_HCLK_HZ,
     };
     bus.flash.write(0, Size::Word, STACK);
     bus.flash.write(4, Size::Word, at | 1);
@@ -292,7 +301,7 @@ fn systick_machine() -> (Cpu, TestBus) {
 #[test]
 fn systick_interrupts_wake_wfi() {
     let (mut cpu, mut bus) = systick_machine();
-    let period = 100 * Config::default().systick_ticks;
+    let period = 100 * CLOCK;
     cpu.run_until(&mut bus, 10 * period + period / 2);
     assert!(cpu.diags.is_empty(), "{:?}", cpu.diags);
     assert_eq!(cpu.r[4], 10, "ten ticks");
@@ -307,7 +316,7 @@ fn systick_interrupts_wake_wfi() {
 fn exception_frame_realigns_the_stack() {
     let (mut cpu, mut bus) = systick_machine();
     cpu.r[13] = STACK - 4; // not 8-byte aligned
-    let period = 100 * Config::default().systick_ticks;
+    let period = 100 * CLOCK;
     cpu.run_until(&mut bus, period + period / 2);
     assert_eq!(cpu.r[4], 1);
     assert_eq!(
@@ -321,7 +330,7 @@ fn exception_frame_realigns_the_stack() {
 fn primask_holds_the_interrupt_and_wfi_still_wakes() {
     let (mut cpu, mut bus) = systick_machine();
     cpu.primask = true;
-    let period = 100 * Config::default().systick_ticks;
+    let period = 100 * CLOCK;
     cpu.run_until(&mut bus, 3 * period + period / 2);
     assert_eq!(cpu.r[4], 0, "masked");
     assert!(cpu.ppb.pending & (1 << 15) != 0, "SysTick pending");
@@ -447,7 +456,7 @@ fn basepri_masks_lower_priorities_only() {
     // SysTick at priority 0x80; BASEPRI 0x80 masks it (equal isn't higher).
     cpu.ppb.priority[15] = 0x80;
     cpu.basepri = 0x80;
-    let period = 100 * Config::default().systick_ticks;
+    let period = 100 * CLOCK;
     cpu.run_until(&mut bus, 2 * period + period / 2);
     assert_eq!(cpu.r[4], 0);
     cpu.basepri = 0x90;
@@ -469,10 +478,8 @@ fn cyccnt_counts_at_96_mhz() {
     ]);
     steps(&mut cpu, &mut bus, 4 + 1 + 200 + 1);
     // Time advances as an instruction starts, so the read sees 202 after
-    // the enable (movs, the loop's 200, the ldr itself) at 100 MIPS:
-    // 2.02 us = 193.92 cycles.
-    let want = 202 * Config::default().insn_ticks / Config::default().dwt_ticks;
-    assert_eq!(cpu.r[2] as u64, want);
+    // the enable (movs, the loop's 200, the ldr itself), a cycle each.
+    assert_eq!(cpu.r[2], 202);
 }
 
 // SysTick against ARM DDI 0403E B3.3, where Renode's model differs
@@ -491,11 +498,10 @@ struct Syst {
 
 impl Syst {
     fn new() -> Syst {
-        let config = Config::default();
         Syst {
-            ppb: cortex_m3_emu::ppb::Ppb::new(config),
+            ppb: cortex_m3_emu::ppb::Ppb::new(Config::default()),
             diags: Vec::new(),
-            clock: config.systick_ticks,
+            clock: CLOCK,
         }
     }
     /// At `clocks` SysTick clocks (96 MHz) from 0.
@@ -543,6 +549,64 @@ fn systick_cvr_write_reloads_on_the_next_clock() {
     assert_eq!(s.cvr(1001), 95999, "RVR on the next clock");
     assert_eq!(s.cvr(1481), 95519);
     assert_eq!(s.cvr(1000 + 96000), 0, "a full RVR + 1 to the zero");
+}
+
+#[test]
+fn systick_external_reference_is_hclk_over_8() {
+    // CLKSOURCE 0: the WB32's external reference is HCLK/8 (RM 7.2.3).
+    let mut s = Syst::new();
+    s.write(0, SYST_RVR, 999);
+    s.write(0, SYST_CVR, 0);
+    s.write(0, SYST_CSR, 3);
+    assert_eq!(s.cvr(7), 0, "no SysTick clock yet");
+    assert_eq!(s.cvr(8), 999, "reloaded on the first, 8 HCLKs in");
+    assert_eq!(s.cvr(8 * 101), 899);
+    s.cvr(8 * 1000 - 1);
+    assert_eq!(s.ppb.pending & 1 << 15, 0, "early");
+    s.cvr(8 * 1000);
+    assert_ne!(s.ppb.pending & 1 << 15, 0, "at the zero");
+    // Back to HCLK: the count carries on from where it is, 8 times faster.
+    s.write(8 * 1101, SYST_CSR, 7);
+    assert_eq!(s.cvr(8 * 1101), 899);
+    assert_eq!(s.cvr(8 * 1101 + 99), 800);
+}
+
+#[test]
+fn a_clock_change_rebases_systick_and_cyccnt() {
+    // The firmware moves HCLK from MHSI's 8 MHz to the PLL's 96 MHz with
+    // both counting: each carries on from its value at the switch.
+    let mut s = Syst::new();
+    s.ppb.set_hclk(8_000_000, 0);
+    s.clock = cortex_m3_emu::TICK_HZ / 8_000_000;
+    s.write(0, SYST_RVR, 0x00FF_FFFF);
+    s.write(0, SYST_CVR, 0);
+    s.write(0, SYST_CSR, 5);
+    s.write(0, 0xE000_1000, 1);
+    let switch = 1001 * s.clock;
+    s.ppb.set_hclk(96_000_000, switch);
+    let at = |clocks: u64| switch + clocks * CLOCK;
+    let cyccnt = |s: &mut Syst, now| s.ppb.read(0xE000_1004, Size::Word, now, &mut s.diags);
+    assert_eq!(cyccnt(&mut s, switch), 1001);
+    s.ppb.tick(at(960));
+    let cvr = s.ppb.read(SYST_CVR, Size::Word, at(960), &mut s.diags);
+    assert_eq!(cvr, 0x00FF_FFFF - 1000 - 960);
+    assert_eq!(cyccnt(&mut s, at(960)), 1001 + 960);
+}
+
+#[test]
+fn instructions_take_a_clock_of_the_bus_hclk() {
+    // 8 MHz (MHSI, before the PLL): an instruction is 1/8 µs; then 96 MHz.
+    let nops: Vec<_> = (0..20).map(|_| (0xBF00, "nop")).collect();
+    let (mut cpu, mut bus) = machine(&nops);
+    bus.hz = 8_000_000;
+    let t0 = cpu.now;
+    steps(&mut cpu, &mut bus, 10);
+    let slow = cortex_m3_emu::TICK_HZ / 8_000_000;
+    assert_eq!(cpu.now - t0, 10 * slow);
+    assert_eq!(cpu.ppb.hclk_hz(), 8_000_000, "SysTick follows");
+    bus.hz = 96_000_000;
+    steps(&mut cpu, &mut bus, 10);
+    assert_eq!(cpu.now - t0, 10 * slow + 10 * CLOCK);
 }
 
 #[test]

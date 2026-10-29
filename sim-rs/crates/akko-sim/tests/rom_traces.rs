@@ -3,7 +3,10 @@
 //! = 0x<value>", which our run of the same scenario must match line for
 //! line, on the ROM dump and on rom/rust's build alike (with Renode's
 //! folding of repeated lines, and where Renode is wrong, below).
-//!   boot      reset into the image, run 1 s (the host enumerates it)
+//!   boot      reset into the image, run 1 s (the host enumerates it); here
+//!             1.78 s, as the ROM's 1.5 s disconnect (15 SysTick periods of
+//!             4.8 M core clocks, at 48 MHz) took Renode's flat 100 MIPS
+//!             0.72 s, leaving 0.28 s with USB on
 //!   download  boot, then ERASE 0x08000000, WRITE_PAGE (a 16-byte app), READ
 //!   leave     download, then GO 0x08000000
 
@@ -31,7 +34,7 @@ fn command(b: &mut Board, c: u8, a: u32, len: u32, data: &[u8]) {
 fn trace(rom: Rom, scenario: &str) -> Vec<(String, u32)> {
     let mut b = Board::start_rom(rom).unwrap_or_else(|e| panic!("{e}"));
     b.chip.bus_writes = Some(Vec::new());
-    b.run_for(1.0);
+    b.run_for(1.5 + 0.28);
     if scenario != "boot" {
         command(&mut b, 0x5E, 0x0800_0000, 1, &[]);
         command(&mut b, 0x6A, 0x0800_0000, APP.len() as u32, &APP);

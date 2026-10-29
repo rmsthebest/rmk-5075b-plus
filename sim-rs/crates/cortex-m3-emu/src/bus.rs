@@ -64,6 +64,11 @@ pub trait Bus {
 
     /// The core went to sleep (WFI/WFE); `deep` is SCR.SLEEPDEEP.
     fn sleep(&mut self, _deep: bool) {}
+    /// The core's clock (HCLK) in Hz, read before every instruction: it
+    /// times the instructions, SysTick and DWT CYCCNT.
+    fn hclk_hz(&self) -> u64 {
+        crate::DEFAULT_HCLK_HZ
+    }
 }
 
 /// External interrupt inputs, bit n for IRQ n (exception 16 + n).
