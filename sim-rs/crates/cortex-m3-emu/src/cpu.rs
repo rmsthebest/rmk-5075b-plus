@@ -60,6 +60,12 @@ pub struct Cpu {
     /// Times the core went to sleep.
     pub sleeps: u64,
     pub diags: Vec<CoreDiag>,
+    /// Lockstep with another simulator's trace: asynchronous exceptions
+    /// are taken only through `take_exception`, where the other one took
+    /// them, and a sleeping core waits to be woken the same way.
+    pub lockstep: bool,
+    /// In lockstep, the PPB addresses read (the caller empties it).
+    pub ppb_reads: Vec<u32>,
     /// The address of the instruction executing (for faults and diags).
     pub(crate) cur_pc: u32,
     /// The IT state it executes in.
@@ -95,6 +101,8 @@ impl Cpu {
             instructions: 0,
             sleeps: 0,
             diags: Vec::new(),
+            lockstep: false,
+            ppb_reads: Vec::new(),
             cur_pc: 0,
             cur_it: ItState::default(),
             pending_sync: None,
@@ -110,9 +118,10 @@ impl Cpu {
             self.instructions,
             self.sleeps,
             std::mem::take(&mut self.diags),
+            self.lockstep,
         );
         *self = Cpu::new(self.config);
-        (self.now, self.instructions, self.sleeps, self.diags) = keep;
+        (self.now, self.instructions, self.sleeps, self.diags, self.lockstep) = keep;
         self.ppb.reset(self.now);
         self.r[LR] = 0xFFFF_FFFF;
         self.r[SP] = bus.read(0, Size::Word) & !3;
@@ -123,6 +132,17 @@ impl Cpu {
 
     pub fn pc(&self) -> u32 {
         self.r[PC]
+    }
+
+    /// The address of the last instruction executed.
+    pub fn last_pc(&self) -> u32 {
+        self.cur_pc
+    }
+
+    /// Enters exception `exc` now, returning to the current PC (lockstep).
+    pub fn take_exception(&mut self, bus: &mut impl Bus, exc: u16) {
+        let ret = self.r[PC];
+        self.enter(bus, exc, ret);
     }
 
     pub fn handler_mode(&self) -> bool {
@@ -273,6 +293,9 @@ impl Cpu {
         if (0xE000_0000..0xE010_0000).contains(&addr) {
             let now = self.now;
             self.ppb.ipsr = self.ipsr;
+            if self.lockstep {
+                self.ppb_reads.push(addr);
+            }
             let v = self.ppb.read(addr, size, now, &mut self.diags);
             return self.ppb_side_effects(v);
         }
@@ -330,7 +353,7 @@ impl Cpu {
         bus.advance(self.now);
         self.ppb.tick(self.now);
         self.update_irqs(bus);
-        if self.take_pending(bus) {
+        if !self.lockstep && self.take_pending(bus) {
             return;
         }
         self.cur_pc = self.r[PC];
