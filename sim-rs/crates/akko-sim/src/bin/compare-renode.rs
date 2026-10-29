@@ -217,7 +217,7 @@ fn main() {
     if name != "rom" {
         board.load(image_named(name)).unwrap();
     }
-    let Board { mut cpu, chip } = board;
+    let Board { mut cpu, chip, .. } = board;
     let mut bus = Replay { chip, accesses: accesses.into(), done: 0, model_polls: 0, error: None };
     cpu.lockstep = true;
     cpu.reset(&mut bus);

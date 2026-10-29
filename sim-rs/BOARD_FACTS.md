@@ -7,8 +7,8 @@ that pins it (`-` until the test is ported).
 
 | Fact | Source | Test |
 |---|---|---|
-| TIM2 compare alarms fire only at the 16-bit wrap: a 1 ms alarm took 65.5 ms. Renode's `STM32_Timer` matches compares, which the chip doesn't. | Board, 2026-10-27: scan diagnostics over Vial 0xD1 (commit 9eef49c) | - |
-| TIM2 is 16-bit: CNT, ARR and CCRx keep their low 16 bits. | ChibiOS `WB32_TIM2_IS_32BITS FALSE`; sim/akko.resc | - |
+| TIM2 compare alarms fire only at the 16-bit wrap: a 1 ms alarm took 65.5 ms. Renode's `STM32_Timer` matches compares, which the chip doesn't. | Board, 2026-10-27: scan diagnostics over Vial 0xD1 (commit 9eef49c) | `tim2::tests::sixteen_bits_and_compare_at_wrap_only` |
+| TIM2 is 16-bit: CNT, ARR and CCRx keep their low 16 bits. | ChibiOS `WB32_TIM2_IS_32BITS FALSE`; sim/akko.resc | `tim2::tests::sixteen_bits_and_compare_at_wrap_only` |
 | Blank flash reads 0x00, not 0xFF. A DFU download leaves stale bytes past the end of a shorter image. | Board, 2026-10-26 (DFU readback) | - |
 | The chip is a WB32FQ95xC: 256 KB flash, 36 KB SRAM, SYS_ID 0x3A50E980. | Board: wb32-dfu-updater_cli on download | `chip::tests` (sizes only) |
 | Out of stop mode every clock is back at its reset value, USBPRE, USBCLKENR and the USB FIFO clock included. | RM2905025 5.3.4 | - |

@@ -16,6 +16,12 @@ pub enum Diag {
     /// A store to flash or the ROM, which only the flash controller may
     /// change. The write was dropped.
     ReadOnly { addr: u32, size: Size, value: u32 },
+    /// An ANCTL write while PWR's ANAKEY1/2 didn't unlock it. Dropped.
+    Locked {
+        block: &'static str,
+        off: u32,
+        value: u32,
+    },
 }
 
 impl fmt::Display for Diag {
@@ -38,6 +44,9 @@ impl fmt::Display for Diag {
                     "unmapped write{} at 0x{addr:08x} = 0x{v:x}",
                     size.bytes() * 8
                 )
+            }
+            Diag::Locked { block, off, value } => {
+                write!(f, "LOCKED write dropped: {block}+0x{off:03x} = 0x{value:08x}")
             }
             Diag::ReadOnly { addr, size, value } => {
                 write!(

@@ -7,8 +7,11 @@
 
 pub mod chip;
 pub mod diag;
+pub mod gpio;
 pub mod load;
+pub mod sysctl;
+pub mod tim2;
 
-pub use chip::Wb32;
+pub use chip::{Wb32, Write};
 pub use diag::Diag;
 pub use load::LoadError;

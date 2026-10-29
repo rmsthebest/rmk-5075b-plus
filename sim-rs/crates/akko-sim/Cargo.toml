@@ -10,3 +10,5 @@ description = "The Akko 5075B Plus board on wb32-sim: key matrix, radio, LEDs, S
 [dependencies]
 cortex-m3-emu.workspace = true
 wb32-sim.workspace = true
+object.workspace = true
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
