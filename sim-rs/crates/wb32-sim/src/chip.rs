@@ -6,6 +6,8 @@
 //!   0x1FFF_E000  boot ROM (4 KB) and the information blocks (0x1FFF_F000)
 //!   0x2000_0000  SRAM, 36 KB on the die
 //!   0x4000_0000  GPIO, AFIO, EXTI (gpio.rs)    0x4000_2000  TIM2 (tim2.rs)
+//!   0x4000_3000  QSPI, 0x4000_9000 SPIM2 (ssi.rs)
+//!   0x4000_8400  UART3 (uart.rs)
 //!   0x4001_0000  PWR, ANCTL, IWDG, RCC (sysctl.rs)
 //!   0x4001_4000  USB device controller, CRC, SFM (usb.rs)
 //!   0x4001_5400  flash cache controller: remembers writes, as cache.py
@@ -20,8 +22,10 @@ use crate::diag::Diag;
 use crate::fmc::{self, Fmc};
 use crate::gpio::{Gpio, Matrix};
 use crate::usb::{self, Musb};
+use crate::ssi::{QSPI_IRQ, SPIM2_IRQ, Ssi};
 use crate::sysctl::Sysctl;
 use crate::tim2::{self, Tim2};
+use crate::uart::{UART3_IRQ, Uart};
 use cortex_m3_emu::{Bus, IrqLines, Memory, Size};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -37,6 +41,9 @@ pub const SRAM_SIZE: usize = 0x9000;
 
 pub const GPIO_BASE: u32 = 0x4000_0000;
 pub const TIM2_BASE: u32 = 0x4000_2000;
+pub const QSPI_BASE: u32 = 0x4000_3000;
+pub const UART3_BASE: u32 = 0x4000_8400;
+pub const SPIM2_BASE: u32 = 0x4000_9000;
 pub const SYSCTL_BASE: u32 = 0x4001_0000;
 pub const CACHE_BASE: u32 = 0x4001_5400;
 pub const USB_BASE: u32 = 0x4001_4000;
@@ -51,6 +58,9 @@ pub struct Wb32 {
     pub gpio: Gpio,
     pub sysctl: Sysctl,
     pub tim2: Tim2,
+    pub qspi: Ssi,
+    pub spim2: Ssi,
+    pub uart3: Uart,
     cache: BTreeMap<u32, u32>,
     /// Shared with the USB host, which drives its bus side.
     pub usb: Rc<RefCell<Musb>>,
@@ -91,9 +101,9 @@ const RENODE_NAMES: [(&str, u32, u32); 13] = [
     ("dwt", 0xE000_1000, 0x1000),
     ("gpio", GPIO_BASE, 0x2000),
     ("tim2", TIM2_BASE, 0x400),
-    ("qspi", 0x4000_3000, 0x100),
-    ("uart3", 0x4000_8400, 0x100),
-    ("spim2", 0x4000_9000, 0x100),
+    ("qspi", QSPI_BASE, 0x100),
+    ("uart3", UART3_BASE, 0x100),
+    ("spim2", SPIM2_BASE, 0x100),
     ("sysctl", SYSCTL_BASE, 0x1000),
     ("usb", USB_BASE, 0x1000),
     ("cache", CACHE_BASE, 0x400),
@@ -128,6 +138,9 @@ impl fmt::Display for Write {
 enum Periph {
     Gpio(u32),
     Tim2(u32),
+    Qspi(u32),
+    Spim2(u32),
+    Uart3(u32),
     Sysctl(u32),
     Cache(u32),
     Usb(u32),
@@ -141,6 +154,12 @@ fn periph(addr: u32) -> Option<Periph> {
         Some(Periph::Gpio(o))
     } else if let Some(o) = inside(TIM2_BASE, 0x400) {
         Some(Periph::Tim2(o))
+    } else if let Some(o) = inside(QSPI_BASE, 0x100) {
+        Some(Periph::Qspi(o))
+    } else if let Some(o) = inside(SPIM2_BASE, 0x100) {
+        Some(Periph::Spim2(o))
+    } else if let Some(o) = inside(UART3_BASE, 0x100) {
+        Some(Periph::Uart3(o))
     } else if let Some(o) = inside(SYSCTL_BASE, 0x1000) {
         Some(Periph::Sysctl(o))
     } else if let Some(o) = inside(CACHE_BASE, 0x400) {
@@ -178,6 +197,9 @@ impl Wb32 {
             gpio: Gpio::default(),
             sysctl: Sysctl::default(),
             tim2: Tim2::default(),
+            qspi: Ssi::new("QSPI", QSPI_IRQ),
+            spim2: Ssi::new("SPIM2", SPIM2_IRQ),
+            uart3: Uart::new("UART3", UART3_IRQ),
             cache: BTreeMap::new(),
             usb: Rc::new(RefCell::new(Musb::new())),
             fmc: Fmc::default(),
@@ -202,6 +224,9 @@ impl Wb32 {
         self.sysctl.reset();
         self.tim2 = Tim2::default();
         self.tim2.sync(self.now);
+        self.qspi.reset();
+        self.spim2.reset();
+        self.uart3.reset();
         self.cache.clear();
         *self.usb.borrow_mut() = Musb::new();
         self.fmc = Fmc::default();
@@ -223,6 +248,9 @@ impl Wb32 {
         match p {
             Periph::Gpio(o) => self.gpio.read(o),
             Periph::Tim2(o) => self.tim2.read(o, self.now),
+            Periph::Qspi(o) => self.qspi.read(o),
+            Periph::Spim2(o) => self.spim2.read(o),
+            Periph::Uart3(o) => self.uart3.read(o),
             Periph::Sysctl(o) => self.sysctl.read(o),
             Periph::Cache(o) => self.cache.get(&o).copied().unwrap_or(0),
             Periph::Usb(o) => self.usb.borrow_mut().read(o, Size::Word),
@@ -244,6 +272,9 @@ impl Wb32 {
                 log(Write { block: "TIM2", off: o, value });
                 self.tim2.write(o, value, self.now)
             }
+            Periph::Qspi(o) => self.qspi.write(o, value, &self.gpio, &mut log),
+            Periph::Spim2(o) => self.spim2.write(o, value, &self.gpio, &mut log),
+            Periph::Uart3(o) => self.uart3.write(o, value, self.now, &mut log),
             Periph::Sysctl(o) => {
                 if !self.sysctl.write(o, value, &mut log) {
                     let (block, off) = Sysctl::block(o);
@@ -395,10 +426,11 @@ impl Bus for Wb32 {
         if self.tim2.next_event() <= now {
             self.tim2.sync(now);
         }
+        self.uart3.advance(now);
     }
 
     fn next_event(&self) -> u64 {
-        self.tim2.next_event()
+        self.tim2.next_event().min(self.uart3.next_event())
     }
 
     fn executing(&mut self, pc: u32) {
@@ -412,7 +444,10 @@ impl Bus for Wb32 {
     fn irq_lines(&mut self) -> IrqLines {
         let level = self.gpio.irq_level()
             | (self.tim2.irq() as u64) << tim2::IRQ
-            | (self.usb.borrow().irq() as u64) << usb::IRQ;
+            | (self.usb.borrow().irq() as u64) << usb::IRQ
+            | self.qspi.irq_level()
+            | self.spim2.irq_level()
+            | self.uart3.irq_level();
         IrqLines { level, raised: 0 }
     }
 }

@@ -651,6 +651,15 @@ impl Host {
         }
     }
 
+    /// A new host after a system reset, keeping `old`'s events (Renode's
+    /// log runs on), so a cursor into them stays good.
+    pub fn after_reset(old: &Host, now: u64) -> Self {
+        old.collect_device_log();
+        let h = Host::new(old.cx.d.clone(), now);
+        h.cx.h.borrow_mut().events = std::mem::take(&mut old.cx.h.borrow_mut().events);
+        h
+    }
+
     /// The state, as usb.py's 0xF04.
     pub fn state(&self) -> u8 {
         self.cx.h.borrow().state

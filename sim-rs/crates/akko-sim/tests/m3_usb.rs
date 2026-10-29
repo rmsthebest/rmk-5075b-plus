@@ -237,8 +237,6 @@ fn a_panic_resets_into_the_firmware_a_second_one_enters_dfu() {
     assert!(t.b.in_flash(), "PC 0x{:08x}", t.b.pc());
     t.b.run_for(0.3);
     assert_eq!(t.b.host.state(), CONFIGURED);
-    // A reset starts the host's log again.
-    t.cursor = 0;
     t.host(cmd::OPEN_CDC);
     t.cdc_should_show(previous);
     t.send_line("panic");
@@ -246,7 +244,6 @@ fn a_panic_resets_into_the_firmware_a_second_one_enters_dfu() {
     assert!(t.b.in_rom(), "PC 0x{:08x}", t.b.pc());
     // What wb32-dfu-updater_cli -R does: a system reset, RAM kept.
     t.b.system_reset();
-    t.cursor = 0;
     t.b.run_for(0.3);
     assert_eq!(t.b.host.state(), CONFIGURED);
     t.host(cmd::OPEN_CDC);
@@ -254,7 +251,6 @@ fn a_panic_resets_into_the_firmware_a_second_one_enters_dfu() {
     // Reported once only: the boot after that finds no record. And DFU
     // cleared the count: the next panic resets into the firmware again.
     t.b.system_reset();
-    t.cursor = 0;
     t.b.run_for(0.3);
     t.host(cmd::OPEN_CDC);
     t.b.run_for(0.02);

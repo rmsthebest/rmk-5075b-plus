@@ -2,10 +2,12 @@
 //!   akko-sim trace <image> [secs=0.5] [block-regex=.]
 //! prints the image's register writes in order, one per line ("BLOCK+0xOFF =
 //! 0xVALUE"), as ../../sim/trace.sh does, so the two can be diffed
-//! (compare/trace-diff.sh). Then any diags (unmapped accesses, LOCKED
+//! (compare/trace-diff.sh). The SPI flash's commands follow, as "FLASH
+//! ..." lines (trace.sh has them in among the writes; they're compared as
+//! a stream of their own). Then any diags (unmapped accesses, LOCKED
 //! writes) to stderr. <image> is a name from sim-rs/target/images.
 
-use akko_sim::{Board, Image};
+use akko_sim::{Board, Image, Part};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -27,6 +29,12 @@ fn main() {
     board.run_for(secs);
     for w in board.chip.writes.take().unwrap() {
         let line = w.to_string();
+        if filter.is_match(&line) {
+            println!("{line}");
+        }
+    }
+    for l in board.log(Part::Nor) {
+        let line = format!("FLASH {l}");
         if filter.is_match(&line) {
             println!("{line}");
         }

@@ -19,6 +19,7 @@ cargo build --release --target-dir "$build" --bin m2-blink
 cargo build --release --target-dir "$build" --bin m3-usb
 cargo build --release --target-dir "$build" --bin akko-rmk
 cargo build --release --target-dir "$build-mac" --bin akko-rmk --features mac
+cargo build --release --target-dir "$build-rom-peek" --bin akko-rmk --features rom-peek
 # rom/rust's bootloader, in its own target dir as rom/sim/run.sh builds it.
 (cd rom/rust && cargo build --release)
 
@@ -29,6 +30,7 @@ for bin in m1a-bounce m1b-stub m2-blink m3-usb akko-rmk; do
     cp "$build/$rel/$bin" "$images.new/$bin"
 done
 cp "$build-mac/$rel/akko-rmk" "$images.new/akko-rmk-mac"
+cp "$build-rom-peek/$rel/akko-rmk" "$images.new/akko-rmk-rom-peek"
 cp "rom/rust/target/$rel/wb32-rom-dfu" "$images.new/wb32-rom-dfu"
 rm -rf "$images" && mv "$images.new" "$images"
 

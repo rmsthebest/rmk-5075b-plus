@@ -94,6 +94,16 @@ pub struct Gpio {
     pub pressed: BTreeSet<(u8, u8)>,
     /// Pins an outside level holds, overriding the chip.
     pub driven: BTreeMap<Pin, bool>,
+    /// Pins something outside the chip watches for edges (a chip select).
+    pub watched: Vec<Watch>,
+}
+
+/// A watched pin: its level after the last update, and its rising edges.
+#[derive(Clone, Copy, Debug)]
+pub struct Watch {
+    pub pin: Pin,
+    pub level: bool,
+    pub rising: u32,
 }
 
 impl Gpio {
@@ -105,14 +115,29 @@ impl Gpio {
     }
 
     /// A system reset: registers back to 0. What's outside the chip (keys,
-    /// driven pins) stays.
+    /// driven pins, watches) stays.
     pub fn reset(&mut self) {
         *self = Gpio {
             matrix: std::mem::take(&mut self.matrix),
             pressed: std::mem::take(&mut self.pressed),
             driven: std::mem::take(&mut self.driven),
+            watched: std::mem::take(&mut self.watched),
             ..Default::default()
         };
+        for w in &mut self.watched {
+            w.level = true;
+        }
+    }
+
+    /// Starts counting `pin`'s rising edges. It starts out high (as
+    /// gpio.py's chip select), so the first rise counts once it was low.
+    pub fn watch(&mut self, pin: Pin) {
+        self.watched.push(Watch { pin, level: true, rising: 0 });
+    }
+
+    /// A watched pin's level and rising edges so far.
+    pub fn watched(&self, pin: Pin) -> Option<Watch> {
+        self.watched.iter().find(|w| w.pin == pin).copied()
     }
 
     fn reg(&self, port: u8, off: u32) -> u32 {
@@ -262,6 +287,15 @@ impl Gpio {
         self.update();
     }
 
+    fn update_watched(&mut self) {
+        for i in 0..self.watched.len() {
+            let level = self.pin_level(self.watched[i].pin);
+            let w = &mut self.watched[i];
+            w.rising += (level && !w.level) as u32;
+            w.level = level;
+        }
+    }
+
     /// Recomputes the EXTI lines after anything that can move a pin.
     pub fn update(&mut self) {
         for line in 0..16u8 {
@@ -275,6 +309,7 @@ impl Gpio {
                 self.exti[PR] |= bit;
             }
         }
+        self.update_watched();
         let active = self.exti[PR] & self.exti[IMR];
         self.irq_level = EXTI_IRQS
             .iter()

@@ -1,8 +1,7 @@
 //! ../../rom/sim/tests: the ROM bootloader's vendor bulk pipe, with the
 //! command set in rom/notes.md ("DFU state machine"), on both the chip's ROM
 //! (the dump in $ROM_WORK) and rom/rust's build. All multi-byte fields are
-//! little-endian. peek.robot (the firmware's rom-peek channel) comes with the
-//! SPI flash and Vial, in step 6.
+//! little-endian. peek.robot (the firmware's rom-peek channel) is in peek.rs.
 
 use akko_sim::usb_host::{UsbEvent, cmd, hex};
 use akko_sim::{Board, Rom};

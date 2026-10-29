@@ -30,6 +30,7 @@
 
 use cortex_m3_emu::Size;
 use std::collections::{BTreeMap, VecDeque};
+use std::fmt;
 
 pub const IRQ: u32 = 14;
 pub const NEP: usize = 4;
@@ -138,6 +139,26 @@ pub struct Musb {
     /// IN endpoint -> the step it last set INPKTRDY.
     pub ready_tick: BTreeMap<u8, u32>,
     pub log: Vec<UsbLog>,
+    /// Every firmware register access while `Some`, as usb.py's 0xF10
+    /// trace ("USBT W i1 +0x12 <- 0x00").
+    pub trace: Option<Vec<UsbAccess>>,
+}
+
+/// One firmware access to a USB register (offset below 0x400).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UsbAccess {
+    pub write: bool,
+    /// INDEX at the time.
+    pub index: u8,
+    pub off: u32,
+    pub value: u8,
+}
+
+impl fmt::Display for UsbAccess {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (rw, arrow) = if self.write { ("W", "<-") } else { ("R", "->") };
+        write!(f, "USBT {rw} i{} +0x{:02x} {arrow} 0x{:02x}", self.index, self.off, self.value)
+    }
 }
 
 impl Musb {
@@ -200,7 +221,12 @@ impl Musb {
         if size != Size::Byte {
             self.error(format!("{}-byte read of USB+0x{off:03x} (registers are 8 bits)", size.bytes()));
         }
-        self.reg_read(off) as u32
+        let index = self.index;
+        let value = self.reg_read(off);
+        if let Some(t) = &mut self.trace {
+            t.push(UsbAccess { write: false, index, off, value });
+        }
+        value as u32
     }
 
     fn reg_read(&mut self, off: u32) -> u8 {
@@ -251,6 +277,9 @@ impl Musb {
         if off >= 0x400 {
             self.other.insert(off, v);
         } else {
+            if let Some(t) = &mut self.trace {
+                t.push(UsbAccess { write: true, index: self.index, off, value: v as u8 });
+            }
             self.reg_write(off, v as u8);
         }
     }

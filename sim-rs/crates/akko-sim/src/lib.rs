@@ -1,9 +1,17 @@
 //! The Akko 5075B Plus on wb32-sim, and the harness the tests drive it with.
 
+pub mod nor;
+pub mod radio;
 pub mod usb_host;
+pub mod ws2812;
 
 use cortex_m3_emu::{Bus, Config, Cpu, IrqLines, Size, TICK_HZ};
+use nor::Nor;
+use radio::Radio;
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
+use ws2812::Ws2812;
 use wb32_sim::chip::ROM_BASE;
 use wb32_sim::gpio::{A, B, C, Matrix, Pin};
 use usb_host::{Host, UsbEvent};
@@ -44,16 +52,19 @@ pub enum Image {
     AkkoRmk,
     /// akko-rmk built with the `mac` feature.
     AkkoRmkMac,
+    /// akko-rmk built with the `rom-peek` feature (Vial channel 0xDA).
+    AkkoRmkRomPeek,
 }
 
 impl Image {
-    pub const ALL: [Image; 6] = [
+    pub const ALL: [Image; 7] = [
         Image::M1aBounce,
         Image::M1bStub,
         Image::M2Blink,
         Image::M3Usb,
         Image::AkkoRmk,
         Image::AkkoRmkMac,
+        Image::AkkoRmkRomPeek,
     ];
 
     pub fn file_name(self) -> &'static str {
@@ -64,6 +75,7 @@ impl Image {
             Image::M3Usb => "m3-usb",
             Image::AkkoRmk => "akko-rmk",
             Image::AkkoRmkMac => "akko-rmk-mac",
+            Image::AkkoRmkRomPeek => "akko-rmk-rom-peek",
         }
     }
 
@@ -131,6 +143,20 @@ pub struct Board {
     pub host: Host,
     /// System resets (SYSRESETREQ) since power-on.
     pub resets: u32,
+    /// The SPI NOR flash on QSPI (kept across resets).
+    pub nor: Rc<RefCell<Nor>>,
+    /// The WS2812 chain on SPIM2.
+    pub leds: Rc<RefCell<Ws2812>>,
+    /// The radio module on UART3.
+    pub radio: Rc<RefCell<Radio>>,
+}
+
+/// The board parts' logs, for [`Board::wait_log`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    Nor,
+    Leds,
+    Radio,
 }
 
 /// The chip, with the USB host stepped alongside it.
@@ -193,11 +219,21 @@ impl Board {
         stub.extend_from_slice(&0xE7FEu16.to_le_bytes()); // b .
         chip.load(ROM_BASE, &stub).expect("the stub fits the ROM");
         let host = Host::new(chip.usb.clone(), 0);
+        let nor = Rc::new(RefCell::new(Nor::default()));
+        let leds = Rc::new(RefCell::new(Ws2812::default()));
+        let radio = Rc::new(RefCell::new(Radio::default()));
+        chip.gpio.watch(nor::CS);
+        chip.qspi.device = Some(Box::new(nor.clone()));
+        chip.spim2.device = Some(Box::new(leds.clone()));
+        chip.uart3.peer = Some(Box::new(radio.clone()));
         Board {
             cpu: Cpu::new(Config::default()),
             chip,
             host,
             resets: 0,
+            nor,
+            leds,
+            radio,
         }
     }
 
@@ -213,8 +249,12 @@ impl Board {
     /// A system reset: SRAM keeps its contents, as on the chip.
     pub fn reset(&mut self) {
         self.chip.reset();
+        // Renode starts the Python models again; the flash array stays.
+        self.nor.borrow_mut().reset();
+        self.radio.borrow_mut().reset();
+        self.leds.borrow_mut().reset();
         let undivided = self.host.undivided_usbpre_ok;
-        self.host = Host::new(self.chip.usb.clone(), self.cpu.now);
+        self.host = Host::after_reset(&self.host, self.cpu.now);
         self.host.undivided_usbpre_ok = undivided;
         self.cpu.reset(&mut self.chip);
     }
@@ -337,6 +377,107 @@ impl Board {
             }
             self.run_for(usb_host::STEP as f64 / TICK_HZ as f64);
         }
+    }
+
+    /// Runs in host steps until `done` holds, for at most `secs`. Returns
+    /// whether it did.
+    pub fn run_until(&mut self, secs: f64, mut done: impl FnMut(&mut Board) -> bool) -> bool {
+        let end = self.cpu.now + (secs * TICK_HZ as f64) as u64;
+        loop {
+            if done(self) {
+                return true;
+            }
+            if self.cpu.now >= end || self.cpu.halted {
+                return false;
+            }
+            self.run_for(usb_host::STEP as f64 / TICK_HZ as f64);
+        }
+    }
+
+    /// A part's log lines so far.
+    pub fn log(&self, part: Part) -> Vec<String> {
+        match part {
+            Part::Nor => self.nor.borrow().log.clone(),
+            Part::Leds => self.leds.borrow().log.clone(),
+            Part::Radio => self.radio.borrow().log.clone(),
+        }
+    }
+
+    fn log_len(&self, part: Part) -> usize {
+        match part {
+            Part::Nor => self.nor.borrow().log.len(),
+            Part::Leds => self.leds.borrow().log.len(),
+            Part::Radio => self.radio.borrow().log.len(),
+        }
+    }
+
+    /// As [`Board::wait_for`], on a part's log.
+    pub fn wait_log(
+        &mut self,
+        part: Part,
+        cursor: &mut usize,
+        secs: f64,
+        mut pred: impl FnMut(&str) -> bool,
+    ) -> Option<String> {
+        let mut found = None;
+        let mut seen = *cursor;
+        self.run_until(secs, |b| {
+            if b.log_len(part) == seen {
+                return false;
+            }
+            let log = b.log(part);
+            match log[seen..].iter().position(|l| pred(l)) {
+                Some(i) => {
+                    found = Some(log[seen + i].clone());
+                    seen += i + 1;
+                    true
+                }
+                None => {
+                    seen = log.len();
+                    false
+                }
+            }
+        });
+        if found.is_some() {
+            *cursor = seen;
+        }
+        found
+    }
+
+    /// Bytes from the radio module to the keyboard, as they are.
+    pub fn module_sends(&mut self, bytes: &[u8]) {
+        self.radio.borrow_mut().send(bytes, &mut self.chip.uart3.rx);
+    }
+
+    /// A module frame "cmd arg sum".
+    pub fn module_frame(&mut self, cmd: u8, arg: u8) {
+        self.radio.borrow_mut().send_frame(cmd, arg, &mut self.chip.uart3.rx);
+    }
+
+    /// The colours of the last LED frame, 0xRRGGBB per LED.
+    pub fn led_colours(&self) -> Vec<u32> {
+        self.leds.borrow().leds.clone()
+    }
+
+    /// Everything a test fails on unless it says otherwise: host errors,
+    /// the board parts' errors, the controllers' errors, and locked or
+    /// unmapped accesses.
+    pub fn errors(&self) -> Vec<String> {
+        let mut e = self.host_errors();
+        e.extend(self.nor.borrow().errors.iter().map(|m| format!("flash: {m}")));
+        e.extend(self.leds.borrow().errors.iter().cloned());
+        e.extend(self.radio.borrow().errors.iter().cloned());
+        for s in [&self.chip.qspi.errors, &self.chip.spim2.errors] {
+            e.extend(s.iter().cloned());
+        }
+        e.extend(
+            self.chip
+                .diags()
+                .iter()
+                .filter(|d| matches!(d, wb32_sim::Diag::Locked { .. } | wb32_sim::Diag::Unmapped { .. }))
+                .map(|d| d.to_string()),
+        );
+        e
     }
 
     /// Host errors so far, as text.

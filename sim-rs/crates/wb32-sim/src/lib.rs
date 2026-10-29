@@ -10,8 +10,10 @@ pub mod diag;
 pub mod fmc;
 pub mod gpio;
 pub mod load;
+pub mod ssi;
 pub mod sysctl;
 pub mod tim2;
+pub mod uart;
 pub mod usb;
 
 pub use chip::{BusWrite, Wb32, Write};
