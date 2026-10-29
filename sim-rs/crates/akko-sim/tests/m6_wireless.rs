@@ -15,7 +15,6 @@ use akko_sim::Part;
 use akko_sim::radio::NO_ACKS;
 use akko_sim::usb_host::hex;
 use common::*;
-use wb32_sim::gpio::{A, B};
 
 const BT1: (u8, u8) = (2, 3);
 const BT2: (u8, u8) = (2, 4);
@@ -82,6 +81,13 @@ fn module_sends_raw(t: &mut T, bytes: &[u8], sum_fix: u8) {
     }
 }
 
+/// A Vial request through the dongle (USB is detached in wireless mode):
+/// the answer's raw frame should start with `want`'s bytes.
+fn vial_via_dongle(t: &mut T, bytes: &[u8], want: &str) {
+    module_sends_raw(t, bytes, 0);
+    radio_should_get(t, &format!("af 61 20 {want}"), 1.0);
+}
+
 fn no_radio_errors(t: &T) {
     assert_eq!(t.b.radio.borrow().errors, Vec::<String>::new());
 }
@@ -119,10 +125,14 @@ fn should_be_asleep(t: &mut T, asleep: bool, lower: bool) {
     }
 }
 
-/// Over Vial channel 0xD7: 0 never, 1 = 1 min, ..., 7 = 2 min.
+/// Over Vial channel 0xD7, through the dongle: 0 never, 1 = 1 min, ...,
+/// 7 = 2 min.
 fn set_sleep_timeout(t: &mut T, index: u8) {
-    t.raw_hid_send_and_run(&[0x08, 0xD7, index + 1]);
-    t.hid_should_show(3, &format!("08 d7 {:02x} {index:02x}", index + 1), 1.0);
+    vial_via_dongle(
+        t,
+        &[0x08, 0xD7, index + 1],
+        &format!("08 d7 {:02x} {index:02x}", index + 1),
+    );
 }
 
 /// LED `i`'s colours, every 50 ms for `secs`.
@@ -147,13 +157,13 @@ fn should_be_stopped(t: &mut T, stopped: bool) {
     assert_eq!(t.b.word(SCB_SCR) & 4 != 0, stopped, "SLEEPDEEP");
 }
 
-/// 0xD9's answer: on, the stops, those a key, the knob or the cable ended.
+/// 0xD9's answer, through the dongle: on, the stops, those a key, the knob
+/// or the cable ended.
 fn stop_counts_should_be(t: &mut T, stops: u32, wakes: u32) {
-    stop_mode(t, 0);
     let mut want = vec![0x08, 0xD9, 0x00, 0x01];
     want.extend(stops.to_le_bytes());
     want.extend(wakes.to_le_bytes());
-    t.hid_should_show(3, &hex(&want), 1.0);
+    vial_via_dongle(t, &[0x08, 0xD9, 0x00], &hex(&want));
 }
 
 /// Stop mode on, on the dongle; the host suspends: asleep at once, stopped
@@ -164,6 +174,8 @@ fn asleep_and_stopped() -> T {
     stop_mode(&mut t, 0x53);
     t.hid_should_show(3, "08 d9 53 01", 1.0);
     on_the_dongle(&mut t);
+    // On the battery: with the cable in it doesn't stop.
+    t.b.plug(false);
     module_sends(&mut t, HOST_SUSPEND);
     t.b.run_for(0.5);
     should_be_asleep(&mut t, true, false);
@@ -185,17 +197,15 @@ fn asleep_and_stopped() -> T {
     t
 }
 
-/// One detent, A (B7) leading: volume up.
+/// One detent clockwise, A (B7) leading: volume up.
 fn knob_up(t: &mut T, edge: f64) {
-    for (pin, level) in [(7, Some(false)), (6, Some(false)), (7, None), (6, None)] {
-        t.b.drive((B, pin), level);
-        t.b.run_for(edge);
-    }
+    t.knob_step(true, edge);
 }
 
 /// 100 ms in (wireless_post_task): the module's version, its 30 min sleep
 /// in BT and 2.4G mode, then the saved device (USB on a blank flash). The
-/// charge state (no cable: stopped) and, every 3 s, a battery inquiry,
+/// charge state (the cable in, the battery full: done) and, every 3 s, a
+/// battery inquiry,
 /// which the module answers. UART3 is set up as QMK's (the radio checks the
 /// divider and line settings).
 #[test]
@@ -206,7 +216,7 @@ fn start_up_talks_to_the_module_as_qmk_does() {
     radio_should_get(&mut t, "a6 55 fb", 1.0);
     radio_should_get(&mut t, "a6 57 fd", 1.0);
     radio_should_get(&mut t, SEL_USB, 1.0);
-    radio_should_get(&mut t, "a6 65 0b", 1.0);
+    radio_should_get(&mut t, "a6 66 0c", 1.0);
     radio_should_get(&mut t, "a6 53 f9", 4.0);
     t.part_should_show(Part::Radio, "^-> 5c 64 c0", 0.1);
     assert!(usb_pullup(&mut t));
@@ -302,6 +312,8 @@ fn fn_u_goes_back_to_usb() {
     t.fn_hold(USB, 0.03);
     radio_should_get(&mut t, SEL_USB, 1.0);
     assert!(usb_pullup(&mut t));
+    // The host saw the pull-up go (a bus reset) and enumerates it again.
+    t.log_should_show("configured", 2.0);
     tap(&mut t, KEY_A);
     t.hid_should_show(1, "00 00 04 00 00 00 00 00", 1.0);
 }
@@ -401,6 +413,9 @@ fn an_unanswered_frame_is_dropped_after_41_tries() {
     t.b.run_for(0.6);
     let after = t.b.radio.borrow().frames;
     assert!(after - before >= 41, "{} frames", after - before);
+    // Back on USB to read them: in wireless mode USB is detached.
+    t.fn_hold(USB, 0.03);
+    t.log_should_show("configured", 2.0);
     t.raw_hid_send_and_run(&[0x08, 0xD4]);
     let b = t.hid_matching(3, "08 d4 .*", 1.0);
     let timeouts = u16::from_le_bytes([b[4], b[5]]);
@@ -548,8 +563,9 @@ fn the_knob_wakes_it_and_the_turn_is_sent() {
 #[test]
 fn a_flat_battery_sleeps_it_until_the_cable_goes_in() {
     let mut t = boot();
-    t.b.radio.borrow_mut().flags = 0;
     on_the_dongle(&mut t);
+    t.b.plug(false);
+    t.b.charger.level = 0.0;
     t.b.run_for(62.0);
     radio_should_get(&mut t, SEL_USB, 5.0);
     t.b.run_for(0.5);
@@ -558,10 +574,9 @@ fn a_flat_battery_sleeps_it_until_the_cable_goes_in() {
     t.b.run_for(0.3);
     key(&mut t, KEY_A, false);
     should_be_asleep(&mut t, true, true);
-    t.b.drive((A, 7), Some(true));
+    t.b.plug(true);
     t.b.run_for(0.5);
     should_be_asleep(&mut t, false, false);
-    t.b.drive((A, 7), None);
 }
 
 /// Lower sleep stopped: only the cable and the UART are armed. A key
@@ -573,8 +588,9 @@ fn in_stop_mode_a_flat_battery_stops_it_until_the_cable_goes_in() {
     let mut t = boot();
     stop_mode(&mut t, 0x53);
     t.hid_should_show(3, "08 d9 53 01", 1.0);
-    t.b.radio.borrow_mut().flags = 0;
     on_the_dongle(&mut t);
+    t.b.plug(false);
+    t.b.charger.level = 0.0;
     t.b.run_for(62.0);
     radio_should_get(&mut t, SEL_USB, 5.0);
     t.b.run_for(1.5);
@@ -588,11 +604,10 @@ fn in_stop_mode_a_flat_battery_stops_it_until_the_cable_goes_in() {
     t.b.run_for(1.5);
     should_be_asleep(&mut t, true, true);
     should_be_stopped(&mut t, true);
-    t.b.drive((A, 7), Some(true));
+    t.b.plug(true);
     t.b.run_for(0.5);
     should_be_stopped(&mut t, false);
     should_be_asleep(&mut t, false, false);
-    t.b.drive((A, 7), None);
     stop_counts_should_be(&mut t, 2, 1);
 }
 
@@ -640,6 +655,7 @@ fn with_stop_diag_on_caps_shows_a_stop_in_progress() {
     stop_mode(&mut t, 0x44);
     t.hid_should_show(3, "08 d9 44 01", 1.0);
     on_the_dongle(&mut t);
+    t.b.plug(false);
     module_sends(&mut t, HOST_SUSPEND);
     t.b.run_for(1.7);
     should_be_stopped(&mut t, true);
@@ -661,6 +677,7 @@ fn every_stop_diag_variant_at_once_still_stops_and_wakes_on_a_key() {
     t.raw_hid_send_and_run(&[0x08, 0xD9, 0x44, 63]);
     t.hid_should_show(3, "08 d9 44 01", 1.0);
     on_the_dongle(&mut t);
+    t.b.plug(false);
     module_sends(&mut t, HOST_SUSPEND);
     t.b.run_for(1.7);
     should_be_stopped(&mut t, true);
@@ -670,8 +687,11 @@ fn every_stop_diag_variant_at_once_still_stops_and_wakes_on_a_key() {
     key(&mut t, KEY_A, false);
     t.b.run_for(0.3);
     should_be_stopped(&mut t, false);
-    t.raw_hid_send_and_run(&[0x08, 0xD9, 0x00]);
-    t.hid_should_show(3, "08 d9 00 01 01 00 00 00 01 00 00 00 00 00 00 00 3f", 1.0);
+    vial_via_dongle(
+        &mut t,
+        &[0x08, 0xD9, 0x00],
+        "08 d9 00 01 01 00 00 00 01 00 00 00 00 00 00 00 3f",
+    );
 }
 
 /// A frame from the module ends the stop (EXTI 11 on the chip; the UART's
@@ -691,14 +711,13 @@ fn in_stop_mode_the_modules_uart_wakes_it() {
 #[test]
 fn in_stop_mode_the_cable_wakes_it_and_it_doesnt_stop_with_the_cable_in() {
     let mut t = asleep_and_stopped();
-    t.b.drive((A, 7), Some(true));
+    t.b.plug(true);
     t.b.run_for(0.5);
     should_be_asleep(&mut t, false, false);
     module_sends(&mut t, HOST_SUSPEND);
     t.b.run_for(2.0);
     should_be_asleep(&mut t, true, false);
     should_be_stopped(&mut t, false);
-    t.b.drive((A, 7), None);
 }
 
 /// B6's EXTI line wakes it. Line 7 is the cable's (A7) while stopped, so

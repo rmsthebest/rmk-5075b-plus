@@ -9,13 +9,23 @@
 //! zero byte. 12 bytes make one LED, in G, R, B order. Errors: a byte with
 //! a nibble other than 1000/1110, a frame that isn't a whole number of
 //! LEDs, a frame after too short a reset, or sending in the wrong mode (CR0
-//! not 8-bit Motorola mode 0, or BAUDR not 32 = 3 MHz).
+//! not 8-bit Motorola mode 0, or BAUDR not 32 = 3 MHz), or B15 not on
+//! SPIM2_MO (AF5, the datasheet's alternate-function table).
+//!
+//! The chain's supply is switched by A8 (high: on), which the board
+//! watches: while it's off the LEDs take nothing, and each time it comes
+//! back they are dark until the next frame (`seen_rises`). Without a watch
+//! on A8 (a bare chain) the supply is always on.
 
-use wb32_sim::gpio::Gpio;
+use wb32_sim::gpio::{A, B, Gpio, Pin};
 use wb32_sim::ssi::{SsiDevice, SsiLine};
 
 pub const RESET_BYTES: u32 = 105;
 const BAUDR: u32 = 32;
+/// The supply switch.
+pub const SUPPLY: Pin = (A, 8);
+const DATA: Pin = (B, 15);
+const AF_SPIM: u8 = 5;
 
 pub struct Ws2812 {
     /// Zero bytes since the last frame (the line was low since reset).
@@ -25,6 +35,9 @@ pub struct Ws2812 {
     pub leds: Vec<u32>,
     pub frames: u32,
     mode_checked: bool,
+    /// A8's rising edges when the LEDs last latched: a later one means
+    /// they lost power since.
+    pub seen_rises: u32,
     pub errors: Vec<String>,
     /// "frame <n>, <count> LEDs, first changed <i>" for each frame that
     /// changed a colour.
@@ -39,6 +52,7 @@ impl Default for Ws2812 {
             leds: Vec::new(),
             frames: 0,
             mode_checked: false,
+            seen_rises: 0,
             errors: Vec::new(),
             log: Vec::new(),
         }
@@ -108,13 +122,31 @@ impl Ws2812 {
 }
 
 impl SsiDevice for Ws2812 {
-    fn shift(&mut self, b: u8, line: SsiLine, _gpio: &Gpio) -> u8 {
+    fn shift(&mut self, b: u8, line: SsiLine, gpio: &Gpio) -> u8 {
+        if let Some(supply) = gpio.watched(SUPPLY) {
+            if !supply.level {
+                // Unpowered: the data goes nowhere.
+                self.cur = None;
+                self.zeros = RESET_BYTES;
+                return 0;
+            }
+            if supply.rising != self.seen_rises {
+                self.seen_rises = supply.rising;
+                self.leds.fill(0);
+            }
+        }
         if !self.mode_checked {
             self.mode_checked = true;
             if line.cr0 & 0x3FF != 0x07 || line.baudr != BAUDR {
                 self.errors.push(format!(
                     "leds: CR0 0x{:x} BAUDR {}, not 8-bit mode 0 at 3 MHz",
                     line.cr0, line.baudr
+                ));
+            }
+            if gpio.alternate(DATA) != Some(AF_SPIM) {
+                self.errors.push(format!(
+                    "leds: B15 on {:?}, not SPIM2_MO (AF5)",
+                    gpio.alternate(DATA)
                 ));
             }
         }
@@ -170,7 +202,10 @@ mod tests {
             cr0: 0x07,
             baudr: 32,
         };
-        let gpio = Gpio::default();
+        // B15 on AF5 (MODER 2, AFRH nibble 7).
+        let mut gpio = Gpio::default();
+        gpio.write(0x400, 2 << 30, &mut |_| {});
+        gpio.write(0x424, 5 << 28, &mut |_| {});
         let mut w = Ws2812::default();
         for b in encode(&[0xFF0000, 0x00FF00, 0x123456])
             .into_iter()
@@ -193,5 +228,50 @@ mod tests {
             w.errors,
             ["leds: frame after only 3 zero bytes (latch needs 105)"]
         );
+    }
+
+    #[test]
+    fn b15_must_be_on_af5() {
+        let line = SsiLine {
+            cr0: 0x07,
+            baudr: 32,
+        };
+        let mut w = Ws2812::default();
+        w.shift(0, line, &Gpio::default());
+        assert_eq!(w.errors, ["leds: B15 on None, not SPIM2_MO (AF5)"]);
+    }
+
+    /// The supply (A8) off, the chain sees no data; on again, the LEDs
+    /// start dark (their power-on state) until a frame.
+    #[test]
+    fn unpowered_the_chain_ignores_data_and_powers_up_dark() {
+        let line = SsiLine {
+            cr0: 0x07,
+            baudr: 32,
+        };
+        let mut gpio = Gpio::default();
+        gpio.watch(SUPPLY);
+        gpio.write(0x400, 2 << 30, &mut |_| {});
+        gpio.write(0x424, 5 << 28, &mut |_| {});
+        // A8 an output, high.
+        gpio.write(0x000, 1 << 16, &mut |_| {});
+        gpio.write(0x014, 1 << 8, &mut |_| {});
+        let mut w = Ws2812::default();
+        let frame = |w: &mut Ws2812, gpio: &Gpio, c: u32| {
+            for b in encode(&[c]).into_iter().chain([0; 105]) {
+                w.shift(b, line, gpio);
+            }
+        };
+        frame(&mut w, &gpio, 0x123456);
+        assert_eq!((w.leds.clone(), w.frames), (vec![0x123456], 1));
+        gpio.write(0x014, 0, &mut |_| {});
+        frame(&mut w, &gpio, 0xFF0000);
+        assert_eq!(w.frames, 1, "unpowered");
+        gpio.write(0x014, 1 << 8, &mut |_| {});
+        w.shift(0, line, &gpio);
+        assert_eq!(w.leds, [0]);
+        frame(&mut w, &gpio, 0x00FF00);
+        assert_eq!((w.leds.clone(), w.frames), (vec![0x00FF00], 2));
+        assert_eq!(w.errors, Vec::<String>::new());
     }
 }

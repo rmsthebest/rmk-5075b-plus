@@ -291,7 +291,7 @@ impl Wb32 {
             }
             Periph::Qspi(o) => self.qspi.write(o, value, &self.gpio, &mut log),
             Periph::Spim2(o) => self.spim2.write(o, value, &self.gpio, &mut log),
-            Periph::Uart3(o) => self.uart3.write(o, value, self.now, &mut log),
+            Periph::Uart3(o) => self.uart3.write(o, value, self.now, &self.gpio, &mut log),
             Periph::Sysctl(o) => {
                 if !self.sysctl.write(o, value, &mut log) {
                     let (block, off) = Sysctl::block(o);

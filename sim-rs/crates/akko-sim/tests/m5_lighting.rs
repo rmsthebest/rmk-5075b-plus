@@ -15,7 +15,6 @@ mod common;
 use akko_sim::Part;
 use akko_sim::usb_host::cmd;
 use common::*;
-use wb32_sim::gpio::A;
 
 const RGB_MOD: (u8, u8) = (0, 13);
 const RGB_TOG: (u8, u8) = (3, 9);
@@ -24,6 +23,7 @@ const RGB_VAD: (u8, u8) = (5, 13);
 const RGB_SAI: (u8, u8) = (5, 12);
 const RGB_SAD: (u8, u8) = (5, 14);
 const RL_MOD: (u8, u8) = (5, 0);
+const DONGLE: (u8, u8) = (2, 6);
 /// The battery's GET_REPORT: input report 5 on the composite interface.
 const GET_BATTERY: u32 = cmd::GET_REPORT | 5 << 8 | 1 << 16;
 
@@ -82,10 +82,6 @@ fn all_leds_should_be(t: &T, colour: u32) {
         .map(|(i, _)| i)
         .collect();
     assert!(others.is_empty(), "LEDs not {colour:06x}: {others:?}");
-}
-
-fn drive_a(t: &mut T, pin: u8, level: Option<bool>) {
-    t.b.drive((A, pin), level);
 }
 
 /// LED 0's colour and the LED power, every 20 ms for `secs`: (colour,
@@ -560,16 +556,19 @@ fn hs_ct_a_held_3_s_makes_right_ctrl_send_app() {
     t.no_led_errors();
 }
 
-/// B9 is high while the lighting is on and the cable sense (A7) is low; a
-/// cable (A7 high) or Fn+L turns it off.
+/// B9 is high while the lighting is on and the cable sense (A7) is low;
+/// the cable (A7 high) or Fn+L turns it off.
 #[test]
 fn the_aux_led_shows_lighting_on_without_a_cable() {
     let mut t = boot_to_lighting();
+    assert!(!t.pin_high(GPIOB_ODR, AUX_LED), "the cable is in");
+    t.b.plug(false);
+    t.b.run_for(0.05);
     assert!(t.pin_high(GPIOB_ODR, AUX_LED));
-    t.b.drive(CABLE, Some(true));
+    t.b.plug(true);
     t.b.run_for(0.05);
     assert!(!t.pin_high(GPIOB_ODR, AUX_LED));
-    t.b.drive(CABLE, None);
+    t.b.plug(false);
     t.b.run_for(0.05);
     assert!(t.pin_high(GPIOB_ODR, AUX_LED));
     t.fn_tap_and_wait(RGB_TOG, 1);
@@ -577,30 +576,29 @@ fn the_aux_led_shows_lighting_on_without_a_cable() {
     t.no_led_errors();
 }
 
-/// LED 0 (no key over it) is dark at a good level; at 15% or less it
-/// blinks red, 250 ms on and off; with the cable in (A7 high) and the
-/// charger pulling A15 low it's red, and dark again once A15 goes high
-/// (full). Fn+G hides it.
+/// LED 0 (no key over it) is dark at a good level; on the battery at 15%
+/// or less it blinks red, 250 ms on and off; with the cable in (A7 high)
+/// the charger pulls A15 low and it's red, and dark again once the battery
+/// is full (A15 high). Fn+G hides it.
 #[test]
 fn led_0_shows_the_battery_blinking_when_low_red_while_charging() {
     let mut t = boot_to_lighting();
     assert!(led_0_over(&mut t, 0.6).iter().all(|s| s.0 == 0));
+    t.b.plug(false);
     t.set_battery(12);
     let mut colours: Vec<u32> = led_0_over(&mut t, 1.2).iter().map(|s| s.0).collect();
     colours.sort();
     colours.dedup();
     assert_eq!(colours, [0, 0xFF0000]);
-    drive_a(&mut t, 15, Some(false));
-    drive_a(&mut t, 7, Some(true));
+    t.b.plug(true);
     t.b.run_for(0.1);
     assert!(led_0_over(&mut t, 0.6).iter().all(|s| s.0 == 0xFF0000));
     t.fn_tap((3, 5), 1);
     assert!(led_0_over(&mut t, 0.6).iter().all(|s| s.0 == 0));
     t.fn_tap((3, 5), 1);
-    drive_a(&mut t, 15, None);
+    t.b.charger.level = 100.0;
     t.b.run_for(0.1);
     assert!(led_0_over(&mut t, 0.6).iter().all(|s| s.0 == 0));
-    drive_a(&mut t, 7, None);
     t.no_led_errors();
 }
 
@@ -654,6 +652,13 @@ fn fn_space_shows_the_battery_level() {
 fn with_the_lights_off_a_low_battery_flashes_led_0() {
     let mut t = boot_to_lighting();
     t.fn_tap_and_wait(RGB_TOG, 1);
+    // On the battery, so on the dongle: with the cable in it charges, which
+    // shows no flash, and on USB with the cable out the host's suspend
+    // turns the lighting off after 7 s.
+    t.fn_hold(DONGLE, 0.03);
+    t.b.run_for(0.2);
+    t.b.module_frame(0x5B, 0x32);
+    t.b.plug(false);
     t.set_battery(10);
     let seen = led_0_over(&mut t, 10.5);
     let red: Vec<usize> = seen
@@ -783,16 +788,14 @@ fn on_usb_the_battery_is_reported_to_the_host() {
     // module asked right after its post-init (100 ms), not 3 s on.
     t.b.host.command(GET_BATTERY);
     t.log_matching(r"GET_REPORT\(input 5\) -> 3 bytes: 05 64 0[01]", 1.0);
+    // Below full, on the cable: charging (the report's second byte).
     t.set_battery(57);
-    t.hid_matching(2, "05 39 0[01]", 1.0);
-    t.b.host.command(GET_BATTERY);
-    t.log_matching(r"GET_REPORT\(input 5\) -> 3 bytes: 05 39 0[01]", 1.0);
-    t.b.drive(CABLE, Some(true));
-    t.b.drive(CHARGING, Some(false));
     t.hid_should_show(2, "05 39 01", 2.0);
+    t.b.host.command(GET_BATTERY);
+    t.log_matching(r"GET_REPORT\(input 5\) -> 3 bytes: 05 39 01", 1.0);
     t.set_battery(58);
     t.hid_should_show(2, "05 3a 01", 1.0);
-    t.b.drive(CHARGING, None);
-    t.hid_should_show(2, "05 3a 00", 2.0);
+    t.b.charger.level = 100.0;
+    t.hid_should_show(2, "05 64 00", 4.0);
     t.no_errors();
 }

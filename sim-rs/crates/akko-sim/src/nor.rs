@@ -15,7 +15,7 @@
 //! The array survives a system reset (`reset` keeps it), as the chip keeps
 //! its data across a keyboard reset.
 
-use wb32_sim::gpio::{C, Gpio, Pin};
+use wb32_sim::gpio::{B, C, Gpio, Pin};
 use wb32_sim::ssi::{SsiDevice, SsiLine};
 
 pub const SIZE: usize = 512 * 1024;
@@ -38,6 +38,8 @@ pub struct Nor {
     pub log: Vec<String>,
     /// Commands it refused (qspi.py's ErrorLog lines).
     pub errors: Vec<String>,
+    /// The bus pins' alternate functions were checked (once a reset).
+    pins_checked: bool,
     /// qspi.py's WarningLog lines: unknown commands, bytes with CS high.
     pub warnings: Vec<String>,
 }
@@ -57,6 +59,7 @@ impl Default for Nor {
             pp_addr: 0,
             log: Vec::new(),
             errors: Vec::new(),
+            pins_checked: false,
             warnings: Vec::new(),
         }
     }
@@ -247,8 +250,24 @@ impl Nor {
     }
 }
 
+/// SCK, MISO and MOSI: QSPI_SCK, QSPI_MI_IO1, QSPI_MO_IO0 on AF5 (the
+/// datasheet's alternate-function table).
+const BUS_PINS: [Pin; 3] = [(B, 3), (B, 4), (B, 5)];
+const AF_SPIM: u8 = 5;
+
 impl SsiDevice for Nor {
     fn shift(&mut self, b: u8, _line: SsiLine, gpio: &Gpio) -> u8 {
+        if !self.pins_checked {
+            self.pins_checked = true;
+            for p in BUS_PINS {
+                if gpio.alternate(p) != Some(AF_SPIM) {
+                    self.errors.push(format!(
+                        "qspi: {p:?} on {:?}, not QSPI (AF5)",
+                        gpio.alternate(p)
+                    ));
+                }
+            }
+        }
         let cs = gpio
             .watched(CS)
             .expect("the board watches the flash's chip select");
@@ -262,5 +281,27 @@ impl SsiDevice for Nor {
             return 0xFF;
         }
         self.byte(b)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_bus_pins_must_be_on_af5() {
+        let line = SsiLine { cr0: 7, baudr: 32 };
+        let mut g = Gpio::default();
+        g.watch(CS);
+        // B3-B5 to AF5 (MODER 2, AFRL nibbles 3-5); then B4 back to AF0.
+        g.write(0x400, 0b10_1010 << 6, &mut |_| {});
+        g.write(0x420, 0x555 << 12, &mut |_| {});
+        let mut n = Nor::default();
+        n.shift(0x9F, line, &g);
+        assert_eq!(n.errors, Vec::<String>::new());
+        g.write(0x420, 0x505 << 12, &mut |_| {});
+        let mut n = Nor::default();
+        n.shift(0x9F, line, &g);
+        assert_eq!(n.errors, ["qspi: (1, 4) on Some(0), not QSPI (AF5)"]);
     }
 }

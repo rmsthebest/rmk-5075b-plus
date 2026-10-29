@@ -24,6 +24,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 use wb32_sim::Wb32;
+use wb32_sim::gpio::B;
 use wb32_sim::usb::{self, Ctl, Musb, NEP, Tok};
 
 /// One host step, in core ticks.
@@ -129,6 +130,9 @@ struct State {
     wakeup_capable: bool,
     wakeup_enabled: bool,
     plugged: bool,
+    /// Host steps since the cable came out, until the device sees the
+    /// idle bus as a suspend (3 ms).
+    unplugged_steps: u32,
     events: Vec<UsbEvent>,
 }
 
@@ -874,7 +878,14 @@ impl Host {
         old.collect_device_log();
         let h = Host::new(old.cx.d.clone(), now);
         h.cx.h.borrow_mut().events = std::mem::take(&mut old.cx.h.borrow_mut().events);
+        // The cable is outside the chip: a reset leaves it as it was.
+        h.cx.h.borrow_mut().plugged = old.plugged();
         h
+    }
+
+    /// The cable is in.
+    pub fn plugged(&self) -> bool {
+        self.cx.h.borrow().plugged
     }
 
     /// The state, as usb.py's 0xF04.
@@ -937,12 +948,23 @@ impl Host {
         let clocks = chip.sysctl.reg(RCC_AHBENR1) & 2 != 0
             && chip.sysctl.reg(RCC_USBCLKENR) & 1 != 0
             && chip.sysctl.reg(RCC_USBFIFOCLKENR) & 1 != 0;
-        pins_af && clocks && self.cx.d.borrow().other(usb::SFM_USBPCON) == 2
+        // B1 (USB_POWER_EN) high switches D+'s pull-up off; low or left as
+        // an input (the ROM never sets it), it's on.
+        let pull_up = !chip.gpio.pin_level((B, 1));
+        pins_af && clocks && pull_up && self.cx.d.borrow().other(usb::SFM_USBPCON) == 2
     }
 
+    /// The host lets the device go. What the device sees (USB 2.0
+    /// 7.1.7): with the cable in and its pull-up off, the host's pull-downs
+    /// hold SE0, a bus reset; with the cable out, its own pull-up holds J,
+    /// an idle bus (a suspend 3 ms on, in `step`).
     fn detach(&mut self, why: &str) {
         self.cx.log(why);
-        self.cx.d.borrow_mut().dev_reset(true);
+        if self.cx.h.borrow().plugged {
+            let mut d = self.cx.d.borrow_mut();
+            d.dev_reset(false);
+            d.intrusb |= usb::U_RESET;
+        }
         {
             let mut h = self.cx.h.borrow_mut();
             h.state = DETACHED;
@@ -973,6 +995,19 @@ impl Host {
         if !plugged {
             if state != DETACHED {
                 self.detach("cable unplugged");
+                cx.h.borrow_mut().unplugged_steps = 0;
+            }
+            let n = {
+                let mut h = cx.h.borrow_mut();
+                h.unplugged_steps += 1;
+                h.unplugged_steps
+            };
+            if n == 3 * STEPS_PER_MS {
+                let mut d = cx.d.borrow_mut();
+                if d.power & usb::P_SUSEN != 0 {
+                    d.power |= usb::P_SUSMD;
+                    d.intrusb |= usb::U_SUSPEND;
+                }
             }
             return self.collect_device_log();
         }

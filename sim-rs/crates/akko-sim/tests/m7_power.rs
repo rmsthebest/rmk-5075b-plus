@@ -122,12 +122,14 @@ fn measure(t: &mut T, label: &str, secs: f64) -> Counts {
     c
 }
 
-/// Fn+Y, the link up, then the host suspends: asleep.
+/// Fn+Y, the link up, the cable out (on the battery, as it's used), then
+/// the host suspends: asleep.
 fn on_the_dongle_asleep(t: &mut T) {
     t.fn_tap(DONGLE, 1);
     t.part_should_show(Part::Radio, &format!("^<- {SEL_DONGLE}"), 1.0);
     t.b.module_frame(CONNECTED.0, CONNECTED.1);
     t.part_should_show(Part::Radio, &format!("^<- {ALL_UP}"), 1.0);
+    t.b.plug(false);
     t.b.run_for(2.5);
     t.b.module_frame(HOST_SUSPEND.0, HOST_SUSPEND.1);
     t.b.run_for(0.5);

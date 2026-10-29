@@ -40,6 +40,8 @@ const PUPDR: u32 = 0x0C;
 const IDR: u32 = 0x10;
 const ODR: u32 = 0x14;
 const BSRR: u32 = 0x18;
+const AFRL: u32 = 0x20;
+const AFRH: u32 = 0x24;
 const CFGMSK: u32 = 0x30;
 /// The configuration registers CFGMSK guards, and their field width.
 const CFG_REGS: [(u32, u32); 8] = [
@@ -150,6 +152,14 @@ impl Gpio {
 
     fn mode(&self, (port, pin): Pin) -> u32 {
         (self.reg(port, MODER) >> (pin * 2)) & 3 // 0 in, 1 out, 2 af, 3 analog
+    }
+
+    /// The alternate function a pin is set to (AFRL/AFRH), if MODER puts
+    /// it in alternate-function mode.
+    pub fn alternate(&self, p: Pin) -> Option<u8> {
+        let (port, pin) = p;
+        let afr = if pin < 8 { AFRL } else { AFRH };
+        (self.mode(p) == 2).then(|| ((self.reg(port, afr) >> ((pin % 8) * 4)) & 0xF) as u8)
     }
 
     fn out_level(&self, (port, pin): Pin) -> bool {

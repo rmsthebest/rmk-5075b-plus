@@ -2,18 +2,20 @@
 
 pub mod gdb;
 pub mod nor;
+pub mod parts;
 pub mod radio;
 pub mod usb_host;
 pub mod ws2812;
 
 use cortex_m3_emu::{Bus, Config, Cpu, IrqLines, Size, Sleep, TICK_HZ};
 use nor::Nor;
+use parts::{CABLE, Charger, Knob};
 use radio::Radio;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
-use usb_host::{Host, UsbEvent};
+use usb_host::{Host, UsbEvent, cmd};
 use wb32_sim::chip::ROM_BASE;
 use wb32_sim::gpio::{A, B, C, Matrix, Pin};
 use wb32_sim::{LoadError, Wb32};
@@ -173,6 +175,10 @@ pub struct Board {
     pub leds: Rc<RefCell<Ws2812>>,
     /// The radio module on UART3.
     pub radio: Rc<RefCell<Radio>>,
+    /// The knob's quadrature phase.
+    pub knob: Knob,
+    /// The battery and its charger (A15).
+    pub charger: Charger,
 }
 
 /// The board parts' logs, for [`Board::wait_log`].
@@ -187,6 +193,8 @@ pub enum Part {
 struct BoardBus<'a> {
     chip: &'a mut Wb32,
     host: &'a mut Host,
+    charger: &'a mut Charger,
+    radio: &'a Rc<RefCell<Radio>>,
 }
 
 impl Bus for BoardBus<'_> {
@@ -203,6 +211,10 @@ impl Bus for BoardBus<'_> {
         self.chip.advance(now);
         while self.host.next_at <= now {
             self.host.step(self.chip);
+            // The charger in the host's steps: 100 us is fine for a battery.
+            let plugged = self.host.plugged();
+            self.charger.advance(now, plugged, &mut self.chip.gpio);
+            self.radio.borrow_mut().set_battery(self.charger.percent());
         }
     }
     fn next_event(&self) -> u64 {
@@ -250,6 +262,10 @@ impl Board {
         chip.qspi.device = Some(Box::new(nor.clone()));
         chip.spim2.device = Some(Box::new(leds.clone()));
         chip.uart3.peer = Some(Box::new(radio.clone()));
+        chip.gpio.watch(ws2812::SUPPLY);
+        // The cable in (the host is plugged in), the switch on Win.
+        chip.gpio.driven.insert(CABLE, true);
+        parts::mac_switch(&mut chip.gpio, false);
         Board {
             cpu: Cpu::new(Config::default()),
             chip,
@@ -258,7 +274,32 @@ impl Board {
             nor,
             leds,
             radio,
+            knob: Knob::default(),
+            charger: Charger::default(),
         }
+    }
+
+    /// The USB cable in or out: the host with it, and VBUS on the cable
+    /// sense (A7).
+    pub fn plug(&mut self, on: bool) {
+        self.host.command(if on { cmd::PLUG } else { cmd::UNPLUG });
+        self.chip.gpio.driven.insert(CABLE, on);
+        self.chip.gpio.update();
+    }
+
+    pub fn plugged(&self) -> bool {
+        self.host.plugged()
+    }
+
+    /// One quadrature edge of the knob (`Knob::edge`).
+    pub fn knob_edge(&mut self, clockwise: bool) {
+        let (pin, level) = self.knob.edge(clockwise);
+        self.drive(pin, level);
+    }
+
+    /// The Win/Mac switch to Mac (true) or Win.
+    pub fn mac_switch(&mut self, mac: bool) {
+        parts::mac_switch(&mut self.chip.gpio, mac);
     }
 
     /// Loads an image and resets into it, as `sysbus LoadELF` then
@@ -332,6 +373,8 @@ impl Board {
             let mut bus = BoardBus {
                 chip: &mut self.chip,
                 host: &mut self.host,
+                charger: &mut self.charger,
+                radio: &self.radio,
             };
             self.cpu.run_until(&mut bus, end);
             if std::mem::take(&mut self.cpu.reset_requested) {
@@ -350,6 +393,8 @@ impl Board {
             let mut bus = BoardBus {
                 chip: &mut self.chip,
                 host: &mut self.host,
+                charger: &mut self.charger,
+                radio: &self.radio,
             };
             if self.cpu.run_until_break(&mut bus, end, breaks) {
                 return true;
@@ -374,6 +419,8 @@ impl Board {
             let mut bus = BoardBus {
                 chip: &mut self.chip,
                 host: &mut self.host,
+                charger: &mut self.charger,
+                radio: &self.radio,
             };
             if !self.cpu.wake(&mut bus, end) {
                 return false;
@@ -382,6 +429,8 @@ impl Board {
         let mut bus = BoardBus {
             chip: &mut self.chip,
             host: &mut self.host,
+            charger: &mut self.charger,
+            radio: &self.radio,
         };
         self.cpu.step(&mut bus);
         self.cpu.debug_halt = false;
@@ -401,6 +450,8 @@ impl Board {
         let mut bus = BoardBus {
             chip: &mut self.chip,
             host: &mut self.host,
+            charger: &mut self.charger,
+            radio: &self.radio,
         };
         Some(self.cpu.debug_read(&mut bus, addr, size))
     }
@@ -416,6 +467,8 @@ impl Board {
                 let mut bus = BoardBus {
                     chip: &mut self.chip,
                     host: &mut self.host,
+                    charger: &mut self.charger,
+                    radio: &self.radio,
                 };
                 self.cpu.debug_write(&mut bus, addr, size, value);
             }
@@ -572,8 +625,15 @@ impl Board {
     }
 
     /// The colours of the last LED frame, 0xRRGGBB per LED.
+    /// The LEDs' colours: dark while their supply (A8) is off, or since it
+    /// came back on until the next frame.
     pub fn led_colours(&self) -> Vec<u32> {
-        self.leds.borrow().leds.clone()
+        let leds = self.leds.borrow();
+        let supply = self.chip.gpio.watched(ws2812::SUPPLY).unwrap();
+        if !supply.level || supply.rising != leds.seen_rises {
+            return vec![0; leds.leds.len()];
+        }
+        leds.leds.clone()
     }
 
     /// Everything a test fails on unless it says otherwise: host errors,

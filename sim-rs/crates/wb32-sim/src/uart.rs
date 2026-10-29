@@ -14,6 +14,7 @@
 //! What's on the other end is the board's: a [`UartPeer`].
 
 use crate::chip::Write;
+use crate::gpio::Gpio;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -35,8 +36,9 @@ pub struct UartLine {
 
 /// The other end of the line. Bytes it sends go into `rx`.
 pub trait UartPeer {
-    /// A byte the chip sent.
-    fn tx(&mut self, b: u8, line: UartLine, now: u64, rx: &mut VecDeque<u8>);
+    /// A byte the chip sent. `gpio` shows the chip's pins (their
+    /// alternate functions).
+    fn tx(&mut self, b: u8, line: UartLine, now: u64, gpio: &Gpio, rx: &mut VecDeque<u8>);
 
     /// When it next has something to do by itself.
     fn next_event(&self) -> u64 {
@@ -48,8 +50,8 @@ pub trait UartPeer {
 }
 
 impl<T: UartPeer> UartPeer for Rc<RefCell<T>> {
-    fn tx(&mut self, b: u8, line: UartLine, now: u64, rx: &mut VecDeque<u8>) {
-        self.borrow_mut().tx(b, line, now, rx)
+    fn tx(&mut self, b: u8, line: UartLine, now: u64, gpio: &Gpio, rx: &mut VecDeque<u8>) {
+        self.borrow_mut().tx(b, line, now, gpio, rx)
     }
     fn next_event(&self) -> u64 {
         self.borrow().next_event()
@@ -134,7 +136,7 @@ impl Uart {
         }
     }
 
-    pub fn write(&mut self, off: u32, v: u32, now: u64, log: &mut impl FnMut(Write)) {
+    pub fn write(&mut self, off: u32, v: u32, now: u64, gpio: &Gpio, log: &mut impl FnMut(Write)) {
         if off == 0x00 {
             if self.dlab() {
                 self.dll = v & 0xFF;
@@ -147,7 +149,7 @@ impl Uart {
                     sfe: self.sfe,
                 };
                 if let Some(p) = &mut self.peer {
-                    p.tx(v as u8, line, now, &mut self.rx);
+                    p.tx(v as u8, line, now, gpio, &mut self.rx);
                 }
             }
             return;

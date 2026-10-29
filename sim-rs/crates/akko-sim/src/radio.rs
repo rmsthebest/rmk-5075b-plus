@@ -10,11 +10,20 @@
 //! (A6 53) with the battery level, and, with auto-connect on, answers a
 //! wireless device select (A6 30-35) with CONNECTED (5B 32). The first byte
 //! the keyboard sends checks the line set-up QMK uses (115200 8N1 from a 96
-//! MHz PCLK2: DLL 52, DLH 0, DLF 1, LCR 3, FIFOs on).
+//! MHz PCLK2: DLL 52, DLH 0, DLF 1, LCR 3, FIFOs on) and that C10/C11 are
+//! on UART3 (AF7): otherwise the module is wired to a pin that isn't
+//! sending. The battery level comes from the board's charger
+//! (`set_battery`).
 
 use cortex_m3_emu::TICK_HZ;
 use std::collections::VecDeque;
+use wb32_sim::gpio::{C, Gpio, Pin};
 use wb32_sim::uart::{UartLine, UartPeer};
+
+/// UART3_TX and UART3_RX on AF7 (the datasheet's alternate-function table).
+const TX: Pin = (C, 10);
+const RX: Pin = (C, 11);
+const AF_UART: u8 = 7;
 
 pub const ACK: [u8; 3] = [0x61, 0x0D, 0x0A];
 
@@ -92,6 +101,12 @@ impl Radio {
     }
 
     /// Bytes from the module, as they are.
+    /// The battery level it reports (flags bits 15:8): the board's
+    /// charger's.
+    pub fn set_battery(&mut self, percent: u8) {
+        self.flags = (self.flags & !0xFF00) | (percent as u32) << 8;
+    }
+
     pub fn send(&mut self, bytes: &[u8], rx: &mut VecDeque<u8>) {
         self.log.push(format!("-> {}", hex(bytes)));
         rx.extend(bytes);
@@ -138,9 +153,17 @@ impl Radio {
 }
 
 impl UartPeer for Radio {
-    fn tx(&mut self, b: u8, line: UartLine, now: u64, rx: &mut VecDeque<u8>) {
+    fn tx(&mut self, b: u8, line: UartLine, now: u64, gpio: &Gpio, rx: &mut VecDeque<u8>) {
         if !self.setup_checked {
             self.setup_checked = true;
+            for p in [TX, RX] {
+                if gpio.alternate(p) != Some(AF_UART) {
+                    self.errors.push(format!(
+                        "uart3: {p:?} on {:?}, not UART3 (AF7)",
+                        gpio.alternate(p)
+                    ));
+                }
+            }
             let got = (line.dll, line.dlh, line.dlf, line.lcr & 0x7F, line.sfe & 1);
             if got != (52, 0, 1, 3, 1) {
                 self.errors.push(format!(
@@ -187,5 +210,39 @@ impl UartPeer for Radio {
             self.acks_due.pop_front();
             self.send(&ACK, rx);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const QMK_LINE: UartLine = UartLine {
+        dll: 52,
+        dlh: 0,
+        dlf: 1,
+        lcr: 3,
+        sfe: 1,
+    };
+
+    /// C10 and C11 to AF7 (MODER 2, AFRH nibbles 2 and 3), as the
+    /// firmware sets them, or C11 left an input.
+    fn gpio(rx_too: bool) -> Gpio {
+        let mut g = Gpio::default();
+        let moder = 2 << 20 | if rx_too { 2 << 22 } else { 0 };
+        g.write(0x800, moder, &mut |_| {});
+        g.write(0x824, 7 << 8 | 7 << 12, &mut |_| {});
+        g
+    }
+
+    #[test]
+    fn the_uart_pins_must_be_on_af7() {
+        let mut rx = VecDeque::new();
+        let mut r = Radio::default();
+        r.tx(0xA6, QMK_LINE, 0, &gpio(true), &mut rx);
+        assert_eq!(r.errors, Vec::<String>::new());
+        let mut r = Radio::default();
+        r.tx(0xA6, QMK_LINE, 0, &gpio(false), &mut rx);
+        assert_eq!(r.errors, ["uart3: (2, 11) on None, not UART3 (AF7)"]);
     }
 }

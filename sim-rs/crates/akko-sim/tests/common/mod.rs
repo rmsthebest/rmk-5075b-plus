@@ -10,7 +10,6 @@ use akko_sim::usb_host::{UsbEvent, cmd, hex};
 use akko_sim::{Board, Image, Part};
 use regex::Regex;
 use std::sync::OnceLock;
-use wb32_sim::gpio::{A, B, C, Pin};
 use wb32_sim::usb::UsbAccess;
 
 pub const GPIOA_ODR: u32 = 0x4000_0014;
@@ -24,13 +23,6 @@ pub const LED_POWER: u32 = 0x100;
 pub const LED_BOOST: u32 = 0x200;
 pub const USB_POWER: u32 = 0x02;
 pub const VIAL_OUT_EP: u32 = 2;
-pub const MAC_SWITCH: Pin = (C, 14);
-pub const KNOB_A: Pin = (B, 7);
-pub const KNOB_B: Pin = (B, 6);
-/// The cable sense: high with a cable in.
-pub const CABLE: Pin = (A, 7);
-/// The charger's status: low while charging.
-pub const CHARGING: Pin = (A, 15);
 pub const SYST_CSR: u32 = 0xE000_E010;
 pub const SCB_SCR: u32 = 0xE000_ED10;
 
@@ -245,27 +237,30 @@ impl T {
         self.b.run_for(0.03);
     }
 
-    /// One detent through the quadrature states, `edge` seconds apart. A
-    /// leading: clockwise, as QMK decodes this knob.
-    pub fn knob_step(&mut self, a_first: bool, edge: f64) {
-        let (first, second) = if a_first {
-            (KNOB_A, KNOB_B)
-        } else {
-            (KNOB_B, KNOB_A)
-        };
-        for (pin, level) in [
-            (first, Some(false)),
-            (second, Some(false)),
-            (first, None),
-            (second, None),
-        ] {
-            self.b.drive(pin, level);
+    /// One detent of the knob (parts::Knob), `edge` seconds between
+    /// quadrature edges. Clockwise: A leads, as QMK decodes this knob.
+    pub fn knob_step(&mut self, clockwise: bool, edge: f64) {
+        self.knob_step_bouncing(clockwise, edge, 0, 0.0);
+    }
+
+    /// As `knob_step`, each edge's contact bouncing `bounces` times
+    /// (open and closed again) `bounce` seconds apart before it settles.
+    pub fn knob_step_bouncing(&mut self, clockwise: bool, edge: f64, bounces: u32, bounce: f64) {
+        for _ in 0..4 {
+            self.b.knob_edge(clockwise);
+            for _ in 0..bounces {
+                self.b.run_for(bounce);
+                self.b.knob_edge(!clockwise);
+                self.b.run_for(bounce);
+                self.b.knob_edge(clockwise);
+            }
             self.b.run_for(edge);
         }
     }
 
+    /// The Win/Mac switch to Mac (true) or Win.
     pub fn mac_mode(&mut self, on: bool) {
-        self.b.drive(MAC_SWITCH, on.then_some(false));
+        self.b.mac_switch(on);
         self.b.run_for(0.05);
     }
 
@@ -359,10 +354,10 @@ impl T {
         self.b.leds.borrow().frames
     }
 
-    /// The radio module's battery level, then past its next inquiry
-    /// (every 3 s) and a frame.
+    /// The battery's level (the radio module reports it), then past the
+    /// module's next inquiry (every 3 s) and a frame.
     pub fn set_battery(&mut self, percent: u32) {
-        self.b.radio.borrow_mut().flags = percent << 8;
+        self.b.charger.level = percent as f64;
         self.b.run_for(3.1);
     }
 
