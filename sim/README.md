@@ -1,5 +1,12 @@
 # Simulated Akko 5075B Plus (Renode)
 
+Since 2026-10-29 the gate for images is our own simulator, `../sim-rs` (`sim-rs/run.sh`,
+about 2 min). This Renode sim runs the same suites as a cross-check (the workbench's
+"Cross-check in Renode"), and it is still where the QMK binary runs (`qmk_reference`,
+`compare/qmk_power`) until sim-rs does. Where the two sims differ, sim-rs follows the chip
+and the ARM spec; `../sim-rs/BOARD_FACTS.md` lists where Renode's models don't (its SysTick,
+for one).
+
 Runs our images, and the known-good QMK build, on a simulated WB32FQ95, so most
 changes can be checked without flashing the keyboard.
 

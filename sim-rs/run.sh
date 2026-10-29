@@ -2,6 +2,8 @@
 # Build the firmware images, snapshot them, and run the simulator's tests.
 #   sim-rs/run.sh                 everything
 #   sim-rs/run.sh <cargo test args>   e.g. sim-rs/run.sh -p akko-sim boot
+# The gate for every image (tools/bench.py's "Run sim tests"): the whole
+# suite, about 100 s. --no-fail-fast, so a run reports every failure.
 # The images are built the way sim/run.sh builds them, but in target/sim-rs*
 # rather than the repo's own target/, so a Renode run going on at the same
 # time keeps its images. They are then copied to sim-rs/target/images/, which
@@ -35,4 +37,4 @@ cp "rom/rust/target/$rel/wb32-rom-dfu" "$images.new/wb32-rom-dfu"
 rm -rf "$images" && mv "$images.new" "$images"
 
 cd sim-rs
-cargo test --release "$@"
+cargo test --release --no-fail-fast "$@"

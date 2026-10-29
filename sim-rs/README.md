@@ -1,8 +1,10 @@
 # sim-rs: our own Akko 5075B Plus simulator
 
 A Cortex-M3 interpreter and WB32FQ95 models in Rust, with the tests as plain
-`cargo test`. It replaces the Renode sim in `../sim` once both agree on every
-test; until then Renode is still the gate for firmware images.
+`cargo test`. It is the gate for every firmware image: the workbench's "Run
+sim tests" (`../tools/bench.py`) runs the whole suite, about 100 s, and
+freezes the akko-rmk it ran. The Renode sim in `../sim` runs the same suites
+as a cross-check ("Cross-check in Renode"), and the QMK reference until step 9.
 
 ```fish
 sim-rs/run.sh                   # build and snapshot the images, run every test
@@ -51,4 +53,6 @@ QMK binary and its golden traces) and the keyboard itself:
 
 - Step 7: `m7_power.rs`, all 5 tests of m7_power.robot (3.7 s; Renode takes minutes), with the handler counts as a PC-hit counter in the chip (`Wb32::pc_hits`, Renode's `cpu AddHook`s). On the same image Renode and ours agree within a frame: lights on 5.91 M vs 6.00 M insns/s (one more 16 ms frame in our second), off 0.21 M vs 0.22 M, asleep 0.07 M both, key held 33.43 M vs 33.37 M, wakes within 1/s. Their timing drifts apart from SysTick's enable on, and it is Renode's SysTick that's off: it breaks ARM DDI 0403E B3.3 in three ways (BOARD_FACTS.md, pinned by `cpu.rs` `systick_*`), found by running the same probes from SRAM in both and logging the firmware's own CVR reads. Renode's default mode also counts instructions in translation blocks (96,555 in the first millisecond against 96,186 with `cpu MaximumBlockSize 1`, which matches ours exactly). With spec timing, one m7 press lands on a WS2812 frame and waits 9 steps for it, so the press bound is now 10 in both suites.
 
-Next: switch over (step 8).
+- Step 8: the switch-over. sim-rs is the workbench's gate; there's no test selection or smaller gate any more, as the whole suite takes about 100 s (2 min with the image builds). `run.sh` runs with `--no-fail-fast`. `sim/affected.py` is gone; Renode's `sim/run.sh` stays for the cross-check.
+
+Next: the QMK binary (step 9): `qmk_reference`, the golden traces and `compare/qmk_power`.

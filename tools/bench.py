@@ -3,6 +3,7 @@
 
     python3 tools/bench.py        (opens http://127.0.0.1:8475 in the browser)
     python3 tools/bench.py test   (the "Run sim tests" button, in the terminal)
+    python3 tools/bench.py renode (the "Cross-check in Renode" button)
 
 Everything is a button, so the keyboard being flashed can be the only one
 plugged in. Only the stdlib is used; the page is served on localhost only and
@@ -12,10 +13,14 @@ The sign-off checklist (tools/signoff.json) records pass/fail/skip per
 item in target/bench/signoff.json, against the image last flashed from here.
 
 Safety rules, as tools/flash.sh and the sim-first workflow:
-  - "Run sim tests" builds every image and runs sim/run.sh. Only when all
-    suites pass is akko-rmk frozen (ELF + bin copied to target/bench/) with a
-    stamp holding its sha256. "Flash RMK" flashes that frozen copy and only
-    after precheck.py passes on it again and its hash matches the stamp.
+  - "Run sim tests" builds every image and runs sim-rs/run.sh, the whole
+    suite. Only when every test passes is akko-rmk frozen: the snapshot the
+    tests loaded (sim-rs/target/images/akko-rmk), ELF + bin copied to
+    target/bench/, with a stamp holding its sha256. "Flash RMK" flashes that
+    frozen copy and only after precheck.py passes on it again and its hash
+    matches the stamp.
+  - "Cross-check in Renode" runs the Renode suites (sim/run.sh) and reports;
+    it never freezes.
   - "Flash QMK" flashes ../akko_5075b_plus_fixes.bin and only if its hash is
     the known-good one below.
   - DFU: "Enter DFU", and flashing, send a running akko-rmk there over USB
@@ -27,6 +32,7 @@ Safety rules, as tools/flash.sh and the sim-first workflow:
 import hashlib
 import json
 import os
+import re
 import secrets
 import select
 import shutil
@@ -45,6 +51,9 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parent.parent
 BENCH = ROOT / "target/bench"
 RMK_ELF = ROOT / "target/thumbv7m-none-eabi/release/akko-rmk"
+# sim-rs/run.sh's build, and the snapshot of it its tests load.
+SIM_BUILD = ROOT / "target/sim-rs/thumbv7m-none-eabi/release/akko-rmk"
+TESTED_ELF = ROOT / "sim-rs/target/images/akko-rmk"
 FROZEN_ELF = BENCH / "akko-rmk.elf"
 FROZEN_BIN = BENCH / "akko-rmk.bin"
 STAMP = BENCH / "akko-rmk.json"
@@ -55,7 +64,7 @@ RESULTS_FILE = BENCH / "signoff.json"
 LOGS = BENCH / "logs"
 QMK_BIN = ROOT.parent / "akko_5075b_plus_fixes.bin"
 QMK_SHA = "d5e10b44ed718de45f0da4c4e08914578baa9104895e88a2c3e67e912c3af306"
-RESULTS = ROOT / "target/sim-results/robot_output.xml"
+RENODE_RESULTS = ROOT / "target/sim-results/robot_output.xml"
 DFU = "wb32-dfu-updater_cli"
 PORT = 8475
 DFU_WAIT_S = 180
@@ -97,13 +106,14 @@ def keyboard_state():
 
 
 def image_state():
-    st = {"built": RMK_ELF.exists(), "frozen": None}
+    builds = [p for p in (RMK_ELF, SIM_BUILD) if p.exists()]
+    st = {"built": bool(builds), "frozen": None}
     if STAMP.exists() and FROZEN_BIN.exists():
         stamp = json.loads(STAMP.read_text())
         stamp["ok"] = sha256(FROZEN_BIN) == stamp["sha256"]
         st["frozen"] = stamp
-    if RMK_ELF.exists() and st["frozen"]:
-        st["stale"] = RMK_ELF.stat().st_mtime > STAMP.stat().st_mtime
+    if builds and st["frozen"]:
+        st["stale"] = max(p.stat().st_mtime for p in builds) > STAMP.stat().st_mtime
     return st
 
 
@@ -254,23 +264,46 @@ def flash(job, bin_path):
     job.say("The keyboard hasn't enumerated yet; check it by hand.")
 
 
+def cargo_totals(lines):
+    """Sums cargo test's "test result: ..." lines."""
+    total = {"passed": 0, "failed": 0, "ignored": 0}
+    for line in lines:
+        if line.startswith("test result:"):
+            for n, what in re.findall(r"(\d+) (passed|failed|ignored)", line):
+                total[what] += int(n)
+    return total
+
+
 def do_test(job):
-    job.run("sim/run.sh")
-    root = ET.parse(RESULTS).getroot()
-    total = root.find("statistics/total/stat").attrib
-    job.say(f"Sim: {total['pass']} passed, {total['fail']} failed, {total['skip']} skipped")
-    if int(total["fail"]) or int(total["skip"]) or not int(total["pass"]):
+    start = len(job.log)
+    try:
+        job.run("sim-rs/run.sh")
+    finally:
+        total = cargo_totals(job.log[start:])
+        job.say(f"Sim: {total['passed']} passed, {total['failed']} failed, {total['ignored']} ignored")
+    if total["failed"] or total["ignored"] or not total["passed"]:
         raise RuntimeError("not every test passed, image not frozen")
     BENCH.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(RMK_ELF, FROZEN_ELF)
+    shutil.copy2(TESTED_ELF, FROZEN_ELF)
     job.run("rust-objcopy", "-O", "binary", FROZEN_ELF, FROZEN_BIN)
     job.run(sys.executable, "-I", "tools/precheck.py", FROZEN_ELF, FROZEN_BIN)
     rev = subprocess.run(["git", "describe", "--always", "--dirty"], cwd=ROOT,
                          capture_output=True, text=True).stdout.strip()
     stamp = {"sha256": sha256(FROZEN_BIN), "size": FROZEN_BIN.stat().st_size, "git": rev,
-             "tests": int(total["pass"]), "time": time.strftime("%Y-%m-%d %H:%M")}
+             "tests": total["passed"], "sim": "sim-rs", "time": time.strftime("%Y-%m-%d %H:%M")}
     STAMP.write_text(json.dumps(stamp, indent=1))
     job.say(f"Frozen akko-rmk {stamp['sha256'][:12]} ({rev}), ready to flash.")
+
+
+def do_renode(job):
+    RENODE_RESULTS.unlink(missing_ok=True)
+    try:
+        job.run("sim/run.sh")
+    finally:
+        if RENODE_RESULTS.exists():
+            total = ET.parse(RENODE_RESULTS).getroot().find("statistics/total/stat").attrib
+            job.say(f"Renode: {total['pass']} passed, {total['fail']} failed, {total['skip']} skipped"
+                    " (a cross-check: nothing frozen)")
 
 
 def do_flash_rmk(job):
@@ -572,6 +605,7 @@ def do_reset(job):
 
 ACTIONS = {
     "test": ("Run sim tests", do_test),
+    "renode": ("Cross-check in Renode", do_renode),
     "flash-rmk": ("Flash RMK", do_flash_rmk),
     "flash-qmk": ("Flash QMK", do_flash_qmk),
     "capture": ("Capture 60 s", do_capture),
@@ -639,9 +673,9 @@ PAGE = (Path(__file__).with_name("bench.html")).read_text()
 
 
 def main():
-    if sys.argv[1:2] == ["test"]:
+    if sys.argv[1:2] in (["test"], ["renode"]):
         JOB.echo = True
-        JOB._run(do_test)
+        JOB._run(do_test if sys.argv[1] == "test" else do_renode)
         sys.exit(0 if JOB.status == "ok" else 1)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://127.0.0.1:{PORT}/?t={TOKEN}"

@@ -24,13 +24,14 @@ your QMK `.bin`) to go back to.
 ## 2. Build, test, freeze
 
 ```fish
-cargo build --release --bin akko-rmk
-sim/run.sh                                # every suite, about 20 min
 python3 -I tools/bench.py                 # http://localhost:8475
 ```
 
-In the workbench, **Freeze** copies the image that passed the full suite to `target/bench/`, stamped
-with its sha256. Only a frozen image can be flashed from there.
+In the workbench, **Run sim tests** builds every image and runs the whole sim-rs suite
+(`sim-rs/run.sh`, about 2 min). When every test passes, it freezes the akko-rmk the tests ran
+(`sim-rs/target/images/akko-rmk`) into `target/bench/`, stamped with its sha256. Only a frozen
+image can be flashed from there. **Cross-check in Renode** runs the same suites in Renode
+(`sim/run.sh`, about 25 min) and only reports; it's worth a run when a change touches timing.
 
 ## 3. Enter the bootloader
 

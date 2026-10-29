@@ -72,7 +72,8 @@ build aren't published, so they don't count here. Both images ran in the same si
 | `firmware` | `firmware` | The `akko-rmk` image and the bring-up images `m1a-bounce`, `m1b-stub`, `m2-blink`, `m3-usb` | This board |
 | `third_party/rmk` | `rmk` | Submodule: [our fork](https://github.com/rmsthebest/rmk), branch `akko-main`: RMK main with our hooks and fixes (`rmk/README-akko.md`) | |
 | `third_party/musb` | `musb` | Submodule: [our fork](https://github.com/rmsthebest/musb), branch `wb32`: musb 0.3.1 with WB32 support and fixes (`README-wb32.md`) | |
-| `sim/` | | Renode simulation of the board and the test suites (`sim/README.md`) | |
+| `sim-rs/` | | Our own simulator of the board (a Cortex-M3 interpreter and the WB32FQ95's peripherals in Rust) and the test suites, under `cargo test`: the gate for every image (`sim-rs/README.md`) | |
+| `sim/` | | The Renode simulation the suites were first written for, kept as a cross-check, and the QMK reference runs (`sim/README.md`) | |
 | `rom/` | | The chip's ROM bootloader, studied: read-out (`rom-peek` feature), disassembly tools, the ROM in Renode, write-up (`rom/README.md`). The ROM itself isn't in the repo | |
 | `tools/` | | Generators (PAC, keymap, LED layout, Vial JSON), checks (precheck, rgbref, PAC vs manual), the workbench | |
 
@@ -84,7 +85,8 @@ written for this board.
 ```fish
 git submodule update --init              # third_party/rmk and third_party/musb
 cargo build --release --bin akko-rmk     # target thumbv7m-none-eabi (needs flip-link; rust-toolchain.toml pins a nightly)
-sim/run.sh                               # every sim suite (about 20 min); SIM_CHANGED=1 for the affected ones
+sim-rs/run.sh                            # build the images, run every sim test (about 2 min): the gate
+sim/run.sh                               # the same suites in Renode, a cross-check (about 25 min)
 cargo test -p qmk-wireless --target x86_64-unknown-linux-gnu
 tools/wls_host_test/run.sh               # QMK's wireless C on the host (QMK_TREE), against the same test data
 cargo test -p akko-lighting --target x86_64-unknown-linux-gnu
