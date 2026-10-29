@@ -5,10 +5,6 @@ target = "thumbv7m-none-eabi"
 linker = "flip-link"
 rustflags = [
     "-C", "link-arg=-Tlink.x",
-    # Panic locations name their source file. A --remap-path-prefix for
-    # cargo's registry makes those strings ~2.7 KB shorter, but its path is
-    # per machine, so it goes in a .cargo/config.toml above the repo (cargo
-    # merges the rustflags) until trim-paths is stable.
     # Library crates' panic locations without the "crates/" prefix: the
     # message has to fit boot-guard's 120-byte record.
     "--remap-path-prefix=crates/=",

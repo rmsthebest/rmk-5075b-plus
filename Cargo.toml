@@ -16,6 +16,10 @@ lto = true
 codegen-units = 1
 debug = 2
 panic = "abort"
+# Panic locations name their source file: dependencies as
+# /cargo/registry/<hash>/<crate>-<version>/..., the same on every machine,
+# rather than this machine's cargo home (rust-toolchain.toml).
+trim-paths = "all"
 
 [profile.dev]
 opt-level = "s"

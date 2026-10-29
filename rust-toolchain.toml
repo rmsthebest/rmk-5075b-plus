@@ -1,0 +1,6 @@
+# A dated nightly for the release profile's trim-paths, stable from Rust
+# 1.101; move to stable once that's out. rustup installs it on first use.
+[toolchain]
+channel = "nightly-2026-10-28"
+targets = ["thumbv7m-none-eabi"]
+components = ["rustfmt", "clippy", "llvm-tools"]

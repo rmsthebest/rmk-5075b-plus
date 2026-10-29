@@ -35,7 +35,7 @@ written for this board.
 
 ```fish
 git submodule update --init              # third_party/rmk and third_party/musb
-cargo build --release --bin akko-rmk     # target thumbv7m-none-eabi (needs flip-link)
+cargo build --release --bin akko-rmk     # target thumbv7m-none-eabi (needs flip-link; rust-toolchain.toml pins a nightly)
 sim/run.sh                               # every sim suite (about 20 min); SIM_CHANGED=1 for the affected ones
 cargo test -p qmk-wireless --target x86_64-unknown-linux-gnu
 tools/wls_host_test/run.sh               # QMK's wireless C on the host (QMK_TREE), against the same test data
