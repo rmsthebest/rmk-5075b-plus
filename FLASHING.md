@@ -61,11 +61,11 @@ goes to DFU. Vial channel 0xD2 returns the last panic message.
 `tools/flash.sh <bin>` builds, prechecks and flashes in one go. It's meant for the bring-up
 images; for `akko-rmk`, freeze and flash the tested copy instead.
 
-**The keymap after a flash.** Vial keymap edits survive a flash. The exception is an image whose
-RMK storage layout changed (`RMK_BUILD_HASH` in `.cargo/config.toml`, bumped when rows, columns,
-layers or encoders change, or when RMK's storage format does). On its first start such an image
-resets the keymap to the default once. The lighting and keyboard settings live in their own
-record and are kept.
+**The keymap after a flash.** Vial keymap edits survive a flash while RMK's storage schema hash
+matches. That hash covers rmk's version and features, the macro, combo and morse sizes in
+`firmware/rmk.toml`, and `RMK_COMMIT` in `.cargo/config.toml`. Bump `RMK_COMMIT` only when a change
+to our rmk fork alters what's stored. An image with a new hash resets the keymap to the default once,
+on its first start. The lighting and keyboard settings live in their own record and are kept.
 
 ## 5. Check it works
 
