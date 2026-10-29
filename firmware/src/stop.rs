@@ -18,8 +18,9 @@
 //! alone, it got out of the stop (until the firmware sets them again).
 //! `diag`'s variant bits (`VARIANT_*`) try what the vendor does otherwise.
 //!
-//! The EXTI setup is put back as it was after; a knob edge that woke it is
-//! left pending for the knob's `ExtiInput` (line 6, if armed). The turn
+//! The EXTI setup is put back as it was after; a knob or row edge that woke
+//! it is left pending for the knob's or the parked scan's `ExtiInput` (if
+//! armed). The turn
 //! that wakes it is mostly lost all the same (B7's edge isn't seen while
 //! line 7 is A7's); the next one is read.
 
@@ -44,6 +45,13 @@ const PORTS: [(u8, Port); 9] = [
     (11, Port::C),
     (13, Port::C),
 ];
+
+/// The lines behind each of `IRQS`.
+const IRQ_LINES: [u32; 7] = [1 << 0, 1 << 1, 1 << 2, 1 << 3, 1 << 4, 0x3E0, 0xFC00];
+
+fn irq_index(irq: Interrupt) -> usize {
+    IRQS.iter().position(|&i| i == irq).unwrap_or(0)
+}
 
 const IRQS: [Interrupt; 7] = [
     Interrupt::EXTI0,
@@ -149,8 +157,9 @@ pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
 
         rx.set_mode(Mode::alternate(7));
         let fired = woke.unwrap_or(0) & lines;
-        // The knob's edge stays pending for its ExtiInput, if it waits.
-        let keep = fired & imr & KNOB_LINE;
+        // The knob's or a row's edge stays pending for its ExtiInput, if it
+        // waits.
+        let keep = fired & imr & (KNOB_LINE | ROW_LINES);
         EXTI.imr().write_value(wb32_pac::exti::regs::Imr(0));
         for (i, v) in exticr.iter().enumerate() {
             AFIO.exticr(i).write_value(wb32_pac::afio::regs::Exticr(*v));
@@ -160,7 +169,7 @@ pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
         EXTI.pr().write_value(wb32_pac::exti::regs::Pr(lines & !keep));
         EXTI.imr().write_value(wb32_pac::exti::regs::Imr(imr));
         for (irq, was) in IRQS.into_iter().zip(nvic_was) {
-            if !(irq == Interrupt::EXTI9_5 && keep != 0) {
+            if keep & IRQ_LINES[irq_index(irq)] == 0 {
                 cortex_m::peripheral::NVIC::unpend(irq);
             }
             if !was {

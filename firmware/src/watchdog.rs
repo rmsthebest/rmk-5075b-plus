@@ -5,8 +5,9 @@
 //! a second time before the image is stable, it goes to DFU, as any panic.
 //!
 //! Two counters must move:
-//! - `scan_alive`, every scan pass (1 ms; 10 ms while asleep): the
-//!   executor runs and the keys are read.
+//! - `scan_alive`, every scan pass (1 ms while a key is down): the
+//!   executor runs and the keys are read. While the scan is parked
+//!   (`scan_parked`, no key down) it counts as moving.
 //! - `MAIN_ALIVE`, every 100 ms from `heartbeat`, a future in main's join:
 //!   the time queue (SysTick) works.
 //!
@@ -15,7 +16,7 @@
 //! could, and it's unproven on this chip: it may survive the reset into
 //! the ROM bootloader, or run in stop mode.
 
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use embassy_time::Timer;
 
@@ -27,6 +28,7 @@ const PRIO: u8 = 0x20;
 
 static SCAN_ALIVE: AtomicU32 = AtomicU32::new(0);
 static MAIN_ALIVE: AtomicU32 = AtomicU32::new(0);
+static SCAN_PARKED: AtomicBool = AtomicBool::new(false);
 /// The values the last check saw, and the checks since they last moved.
 static SEEN: [AtomicU32; 2] = [AtomicU32::new(0), AtomicU32::new(0)];
 static STUCK: [AtomicU32; 2] = [AtomicU32::new(0), AtomicU32::new(0)];
@@ -34,6 +36,11 @@ static STUCK: [AtomicU32; 2] = [AtomicU32::new(0), AtomicU32::new(0)];
 /// The scan made a pass.
 pub fn scan_alive() {
     SCAN_ALIVE.store(SCAN_ALIVE.load(Ordering::Relaxed).wrapping_add(1), Ordering::Relaxed);
+}
+
+/// The scan parked (waiting for a key) or went back to its passes.
+pub fn scan_parked(parked: bool) {
+    SCAN_PARKED.store(parked, Ordering::Relaxed);
 }
 
 /// Starts the checks: once everything that runs is about to run (a long
@@ -53,7 +60,7 @@ pub async fn heartbeat() -> ! {
 fn check() {
     for (i, (counter, name)) in [(&SCAN_ALIVE, "scan"), (&MAIN_ALIVE, "main")].into_iter().enumerate() {
         let v = counter.load(Ordering::Relaxed);
-        if v != SEEN[i].load(Ordering::Relaxed) {
+        if v != SEEN[i].load(Ordering::Relaxed) || i == 0 && SCAN_PARKED.load(Ordering::Relaxed) {
             SEEN[i].store(v, Ordering::Relaxed);
             STUCK[i].store(0, Ordering::Relaxed);
             continue;

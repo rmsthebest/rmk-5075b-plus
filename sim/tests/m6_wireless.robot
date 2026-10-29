@@ -162,7 +162,8 @@ On The Dongle
 Should Be Asleep
     [Documentation]    Asleep (src/power.rs): the LED supply and boost off,
     ...    the Caps LED off, and (unless ${lower}) the columns driven low:
-    ...    C0-C3 are outputs (MODER 01).
+    ...    C0-C3 are outputs (MODER 01). Awake and idle the scan is parked,
+    ...    with the columns driven too, so they're only checked asleep.
     [Arguments]    ${asleep}    ${lower}=${False}
     ${a}=    Execute Command    sysbus ReadDoubleWord ${GPIOA_ODR}
     ${a}=    Evaluate    int($a.strip(), 0)
@@ -173,7 +174,7 @@ Should Be Asleep
     END
     ${moder}=    Execute Command    sysbus ReadDoubleWord ${GPIOC_MODER}
     ${driven}=    Evaluate    (int($moder.strip(), 0) & 0xFF) == 0x55
-    Should Be Equal    ${driven}    ${{ ${asleep} and not ${lower} }}    columns driven
+    IF    ${asleep}    Should Be Equal    ${driven}    ${{ not ${lower} }}    columns driven
 
 Set Sleep Timeout
     [Documentation]    Over Vial channel 0xD7: 0 never, 1 = 1 min, ..., 7 = 2 min.

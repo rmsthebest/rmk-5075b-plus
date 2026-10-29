@@ -399,18 +399,23 @@ A Keymap Change Through Vial Survives A Reset
 
 The Scan Reports Its Counters Over Vial
     [Documentation]    VIA id_custom_get_value on channel 0xD1 answers with the
-    ...    scan's diagnostics (src/scan.rs fill_diag): a pass every 1 ms (on
-    ...    the board, a TIM2 time base made it one per 65.5 ms), one debounced
-    ...    event, and the held key in the readings since the last query.
+    ...    scan's diagnostics (src/scan.rs fill_diag): a pass every 1 ms while
+    ...    a key is down (on the board, a TIM2 time base made it one per
+    ...    65.5 ms), none while parked, one debounced event, and the held key
+    ...    in the readings since the last query.
     Boot And Enumerate
     Raw HID Send    0x08    0xD1
     ${first}=    Wait For Log Entry    HOST HID 3: 08 d1 .*    timeout=1    treatAsRegex=true    pauseEmulation=true
     Run For    0.3
+    Raw HID Send    0x08    0xD1
+    ${idle}=    Wait For Log Entry    HOST HID 3: 08 d1 .*    timeout=1    treatAsRegex=true    pauseEmulation=true
+    ${a}=    Evaluate    bytes.fromhex($first.split("HOST HID 3: ")[1].strip())
+    ${i}=    Evaluate    bytes.fromhex($idle.split("HOST HID 3: ")[1].strip())
+    Should Be Equal    ${a}[2:6]    ${i}[2:6]    the scan made passes while parked
     Key    3    1    1
-    Run For    0.02
+    Run For    0.32
     Raw HID Send    0x08    0xD1
     ${second}=    Wait For Log Entry    HOST HID 3: 08 d1( [0-9a-f]{2}){12} 01 00 00 00( [0-9a-f]{2}){2} 00 00 00 02 00 00 00 00 00 00 00 00    timeout=1    treatAsRegex=true    pauseEmulation=true
-    ${a}=    Evaluate    bytes.fromhex($first.split("HOST HID 3: ")[1].strip())
     ${b}=    Evaluate    bytes.fromhex($second.split("HOST HID 3: ")[1].strip())
     ${passes}=    Evaluate    int.from_bytes($b[2:6], "little") - int.from_bytes($a[2:6], "little")
     Should Be True    ${passes} >= 290    only ${passes} scan passes in 0.32 s
@@ -425,8 +430,10 @@ Vial Edits Don't Hold Up The Scan
     ...    by RMK's storage (which fills a sector and moves to the next),
     ...    while the scan's longest gap between passes stays short. Storage
     ...    reads are polled at 3 MHz; uncached, it walked whole sectors per
-    ...    edit without letting the scan run.
+    ...    edit without letting the scan run. A key is held throughout, so the
+    ...    scan isn't parked.
     Boot And Enumerate
+    Key    0    5    1
     Run For    1
     Raw HID Send    0x08    0xD1
     Wait For Log Entry    HOST HID 3: 08 d1 .*    timeout=1    treatAsRegex=true    pauseEmulation=true
@@ -440,6 +447,7 @@ Vial Edits Don't Hold Up The Scan
     ${reply}=    Wait For Log Entry    HOST HID 3: 08 d1 .*    timeout=1    treatAsRegex=true    pauseEmulation=true
     ${b}=    Evaluate    bytes.fromhex($reply.split("HOST HID 3: ")[1].strip())
     ${gap}=    Evaluate    int.from_bytes($b[18:20], "little")
+    Key    0    5    0
     Log To Console    longest scan gap during Vial edits: ${gap / 10} ms
     # 34.8 ms before the page caches and the read yields.
     Should Be True    ${gap} <= 50    longest gap between passes ${gap / 10} ms

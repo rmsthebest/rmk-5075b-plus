@@ -278,6 +278,7 @@ impl Power {
         self.asleep = Some(why);
         self.asleep_at = now_ms();
         SLEEPING.store(true, Ordering::Relaxed);
+        crate::scan::poke();
         refresh_caps();
     }
 
@@ -329,6 +330,7 @@ impl Power {
         LAST_INPUT.store(now, Ordering::Relaxed);
         self.state_since = now;
         self.asleep = None;
+        crate::scan::poke();
         refresh_caps();
         radio::reselect();
     }

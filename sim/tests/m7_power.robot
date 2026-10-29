@@ -36,16 +36,17 @@ ${ALL_UP}           a1 00 00 00 00 00 00 00 00 a1
 # Bounds: per emulated second. Baseline 2026-10-29 (rmk-main b8106ae): lights
 # on 30.5 M insns, 943 sleeps; off 24.6 M, 1003; asleep 1.14 M, 1004 (SysTick
 # 1000); key held 36.0 M. Press 3-12 steps (mean 7.6), release 38-51.
-${MAX_INSNS_LIGHTS_ON}      34000000
+# Parked scan: on 7.56 M, off 1.37 M, asleep 0.98 M; press 3-4 steps.
+${MAX_INSNS_LIGHTS_ON}      9000000
 ${MAX_WAKES_LIGHTS_ON}      1100
-${MAX_INSNS_LIGHTS_OFF}     27000000
+${MAX_INSNS_LIGHTS_OFF}     1700000
 ${MAX_WAKES_LIGHTS_OFF}     1100
-${MAX_INSNS_ASLEEP}         1300000
+${MAX_INSNS_ASLEEP}         1200000
 ${MAX_WAKES_ASLEEP}         1100
 ${MAX_INSNS_KEY_HELD}       40000000
 # Press (release) to IN endpoint armed, in 100 us steps: worst over the
 # presses in `Press To Report Latency`. Releases wait out the 5 ms debounce.
-${MAX_PRESS_WORST}          13
+${MAX_PRESS_WORST}          5
 ${MAX_RELEASE_WORST}        55
 
 *** Keywords ***

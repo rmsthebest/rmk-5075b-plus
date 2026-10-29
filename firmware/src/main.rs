@@ -412,6 +412,7 @@ async fn main(_spawner: Spawner) {
         ],
         p.PC15.into(),
         p.PC14.into(),
+        PRIO_EXTI,
     );
     let win_lock_led = Output::new(p.PB0, Level::High); // off (active low)
     let knob = knob::Knob::new(

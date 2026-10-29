@@ -7,9 +7,14 @@
 //! pulled-up input. Open-drain outputs with pull-up typed nothing on the
 //! board, for a reason not found yet, though the sim and the vendor's GPIO
 //! code say they should work. One pass per
-//! millisecond, as QMK's matrix task; RMK's own matrix drives the other way
-//! and needs every input on EXTI, which this board's pins can't do (lines
-//! A6/C6 and A10/B10 clash).
+//! millisecond, as QMK's matrix task, while a key is down or settling.
+//!
+//! Parked: with no key down and none settling, the scan stops (as RMK's
+//! `async_matrix`): every column is driven low, and it waits for any row to
+//! go low (EXTI 0-4 and 13), the Win/Mac switch to move (EXTI 14), or the
+//! sleep state to change (`poke`). A press then gets its first pass at
+//! once, instead of at the next millisecond. RMK's own matrix can't do
+//! this here: it reads the columns, and their lines clash (A6/C6, A10/B10).
 //!
 //! Settling: 5 us after selecting a column before reading the rows (QMK
 //! waits ~0.25 us), and after releasing a column that had a key down, 30 us
@@ -39,11 +44,13 @@
 //! scan's counters (see `fill_diag` for the layout). Counters are totals
 //! since boot except the two marked "since the last query".
 //!
-//! Asleep (src/power.rs): every column is driven low at once and the rows
-//! read every 10 ms; a key down wakes the keyboard (`power::input`), and
-//! the scan starts over, so the key that woke it is read and sent. In the
-//! flat battery's sleep the columns stay released: keys don't wake it.
-//! A key change reported also counts as input for the sleep timeout.
+//! Asleep (src/power.rs): the scan stays parked; a key down wakes the
+//! keyboard (`power::input`), and the scan starts over, so the key that
+//! woke it is read and sent. In the flat battery's sleep the columns stay
+//! released: keys don't wake it. A key change reported also counts as
+//! input for the sleep timeout. Passes stop while parked, so the
+//! diagnostics' pass counter only moves while a key is down, and the
+//! longest gap leaves parked time out.
 //!
 //! The Win/Mac switch (C15 Win / C14 Mac, active low, pulled up) is read on
 //! the same pass. When it moves, and once at start-up, the scan taps the
@@ -52,11 +59,14 @@
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use embassy_futures::select::{select3, select_array};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::{Instant, Timer};
 use rmk::event::KeyboardEvent;
 use rmk::macros::input_device;
+use wb32_hal::exti::ExtiInput;
 use wb32_hal::gpio::{AnyPin, Input, Level, Mode, Pull};
 
 use crate::keymap::{COL, ROW, SWITCH_MAC, SWITCH_WIN};
@@ -78,8 +88,14 @@ const RELEASE_SETTLE_US: u32 = 30;
 /// Column modes, as QMK's select_col/unselect_col (ODR stays low).
 const SELECTED: Mode = Mode::output();
 const RELEASED: Mode = Mode::input(Pull::Up);
-/// The rows' poll while asleep.
-const SLEEP_POLL_MS: u64 = 10;
+
+/// The sleep state changed: a parked scan looks again at whether to drive
+/// the columns.
+static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+pub fn poke() {
+    POKE.signal(());
+}
 
 struct Diag {
     passes: u32,
@@ -161,6 +177,11 @@ fn diag_pass(raw: &[u16; ROW]) {
     });
 }
 
+/// Parked: the time until the next pass isn't a gap.
+fn diag_park() {
+    DIAG.lock(|d| d.borrow_mut().last_pass = None);
+}
+
 fn diag_event() {
     DIAG.lock(|d| {
         let mut d = d.borrow_mut();
@@ -170,9 +191,9 @@ fn diag_event() {
 
 #[input_device(publish = KeyboardEvent)]
 pub struct Scan {
-    rows: [Input; ROW],
+    rows: [ExtiInput; ROW],
     cols: [AnyPin; COL],
-    mac: Input,
+    mac: ExtiInput,
     /// Debounced state, bit c of word r = key (r, c) down.
     state: [u16; ROW],
     /// The last pass's reading, and when it was (ms).
@@ -185,12 +206,11 @@ pub struct Scan {
     /// the release of the tap still to send.
     mac_mode: Option<bool>,
     tap_release: Option<(u8, u8)>,
-    /// Asleep, with the columns driven low (true) or released (false).
-    asleep: Option<bool>,
 }
 
 impl Scan {
-    pub fn new(rows: [AnyPin; ROW], cols: [AnyPin; COL], win: AnyPin, mac: AnyPin) -> Self {
+    /// `prio`: the rows' and the switch's EXTI interrupts.
+    pub fn new(rows: [AnyPin; ROW], cols: [AnyPin; COL], win: AnyPin, mac: AnyPin, prio: u8) -> Self {
         for c in &cols {
             c.set_level(Level::Low);
             c.set_mode(RELEASED);
@@ -199,16 +219,15 @@ impl Scan {
         // as in QMK, so it doesn't float.
         core::mem::forget(Input::new(win, Pull::Up));
         Scan {
-            rows: rows.map(|p| Input::new(p, Pull::Up)),
+            rows: rows.map(|p| ExtiInput::new(p, Pull::Up, prio)),
             cols,
-            mac: Input::new(mac, Pull::Up),
+            mac: ExtiInput::new(mac, Pull::Up, prio),
             state: [0; ROW],
             raw: [0; ROW],
             last_pass: None,
             count: [[0; COL]; ROW],
             mac_mode: None,
             tap_release: None,
-            asleep: None,
         }
     }
 
@@ -297,16 +316,14 @@ impl Scan {
             if let Some(e) = self.next_change() {
                 return e;
             }
-            if crate::power::sleeping() {
-                self.sleep_pass().await;
-                continue;
-            }
-            if self.asleep.take().is_some() {
-                self.set_cols(RELEASED);
-                self.last_pass = None;
-            }
-            // The next 1 ms tick (see the top of this file).
-            if let Some(last) = self.last_pass {
+            let idle = self.state.iter().chain(&self.raw).all(|&w| w == 0);
+            if idle || crate::power::sleeping() {
+                self.park().await;
+                if crate::power::sleeping() {
+                    continue;
+                }
+            } else if let Some(last) = self.last_pass {
+                // The next 1 ms tick (see the top of this file).
                 Timer::at(Instant::from_millis(last + 1)).await;
             }
             let now = Instant::now().as_millis();
@@ -324,19 +341,44 @@ impl Scan {
         }
     }
 
-    /// One look at the keys while asleep: with every column driven low,
-    /// any key down pulls its row low.
-    async fn sleep_pass(&mut self) {
-        let drive = !crate::power::lower();
-        if self.asleep != Some(drive) {
-            self.asleep = Some(drive);
-            self.set_cols(if drive { SELECTED } else { RELEASED });
+    /// Parked (see the top of this file) until a row goes low, the switch
+    /// moves or `poke`; the columns released again after. Asleep, a row
+    /// low wakes the keyboard. In the flat battery's sleep the columns
+    /// stay released, so keys can't end it.
+    async fn park(&mut self) {
+        let drive = !(crate::power::sleeping() && crate::power::lower());
+        if drive {
+            self.set_cols(SELECTED);
         }
-        Timer::after_millis(SLEEP_POLL_MS).await;
-        crate::watchdog::scan_alive();
-        if drive && self.rows.iter().any(|r| r.is_low()) {
-            crate::power::input();
+        diag_park();
+        crate::watchdog::scan_parked(true);
+        POKE.reset();
+        let mac_low = self.mac_mode == Some(true);
+        let mac = &mut self.mac;
+        let rows = &mut self.rows;
+        // Each wait arms its line before it reads the level, so a change
+        // in between isn't lost.
+        let row_low = async move {
+            if drive {
+                select_array(rows.each_mut().map(|r| r.wait_for_low())).await;
+            } else {
+                core::future::pending::<()>().await;
+            }
+        };
+        let moved = async move {
+            if mac_low { mac.wait_for_high().await } else { mac.wait_for_low().await }
+        };
+        select3(row_low, moved, POKE.wait()).await;
+        crate::watchdog::scan_parked(false);
+        if drive {
+            let woke = self.rows.iter().any(|r| r.is_low());
+            self.set_cols(RELEASED);
+            if woke {
+                crate::power::input();
+                delay_us(RELEASE_SETTLE_US);
+            }
         }
+        self.last_pass = None;
     }
 }
 
