@@ -3,9 +3,10 @@
 //! (`drivers/encoder/encoder_quadrature.c`, resolution 4), so a detent turns
 //! the same way as on the QMK build: +4 is counter-clockwise, -4 clockwise.
 //!
-//! Asleep (src/power.rs), it waits for an edge only, without the 5 ms poll;
-//! an edge wakes the keyboard and the turn is sent. A step counts as input
-//! for the sleep timeout.
+//! Between steps it waits for either pin to change level, with no timer:
+//! each wait arms its EXTI line before it reads the pin, so a change in
+//! between isn't lost. Asleep (src/power.rs), a change wakes the keyboard
+//! and the turn is sent. A step counts as input for the sleep timeout.
 //!
 //! RMK's own `RotaryEncoder` only waits on edges with the `async_matrix`
 //! feature, and otherwise polls every 20 ms, too slow for a quick turn.
@@ -24,8 +25,6 @@ const RESOLUTION: i8 = 4;
 const TAP: Duration = Duration::from_millis(5);
 /// Steps turned faster than they can be sent wait here, up to this many.
 const MAX_QUEUED: i8 = 8;
-/// Longest wait without reading the pins (see the end of the loop).
-const POLL: Duration = Duration::from_millis(5);
 
 #[input_device(publish = KeyboardEvent)]
 pub struct Knob {
@@ -81,19 +80,24 @@ impl Knob {
                 }
                 _ => {}
             }
-            // An edge between the read above and arming EXTI would only be
-            // seen at the next one; the timeout catches it.
-            let edge = select(self.a.wait_for_any_edge(), self.b.wait_for_any_edge());
-            if self.held.is_none() && crate::power::sleeping() {
-                edge.await;
-                crate::power::input();
-                continue;
+            // Either pin leaving the level last decoded.
+            let (a_high, b_high) = (self.state & 1 != 0, self.state & 2 != 0);
+            let (a, b) = (&mut self.a, &mut self.b);
+            let moved = select(
+                async move { if a_high { a.wait_for_low().await } else { a.wait_for_high().await } },
+                async move { if b_high { b.wait_for_low().await } else { b.wait_for_high().await } },
+            );
+            match self.held {
+                Some((_, until)) => {
+                    select(moved, Timer::at(until)).await;
+                }
+                None => {
+                    moved.await;
+                    if crate::power::sleeping() {
+                        crate::power::input();
+                    }
+                }
             }
-            let wake = match self.held {
-                Some((_, until)) => until.min(now + POLL),
-                None => now + POLL,
-            };
-            select(edge, Timer::at(wake)).await;
         }
     }
 }
