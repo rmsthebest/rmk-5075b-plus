@@ -37,6 +37,10 @@ const HOST_RESUME: (u8, u8) = (0x60, 0x01);
 const LED_2G4: usize = 38;
 const RED: u32 = 0xFF0000;
 const GREEN: u32 = 0x00FF00;
+/// Per emulated second over 0.3 s, lights on, a device key tapped in each:
+/// about 16 M with the module ACKing, 18 M without; 59 M while the radio
+/// task spun (D-2).
+const MAX_INSNS_BUSY_LINK: f64 = 30e6;
 
 /// From a blank flash, on until USB is configured (past the radio's
 /// start-up frames, which go out 100 ms in).
@@ -542,6 +546,13 @@ fn typing_doesnt_hold_off_the_link_down_sleep_the_host_resuming_wakes_it() {
     radio_should_get(&mut t, SEL_DONGLE, 1.0);
     t.b.run_for(0.3);
     should_be_asleep(&mut t, false, false);
+    println!(
+        "LOG {:#?}",
+        t.b.log(Part::Radio)
+            .iter()
+            .filter(|l| l.starts_with("<-") && !l.contains("ack"))
+            .collect::<Vec<_>>()
+    );
 }
 
 /// The module's host state frame (0x60): 0 the host suspended, 1 it
@@ -564,6 +575,13 @@ fn the_host_suspending_sleeps_it_at_once_its_resume_wakes_it() {
     radio_should_get(&mut t, SEL_DONGLE, 1.0);
     t.b.run_for(0.3);
     should_be_asleep(&mut t, false, false);
+    println!(
+        "LOG {:#?}",
+        t.b.log(Part::Radio)
+            .iter()
+            .filter(|l| l.starts_with("<-") && !l.contains("ack"))
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -578,6 +596,13 @@ fn the_knob_wakes_it_and_the_turn_is_sent() {
     radio_should_get(&mut t, "a3 e9 00", 1.0);
     t.b.run_for(0.3);
     should_be_asleep(&mut t, false, false);
+    println!(
+        "LOG {:#?}",
+        t.b.log(Part::Radio)
+            .iter()
+            .filter(|l| l.starts_with("<-") && !l.contains("ack"))
+            .collect::<Vec<_>>()
+    );
 }
 
 /// At 0% for a minute (M7a's timer) the module is told and the keyboard
@@ -600,6 +625,13 @@ fn a_flat_battery_sleeps_it_until_the_cable_goes_in() {
     t.b.plug(true);
     t.b.run_for(0.5);
     should_be_asleep(&mut t, false, false);
+    println!(
+        "LOG {:#?}",
+        t.b.log(Part::Radio)
+            .iter()
+            .filter(|l| l.starts_with("<-") && !l.contains("ack"))
+            .collect::<Vec<_>>()
+    );
 }
 
 /// Lower sleep stopped: only the cable and the UART are armed. A key
@@ -948,4 +980,172 @@ fn spoilt_module_frames_are_counted_and_the_second_try_is_taken() {
     );
     t.part_should_show(Part::Radio, r"\(BadSum\)", 0.0);
     no_radio_errors(&t);
+}
+
+/// E-1 (retro review 2026-10-30): a key held through the idle timeout. It
+/// sleeps once, the keys released to the host, and stays asleep while the
+/// key stays down: asleep, a row with a key down waits for it to come up,
+/// as the vendor's EXTI arms both edges. The release is a change, and wakes
+/// it.
+#[test]
+fn a_key_held_through_the_sleep_timeout_sleeps_once() {
+    let mut t = boot();
+    on_the_dongle(&mut t);
+    set_sleep_timeout(&mut t, 1);
+    key(&mut t, KEY_A, true);
+    radio_should_get(&mut t, A_DOWN, 1.0);
+    t.b.run_for(61.0);
+    radio_should_get(&mut t, ALL_UP, 1.0);
+    t.b.run_for(0.5);
+    should_be_asleep(&mut t, true, false);
+    t.b.run_for(5.0);
+    should_be_asleep(&mut t, true, false);
+    radio_should_not_get(&t, SEL_DONGLE);
+    key(&mut t, KEY_A, false);
+    radio_should_get(&mut t, SEL_DONGLE, 1.0);
+    t.b.run_for(0.3);
+    should_be_asleep(&mut t, false, false);
+    no_radio_errors(&t);
+}
+
+/// C-1/D-1 (retro review): USB's Caps Lock doesn't follow the keys to the
+/// dongle; there the host's lock LEDs are the module's (0 until it says
+/// otherwise), as QMK's wireless driver.
+#[test]
+fn usbs_caps_lock_doesnt_follow_to_the_dongle() {
+    let mut t = boot();
+    // RMK's LED reader reads again a second after its first failed read.
+    t.b.run_for(1.1);
+    t.b.host.command(0x0203);
+    t.b.run_for(0.05);
+    assert!(caps_led(&mut t));
+    on_the_dongle(&mut t);
+    t.b.run_for(0.1);
+    assert!(!caps_led(&mut t));
+}
+
+/// B-1 (retro review): the battery goes flat while asleep for the link (stop
+/// mode off, so time runs). The cable going in wakes it, and the request
+/// latched meanwhile doesn't put it straight back to sleep.
+#[test]
+fn a_flat_battery_latched_asleep_doesnt_outlast_the_cable() {
+    let mut t = boot();
+    stop_mode(&mut t, 1);
+    on_the_dongle(&mut t);
+    t.b.plug(false);
+    t.b.link_drop(None);
+    t.b.run_for(30.5);
+    radio_should_get(&mut t, SEL_USB, 1.0);
+    t.b.run_for(0.5);
+    should_be_asleep(&mut t, true, false);
+    t.b.charger.level = 0.0;
+    t.b.run_for(65.0);
+    t.b.plug(true);
+    t.b.run_for(1.0);
+    should_be_asleep(&mut t, false, false);
+    t.b.run_for(3.0);
+    should_be_asleep(&mut t, false, false);
+    println!(
+        "LOG {:#?}",
+        t.b.log(Part::Radio)
+            .iter()
+            .filter(|l| l.starts_with("<-") && !l.contains("ack"))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// B-2 (retro review): the battery goes flat while asleep for the host: the
+/// module is told and it's the flat battery's sleep (keys don't wake it);
+/// the cable going in ends it.
+#[test]
+fn a_battery_flat_while_asleep_for_the_host_is_the_flat_sleep() {
+    let mut t = boot();
+    stop_mode(&mut t, 1);
+    on_the_dongle(&mut t);
+    t.b.plug(false);
+    t.b.dongle_host(false);
+    t.b.run_for(0.5);
+    should_be_asleep(&mut t, true, false);
+    t.b.charger.level = 0.0;
+    t.b.run_for(62.0);
+    radio_should_get(&mut t, SEL_USB, 5.0);
+    t.b.run_for(0.5);
+    should_be_asleep(&mut t, true, true);
+    key(&mut t, KEY_A, true);
+    t.b.run_for(0.3);
+    key(&mut t, KEY_A, false);
+    should_be_asleep(&mut t, true, true);
+    t.b.plug(true);
+    t.b.run_for(1.0);
+    should_be_asleep(&mut t, false, false);
+    println!(
+        "LOG {:#?}",
+        t.b.log(Part::Radio)
+            .iter()
+            .filter(|l| l.starts_with("<-") && !l.contains("ack"))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// E-3 (retro review): in the flat battery's sleep (stop mode off, so the
+/// knob's lines stay armed) the knob's steps are dropped, not sent.
+#[test]
+fn in_the_flat_batterys_sleep_the_knob_sends_nothing() {
+    let mut t = boot();
+    stop_mode(&mut t, 1);
+    on_the_dongle(&mut t);
+    t.b.plug(false);
+    t.b.charger.level = 0.0;
+    t.b.run_for(62.0);
+    radio_should_get(&mut t, SEL_USB, 5.0);
+    t.b.run_for(0.5);
+    should_be_asleep(&mut t, true, true);
+    knob_up(&mut t, 0.002);
+    t.b.run_for(0.5);
+    t.part_not_since(Part::Radio, "^<- a3 ");
+    should_be_asleep(&mut t, true, true);
+}
+
+/// D-2 (retro review 2026-10-30): a housekeeping deadline (the battery's 3 s
+/// inquiry) that passes while the link is busy doesn't spin the radio task;
+/// it polls the link every millisecond. Unanswered selects of BT1, one
+/// every 0.3 s, keep the link busy across the deadline.
+#[test]
+fn a_deadline_passed_while_the_link_is_busy_doesnt_spin() {
+    let mut t = boot();
+    t.b.run_for(0.2);
+    t.b.radio.borrow_mut().ack = false;
+    for i in 0..12 {
+        let insns = t.b.cpu.instructions;
+        t.fn_tap(BT1, 1);
+        t.b.run_for(0.21);
+        let per_s = (t.b.cpu.instructions - insns) as f64 / 0.3;
+        assert!(per_s < MAX_INSNS_BUSY_LINK, "window {i}: {per_s}");
+    }
+}
+
+/// B-6 (retro review 2026-10-30): a host state frame while USB is selected
+/// isn't about the host the keys go to (the vendor clears it on USB). A
+/// suspend heard on USB put it to sleep as Fn+Y switched to 2.4G, until
+/// the keys came up: the lights went off while Y was held.
+#[test]
+fn a_host_suspend_heard_on_usb_doesnt_sleep_it_on_the_dongle() {
+    let mut t = boot();
+    module_sends(&mut t, (0x60, 0x00));
+    t.b.run_for(0.1);
+    bond_dongle(&mut t);
+    t.key(5, 10, true);
+    t.b.run_for(0.03);
+    t.key(DONGLE.0, DONGLE.1, true);
+    for ms in 0..300 {
+        t.b.run_for(0.001);
+        assert!(
+            t.b.word(GPIOA_ODR) & LED_BOOST != 0,
+            "the lights off {ms} ms into Fn+Y"
+        );
+    }
+    t.key(DONGLE.0, DONGLE.1, false);
+    t.key(5, 10, false);
+    t.b.run_for(1.0);
+    should_be_asleep(&mut t, false, false);
 }

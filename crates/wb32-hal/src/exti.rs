@@ -102,6 +102,17 @@ impl ExtiInput {
         fut.await
     }
 
+    /// Until the pin is at `level`: `wait_for_high` or `wait_for_low` as one
+    /// future type, for a set of pins that each wait for their own level.
+    pub async fn wait_for_level(&mut self, level: Level) {
+        let high = level == Level::High;
+        let fut = ExtiFuture::new(self.line(), high, !high);
+        if self.level() == level {
+            return;
+        }
+        fut.await
+    }
+
     pub async fn wait_for_rising_edge(&mut self) {
         ExtiFuture::new(self.line(), true, false).await
     }

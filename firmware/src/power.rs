@@ -17,9 +17,10 @@
 //!   unlike the vendor's, never means never. As the vendor's, typing
 //!   doesn't put this off, but a device key restarts it (`link_kick`);
 //! - the host suspending (the module's host state frame, `host_state`);
-//! - the battery at 0% for a minute (the lighting's `shutdown_requested`):
-//!   "lower sleep", which keys and the knob don't wake; the columns stay
-//!   released.
+//! - the battery at 0% for a minute (the lighting's `shutdown_requested`),
+//!   the cable out: "lower sleep", which keys and the knob don't wake; the
+//!   columns stay released. Asleep for the host or idle, it moves to lower
+//!   sleep; waking drops a request that came meanwhile.
 //!
 //! Going to sleep idle with the link up, the keys are released to the host
 //! (the vendor's clear_keyboard; not when the host suspends, where a report
@@ -100,6 +101,9 @@ static LINK_KICK: AtomicBool = AtomicBool::new(false);
 /// USB is configured and not suspended (QMK's USB_DRIVER.state ==
 /// USB_ACTIVE).
 static USB_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// The lighting's flat-battery request, until the power task takes it:
+/// awake, or asleep for the host or idle (`flat_while_asleep`). It counts
+/// only with the cable out, and waking clears it.
 static FLAT: AtomicBool = AtomicBool::new(false);
 /// Wakes the task: input while asleep, the host's state, a flat battery.
 static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -198,7 +202,13 @@ pub fn input() {
 }
 
 /// The module's host state frame: the host suspended (false) or resumed.
+/// Ignored while USB is selected: it isn't about the host the keys go to
+/// (the vendor clears it on USB), and a stale suspend would put it to sleep
+/// on the switch to wireless.
 pub fn host_state(resume: bool) {
+    if !radio::wireless() {
+        return;
+    }
     HOST_SUSPENDED.store(!resume, Ordering::Relaxed);
     if resume {
         RESUMED.store(true, Ordering::Relaxed);
@@ -282,7 +292,7 @@ impl Power {
             self.state_since = now;
         }
         let last = LAST_INPUT.load(Ordering::Relaxed);
-        if FLAT.swap(false, Ordering::Relaxed) && radio::wireless() {
+        if FLAT.swap(false, Ordering::Relaxed) && radio::wireless() && self.cable.is_low() {
             return Some(Why::Flat);
         }
         if !radio::wireless() {
@@ -335,6 +345,14 @@ impl Power {
         SLEEPING.store(true, Ordering::Relaxed);
         crate::scan::poke();
         refresh_caps();
+    }
+
+    /// Asleep for the host or idle, the battery went flat: the flat
+    /// battery's sleep instead (the module told, keys don't wake it).
+    fn flat_while_asleep(&self) -> bool {
+        matches!(self.asleep, Some(Why::Host | Why::Idle))
+            && FLAT.swap(false, Ordering::Relaxed)
+            && self.cable.is_low()
     }
 
     /// Asleep: true once something woke it.
@@ -394,6 +412,7 @@ impl Power {
     fn wake(&mut self) {
         let now = now_ms();
         LOWER.store(false, Ordering::Relaxed);
+        FLAT.store(false, Ordering::Relaxed);
         HOST_SUSPENDED.store(false, Ordering::Relaxed);
         LAST_INPUT.store(now, Ordering::Relaxed);
         self.state_since = now;
@@ -420,6 +439,8 @@ impl rmk::core_traits::Runnable for Power {
                 }
             } else if self.woken() {
                 self.wake();
+            } else if self.flat_while_asleep() {
+                self.sleep(Why::Flat).await;
             } else if self.stop_due(now) {
                 self.stop();
                 if self.woken() {

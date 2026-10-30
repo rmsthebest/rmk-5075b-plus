@@ -46,7 +46,8 @@
 //!
 //! Asleep (src/power.rs): the scan stays parked; a key down wakes the
 //! keyboard (`power::input`), and the scan starts over, so the key that
-//! woke it is read and sent. In the flat battery's sleep the columns stay
+//! woke it is read and sent. A key held into the sleep doesn't wake it: its
+//! row waits for the key to come up, and that change wakes it. In the flat battery's sleep the columns stay
 //! released: keys don't wake it. A key change reported also counts as
 //! input for the sleep timeout. Passes stop while parked, so the
 //! diagnostics' pass counter only moves while a key is down, and the
@@ -361,10 +362,13 @@ impl Scan {
 
     /// Parked (see the top of this file) until a row goes low, the switch
     /// moves or `poke`; the columns released again after. Asleep, a row
-    /// low wakes the keyboard. In the flat battery's sleep the columns
-    /// stay released, so keys can't end it.
+    /// with a key down (held into the sleep) waits for it to come up
+    /// instead, and a row's change wakes the keyboard: a held key doesn't
+    /// wake it at once, as the vendor's EXTI arms both edges. In the flat
+    /// battery's sleep the columns stay released, so keys can't end it.
     async fn park(&mut self) {
-        let drive = !(crate::power::sleeping() && crate::power::lower());
+        let asleep = crate::power::sleeping();
+        let drive = !(asleep && crate::power::lower());
         if drive {
             self.set_cols(SELECTED);
         }
@@ -374,11 +378,17 @@ impl Scan {
         let mac_low = self.mac_mode == Some(true);
         let mac = &mut self.mac;
         let rows = &mut self.rows;
+        let state = &self.state;
         // Each wait arms its line before it reads the level, so a change
         // in between isn't lost.
-        let row_low = async move {
+        let row_changed = async move {
             if drive {
-                select_array(rows.each_mut().map(|r| r.wait_for_low())).await;
+                let mut row = 0;
+                select_array(rows.each_mut().map(|r| {
+                    row += 1;
+                    r.wait_for_level(wake_level(state[row - 1], asleep))
+                }))
+                .await;
             } else {
                 core::future::pending::<()>().await;
             }
@@ -390,10 +400,11 @@ impl Scan {
                 mac.wait_for_low().await
             }
         };
-        select3(row_low, moved, POKE.wait()).await;
+        select3(row_changed, moved, POKE.wait()).await;
         crate::watchdog::scan_parked(false);
         if drive {
-            let woke = self.rows.iter().any(|r| r.is_low());
+            let woke =
+                (self.rows.iter().zip(self.state)).any(|(r, w)| r.level() == wake_level(w, asleep));
             self.set_cols(RELEASED);
             if woke {
                 crate::power::input();
@@ -401,6 +412,16 @@ impl Scan {
             }
         }
         self.last_pass = None;
+    }
+}
+
+/// The level a parked row waits for: low (a key down), or asleep with a key
+/// already down in it (the debounced state `w`), high (that key up).
+fn wake_level(w: u16, asleep: bool) -> Level {
+    if asleep && w != 0 {
+        Level::High
+    } else {
+        Level::Low
     }
 }
 

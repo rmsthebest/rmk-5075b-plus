@@ -6,7 +6,8 @@
 //! Between steps it waits for either pin to change level, with no timer:
 //! each wait arms its EXTI line before it reads the pin, so a change in
 //! between isn't lost. Asleep (src/power.rs), a change wakes the keyboard
-//! and the turn is sent. A step counts as input for the sleep timeout.
+//! and the turn is sent; in the flat battery's sleep the turn is dropped.
+//! A step counts as input for the sleep timeout.
 //!
 //! Over the radio a step is two messages (press, release) that each wait
 //! for the module's ACK, a few ms apiece, and the link drops what doesn't
@@ -63,7 +64,9 @@ impl Knob {
         }
     }
 
-    /// Follows the pins since the last call, queueing whole steps.
+    /// Follows the pins since the last call, queueing whole steps; in the
+    /// flat battery's sleep they're dropped, as the scan releases the
+    /// columns (a step sent would make the module select the device again).
     fn decode(&mut self) {
         let now = (self.a.is_high() as u8) | ((self.b.is_high() as u8) << 1);
         if now == self.state & 3 {
@@ -77,6 +80,9 @@ impl Knob {
             self.queued = (self.queued - 1).max(-MAX_QUEUED);
         }
         self.pulses %= RESOLUTION;
+        if crate::power::lower() {
+            self.queued = 0;
+        }
     }
 
     async fn read_keyboard_event(&mut self) -> KeyboardEvent {

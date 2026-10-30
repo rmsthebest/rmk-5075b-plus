@@ -396,6 +396,7 @@ pub struct Radio {
     hold: Option<(Device, u32)>,
     charge_sent: Option<(u8, u32)>,
     battery_asked: u32,
+    /// The host's lock LEDs last published from the module.
     leds: u8,
 }
 
@@ -474,6 +475,10 @@ impl Radio {
         if wireless {
             rmk::channel::release_usb_reports();
             WIRELESS.store(true, Ordering::Relaxed);
+            // The module's lock LEDs replace USB's host's, even when they're
+            // 0 (QMK's wireless keyboard_leds is 0 until connected).
+            self.leds = LINK.lock(|l| l.borrow().indicator());
+            rmk::hid::set_host_leds(LedIndicator::from_bits(self.leds));
             crate::power::refresh_caps();
             Timer::after_millis(USB_RELEASE_MS).await;
             self.usb_power.set_high();
@@ -625,6 +630,11 @@ impl rmk::core_traits::Runnable for Radio {
                 .flatten()
             {
                 wait = wait.min(until(t));
+            }
+            // A deadline that passed while the link is busy waits for it
+            // (housekeeping sends nothing then): the 1 ms poll, not a spin.
+            if busy {
+                wait = wait.max(1);
             }
             let event = match select3(
                 sub.next_event(),
