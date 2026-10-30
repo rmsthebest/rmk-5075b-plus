@@ -175,6 +175,24 @@ fn the_caps_lock_led_follows_the_host() {
     assert_eq!(t.b.word(GPIOC_ODR) & CAPS_LED, CAPS_LED);
 }
 
+/// G-1 (retro review 2026-10-30): an LED report longer than the keyboard's
+/// 1-byte OUT report is an error the LED reader can't read past; it backs
+/// off (RMK's 1 s) instead of spinning the executor into the watchdog.
+#[test]
+fn an_oversized_led_report_doesnt_trip_the_watchdog() {
+    let mut t = T::boot_and_enumerate();
+    t.b.run_for(1.1);
+    for b in [0x02, 0x00] {
+        t.b.host.out_byte(b);
+    }
+    t.b.host.command(cmd::OUT_PACKET | 1 << 8);
+    t.b.run_for(3.0);
+    assert_eq!(t.b.resets, 0);
+    t.key(3, 1, true);
+    t.hid_should_show(1, "00 00 04 00 00 00 00 00", 1.0);
+    t.key(3, 1, false);
+}
+
 #[test]
 fn fn_right_shift_esc_enters_dfu() {
     let mut t = T::boot_and_enumerate();
@@ -559,6 +577,52 @@ fn a_panic_resets_into_the_keyboard_a_second_one_enters_dfu() {
     t.raw_hid_send(&[0x08, 0xD3, 0x50]);
     t.b.run_for(0.01);
     t.pc_should_be_in_rom();
+}
+
+/// UDF #0 in RAM above the image's 28K, jumped to: a HardFault.
+fn hardfault(t: &mut T) {
+    t.b.chip.write(0x2000_7400, Size::Half, 0xDE00);
+    t.b.cpu.r[15] = 0x2000_7400;
+}
+
+/// A HardFault follows the crash policy, as a panic (A-1, retro review
+/// 2026-10-30): it leaves "HardFault" for channel 0xD2 and resets into the
+/// keyboard; a second before the image is stable enters DFU.
+#[test]
+fn a_hardfault_resets_into_the_keyboard_a_second_one_enters_dfu() {
+    let mut t = T::boot_and_enumerate();
+    t.allow_errors();
+    hardfault(&mut t);
+    t.b.run_for(0.01);
+    assert!(t.b.in_flash(), "PC 0x{:08x}", t.b.pc());
+    t.log_should_show("configured", 4.0);
+    t.b.run_for(0.05);
+    t.raw_hid_send(&[0x08, 0xD2, 0]);
+    t.hid_should_show(3, &format!("08 d2 00 09 {}", hex(b"HardFault")), 1.0);
+    hardfault(&mut t);
+    t.b.run_for(0.01);
+    t.pc_should_be_in_rom();
+    assert_eq!(t.b.errors(), ["UndefInstr fault at 0x20007400"; 2]);
+}
+
+/// DFU entered on purpose isn't a crash (A-5, retro review 2026-10-30):
+/// after a panic, Vial's bootloader button, then out of DFU (as after
+/// flashing a new image), the next panic resets into the keyboard.
+#[test]
+fn dfu_on_purpose_clears_the_crash_count() {
+    let mut t = T::boot_and_enumerate();
+    t.raw_hid_send(&[0x08, 0xD3, 0x50]);
+    t.b.run_for(0.01);
+    t.log_should_show("configured", 4.0);
+    t.b.run_for(0.05);
+    t.raw_hid_send(&[0x0B]);
+    t.b.run_for(0.05);
+    t.pc_should_be_in_rom();
+    t.sys_reset_and_enumerate(4.0);
+    t.raw_hid_send(&[0x08, 0xD3, 0x50]);
+    t.b.run_for(0.01);
+    assert!(t.b.in_flash(), "PC 0x{:08x}", t.b.pc());
+    t.log_should_show("configured", 4.0);
 }
 
 /// The software watchdog (src/watchdog.rs): Vial channel 0xD8 (argument
