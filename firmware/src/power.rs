@@ -39,10 +39,20 @@
 //! Stop mode (M7c, src/stop.rs): asleep for STOP_AFTER_MS on the battery
 //! (the cable out), the chip stops its clocks until a key, the knob, the
 //! cable or the radio module's UART wakes it. A UART wake stays asleep: the
-//! radio reads the frame, and it stops again (as the vendor's). Off at every
-//! reset and not saved: Vial channel 0xD9 turns it on (tools/sleep.py
-//! --stop), so a stop mode that misbehaves is gone after a reset. Time
-//! (SysTick) stands still while stopped.
+//! radio reads the frame, and it stops again (as the vendor's). Time
+//! (SysTick) stands still while stopped. When (`StopMode`, Vial channel
+//! 0xD9, tools/sleep.py stop; not saved):
+//! - `Link`, from every reset: only with the host gone, so nothing the
+//!   module would say matters until a key. A frame that wakes a stop is
+//!   lost whole (the clocks come back after it), which a suspended host's
+//!   resume can't afford; with the host gone, a key wakes it and selects
+//!   the device again, and the module announces the link afresh. Gone is
+//!   asleep for the link (down 30 s; the module told to sleep) or the flat
+//!   battery, or asleep for anything else and the module DISCONNECTED for
+//!   RECONNECT_TIMEOUT_MS since (the computer shut down after the idle
+//!   timeout);
+//! - `Always`: whenever asleep (the vendor's);
+//! - `Off`.
 
 use core::convert::Infallible;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
@@ -93,8 +103,8 @@ static USB_ACTIVE: AtomicBool = AtomicBool::new(false);
 static FLAT: AtomicBool = AtomicBool::new(false);
 /// Wakes the task: input while asleep, the host's state, a flat battery.
 static POKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-/// Stop mode allowed (Vial 0xD9; off at reset).
-static STOP_ON: AtomicBool = AtomicBool::new(false);
+/// When to stop (`StopMode`, Vial 0xD9; `Link` at reset).
+static STOP_MODE: AtomicU8 = AtomicU8::new(StopMode::Link as u8);
 /// Stop's diagnostic, with its variant bits (`stop::VARIANT_*`); 0xFF off.
 static STOP_DIAG: AtomicU8 = AtomicU8::new(DIAG_OFF);
 const DIAG_OFF: u8 = 0xFF;
@@ -105,19 +115,33 @@ static STOP_WAKES: AtomicU32 = AtomicU32::new(0);
 /// Tries that didn't stop: an interrupt was pending.
 static STOP_ABORTS: AtomicU32 = AtomicU32::new(0);
 
-pub fn stop_mode() -> bool {
-    STOP_ON.load(Ordering::Relaxed)
+/// When asleep stops (see the top of this file). The values are Vial
+/// 0xD9's answer byte 3.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum StopMode {
+    Off = 0,
+    Always = 1,
+    Link = 2,
 }
 
-pub fn set_stop_mode(on: bool) {
-    STOP_ON.store(on, Ordering::Relaxed);
+pub fn stop_mode() -> StopMode {
+    match STOP_MODE.load(Ordering::Relaxed) {
+        0 => StopMode::Off,
+        1 => StopMode::Always,
+        _ => StopMode::Link,
+    }
+}
+
+pub fn set_stop_mode(mode: StopMode) {
+    STOP_MODE.store(mode as u8, Ordering::Relaxed);
     STOP_DIAG.store(DIAG_OFF, Ordering::Relaxed);
 }
 
 /// Stop mode on, with its progress on the LEDs and the variant bits
 /// `variant` (`stop::stop`'s `diag`; unknown bits ignored).
 pub fn set_stop_diag(variant: u8) {
-    STOP_ON.store(true, Ordering::Relaxed);
+    STOP_MODE.store(StopMode::Always as u8, Ordering::Relaxed);
     STOP_DIAG.store(variant & stop::VARIANTS, Ordering::Relaxed);
 }
 
@@ -242,13 +266,18 @@ impl Power {
         }
     }
 
-    /// Whether to sleep now, and why.
-    fn due(&mut self, now: u32) -> Option<Why> {
+    /// Follows the module's state: since when it's been in it.
+    fn track_state(&mut self, now: u32) {
         let state = radio::module_state();
         if state != self.state {
             self.state = state;
             self.state_since = now;
         }
+    }
+
+    /// Whether to sleep now, and why.
+    fn due(&mut self, now: u32) -> Option<Why> {
+        self.track_state(now);
         if LINK_KICK.swap(false, Ordering::Relaxed) {
             self.state_since = now;
         }
@@ -269,7 +298,7 @@ impl Power {
         if now.wrapping_sub(last) >= timeout {
             return Some(Why::Idle);
         }
-        let link = match state {
+        let link = match self.state {
             MD_STATE_DISCONNECTED if radio::pairing() => PAIR_TIMEOUT_MS,
             MD_STATE_DISCONNECTED => RECONNECT_TIMEOUT_MS,
             MD_STATE_PAIRING => PAIR_TIMEOUT_MS,
@@ -323,11 +352,24 @@ impl Power {
         !sleeping()
     }
 
+    /// Asleep: whether the host is gone (`StopMode::Link`).
+    fn host_gone(&mut self, now: u32) -> bool {
+        self.track_state(now);
+        matches!(self.asleep, Some(Why::Link | Why::Flat))
+            || self.state == MD_STATE_DISCONNECTED
+                && !radio::pairing()
+                && now.wrapping_sub(self.state_since) >= RECONNECT_TIMEOUT_MS
+    }
+
     /// Asleep: whether to stop now. Only on the battery: with the cable in,
     /// USB may be up, and stopping its clock would drop it.
-    fn stop_due(&self, now: u32) -> bool {
-        stop_mode()
-            && now.wrapping_sub(self.asleep_at) >= STOP_AFTER_MS
+    fn stop_due(&mut self, now: u32) -> bool {
+        let mode = match stop_mode() {
+            StopMode::Off => false,
+            StopMode::Always => true,
+            StopMode::Link => self.host_gone(now),
+        };
+        mode && now.wrapping_sub(self.asleep_at) >= STOP_AFTER_MS
             && now.wrapping_sub(self.stopped_at) >= STOP_DELAY_MS
             && self.cable.is_low()
             && uart::idle()

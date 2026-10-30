@@ -151,10 +151,18 @@ fn should_be_stopped(t: &mut T, stopped: bool) {
     assert_eq!(t.b.word(SCB_SCR) & 4 != 0, stopped, "SLEEPDEEP");
 }
 
-/// 0xD9's answer, through the dongle: on, the stops, those a key, the knob
-/// or the cable ended.
+/// 0xD9's answer, through the dongle: the mode (1 whenever asleep), the
+/// stops, those a key, the knob or the cable ended.
 fn stop_counts_should_be(t: &mut T, stops: u32, wakes: u32) {
-    let mut want = vec![0x08, 0xD9, 0x00, 0x01];
+    stop_counts_in_mode(t, STOP_ALWAYS, stops, wakes);
+}
+
+/// 0xD9's modes (its answer's byte 3).
+const STOP_ALWAYS: u8 = 1;
+const STOP_LINK: u8 = 2;
+
+fn stop_counts_in_mode(t: &mut T, mode: u8, stops: u32, wakes: u32) {
+    let mut want = vec![0x08, 0xD9, 0x00, mode];
     want.extend(stops.to_le_bytes());
     want.extend(wakes.to_le_bytes());
     vial_via_dongle(t, &[0x08, 0xD9, 0x00], &hex(&want));
@@ -621,15 +629,92 @@ fn in_stop_mode_a_flat_battery_stops_it_until_the_cable_goes_in() {
     stop_counts_should_be(&mut t, 2, 1);
 }
 
-/// M7c's stop mode is off at reset: asleep, the clocks run.
+/// From a reset stop mode stops only with the host gone: a suspended
+/// host's resume would wake a stop and be lost with its frame, so asleep
+/// for it the clocks run on.
 #[test]
-fn stop_mode_is_off_unless_turned_on() {
+fn by_default_a_suspended_host_doesnt_stop_it() {
     let mut t = boot();
+    t.raw_hid_send_and_run(&[0x08, 0xD9, 0x00]);
+    t.hid_should_show(3, "08 d9 00 02", 1.0);
     on_the_dongle(&mut t);
+    t.b.plug(false);
     t.b.dongle_host(false);
-    t.b.run_for(2.0);
+    t.b.run_for(40.0);
     should_be_asleep(&mut t, true, false);
     should_be_stopped(&mut t, false);
+    t.b.dongle_host(true);
+    t.b.run_for(0.3);
+    should_be_asleep(&mut t, false, false);
+    stop_counts_in_mode(&mut t, STOP_LINK, 0, 0);
+    no_radio_errors(&t);
+    t.no_errors();
+}
+
+/// The link lost (the computer off): asleep 30 s on, stopped a second
+/// later. A key held wakes it, the dongle is selected again and, once the
+/// host is back, the key goes out.
+#[test]
+fn by_default_a_lost_link_stops_it_and_a_held_key_is_sent() {
+    let mut t = boot();
+    on_the_dongle(&mut t);
+    t.b.plug(false);
+    t.b.link_drop(None);
+    t.b.run_for(30.5);
+    radio_should_get(&mut t, SEL_USB, 1.0);
+    t.b.run_for(1.5);
+    should_be_asleep(&mut t, true, false);
+    should_be_stopped(&mut t, true);
+    t.b.run_for(60.0);
+    should_be_stopped(&mut t, true);
+    t.b.host_present(DEVS_2G4, true);
+    t.b.run_for(1.0);
+    should_be_stopped(&mut t, true);
+    key(&mut t, KEY_A, true);
+    radio_should_get(&mut t, SEL_DONGLE, 1.0);
+    radio_should_get(&mut t, A_DOWN, 1.0);
+    key(&mut t, KEY_A, false);
+    radio_should_get(&mut t, ALL_UP, 1.0);
+    t.b.run_for(0.3);
+    should_be_stopped(&mut t, false);
+    should_be_asleep(&mut t, false, false);
+    stop_counts_in_mode(&mut t, STOP_LINK, 1, 1);
+    no_radio_errors(&t);
+    t.no_errors();
+}
+
+/// Asleep idle first (1 min), then the computer shut down: stopped 30 s
+/// after the link went. The module, not told to sleep, connects when the
+/// host is back; its frame wakes the stop and is lost (the clocks come
+/// back after it), so the keyboard stops again. A key then selects the
+/// dongle again, the module announces the link, and the key goes out.
+#[test]
+fn by_default_asleep_idle_then_the_host_gone_stops_it() {
+    let mut t = boot();
+    on_the_dongle(&mut t);
+    set_sleep_timeout(&mut t, 1);
+    t.b.plug(false);
+    t.b.run_for(61.0);
+    should_be_asleep(&mut t, true, false);
+    should_be_stopped(&mut t, false);
+    t.b.link_drop(None);
+    t.b.run_for(29.0);
+    should_be_stopped(&mut t, false);
+    t.b.run_for(2.0);
+    should_be_stopped(&mut t, true);
+    t.b.host_present(DEVS_2G4, true);
+    t.b.run_for(2.0);
+    should_be_asleep(&mut t, true, false);
+    should_be_stopped(&mut t, true);
+    key(&mut t, KEY_A, true);
+    radio_should_get(&mut t, SEL_DONGLE, 1.0);
+    radio_should_get(&mut t, A_DOWN, 1.0);
+    key(&mut t, KEY_A, false);
+    radio_should_get(&mut t, ALL_UP, 1.0);
+    t.b.run_for(0.3);
+    should_be_asleep(&mut t, false, false);
+    no_radio_errors(&t);
+    t.no_errors();
 }
 
 /// Stopped (SysTick off, SLEEPDEEP), the rows' EXTI lines wake it: the key

@@ -12,10 +12,12 @@ it sleeps on Bluetooth or 2.4G (it never sleeps on USB).
 The keyboard saves the setting with its lighting record, so it survives a
 replug.
 
-  stop on|off        stop mode while asleep (channel 0xD9, M7c): the chip
+  stop link|on|off   stop mode while asleep (channel 0xD9, M7c): the chip
                      stops its clocks; only on the battery (cable out).
-                     Off at every reset, and not saved: turn it on, then
-                     unplug the cable (the keyboard runs on).
+                     link (the default at every reset): only with the
+                     host gone (the link lost for 30 s, or a flat
+                     battery); on: whenever asleep, as the vendor's;
+                     off: never. Not saved: a reset goes back to link.
   stop diag [N]      stop mode on, with the Caps and Win-lock LEDs showing
                      how far the last stop got: Caps alone, it never
                      woke; both, it woke but its clocks didn't come back;
@@ -28,11 +30,11 @@ replug.
   panic              print why the previous run ended, if it panicked (a
                      stop that can't get its clocks back panics and
                      restarts the keyboard; channel 0xD2)
-  stop               print whether it's on, and how many stops so far
+  stop               print its mode, and how many stops so far
                      (and how many a key, the knob or the cable ended)
 
 Usage: python3 -I tools/sleep.py [never|1|3|5|10|20|30|default]
-       python3 -I tools/sleep.py stop [on|off|diag [N]]
+       python3 -I tools/sleep.py stop [link|on|off|diag [N]]
        python3 -I tools/sleep.py panic
 """
 
@@ -45,7 +47,8 @@ from pathlib import Path
 CHANNEL = 0xD7
 STOP_CHANNEL = 0xD9
 PANIC_CHANNEL = 0xD2
-STOP_ARG = {None: 0, "off": 1, "on": ord("S"), "diag": ord("D")}
+STOP_ARG = {None: 0, "off": 1, "on": ord("S"), "link": ord("L"), "diag": ord("D")}
+STOP_MODES = {0: "off", 1: "on (whenever asleep)", 2: "link (only with the host gone)"}
 # The firmware's index for each setting (crates/akko-lighting/src/record.rs SLEEP_*).
 INDEX = {"never": 0, "1": 1, "3": 2, "5": 3, "10": 4, "20": 5, "30": 6, "default": 7}
 NAMES = {0: "never", 1: "1 min", 2: "3 min", 3: "5 min", 4: "10 min", 5: "20 min", 6: "30 min",
@@ -117,7 +120,8 @@ def main():
         data = ask(STOP_CHANNEL, STOP_ARG[(args[1:] or [None])[0]], variant)
         stops, wakes, aborts = (int.from_bytes(data[i:i + 4], "little") for i in (4, 8, 12))
         diag = "" if data[16] == 0xFF else f" (diag, variant {data[16]})"
-        print(f"stop mode {'on' if data[3] else 'off'}{diag}; {stops} stops, {wakes} ended by a key, the knob or"
+        mode = STOP_MODES.get(data[3], f"? ({data[3]})")
+        print(f"stop mode {mode}{diag}; {stops} stops, {wakes} ended by a key, the knob or"
               f" the cable; {aborts} tries put off (an interrupt pending)")
         return
     if len(args) > 1 or (args and args[0] not in INDEX):

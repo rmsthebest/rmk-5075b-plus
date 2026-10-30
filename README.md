@@ -55,8 +55,10 @@ build aren't published, so they don't count here. Both images ran in the same si
   figure for sleep mode, where only the CPU's clock stops and the bus, flash and peripherals run
   on at 96 MHz. So this firmware's numbers are a range: from sleep costing nothing to sleep costing
   as much as running. Where in that range the chip is decides the idle current, so measure it on
-  the board before quoting battery life. Stop mode (opt-in, `tools/sleep.py stop on`) stops every
-  clock and avoids the question. The LEDs, the radio module and the HSE crystal and PLL (no
+  the board before quoting battery life. Stop mode stops every clock and avoids the question:
+  by default once the host is gone (the link lost for 30 s, as with the computer off), not while
+  it's only suspended, whose wake-up frame a stop would lose; `tools/sleep.py stop on` stops
+  whenever asleep. The LEDs, the radio module and the HSE crystal and PLL (no
   datasheet figures) aren't counted.
 - **Wireless.** The link to the BT/2.4G module (`crates/qmk-wireless`) fixes the vendor's bugs, and
   its tests check it against QMK's C (`tools/wls_host_test`). The UART parser resyncs after a bad

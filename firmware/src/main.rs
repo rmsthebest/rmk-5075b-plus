@@ -30,9 +30,12 @@
 //! 2 min, the default); byte 3 of the answer is the setting; a change is
 //! saved with the lighting record. 0xD8 with argument 0x48 ('H') hangs the
 //! firmware, to test the watchdog. 0xD9, stop mode while asleep
-//! (src/power.rs, off at reset, not saved): argument 0 reads, 1 turns it
-//! off, 0x53 ('S') on, 0x44 ('D') on with its progress shown on the Caps
-//! and Win-lock LEDs and byte 3 its variant bits (src/stop.rs); byte 3 of the answer is 1 if on, bytes 4-7 and 8-11
+//! (src/power.rs, not saved; from every reset only with the host gone):
+//! argument 0 reads, 1 turns it off, 0x53 ('S') on whenever asleep, 0x4C
+//! ('L') only with the host gone, 0x44 ('D') whenever asleep with its
+//! progress shown on the Caps and Win-lock LEDs and byte 3 its variant bits
+//! (src/stop.rs); byte 3 of the answer is the mode (0 off, 1 whenever
+//! asleep, 2 with the host gone), bytes 4-7 and 8-11
 //! (little-endian) the stops so far and those a key, the knob or the cable
 //! ended, 12-15 the tries that didn't stop (an interrupt was pending), 16
 //! the diagnostic's variant bits (0xFF: off). With the `rom-peek` feature,
@@ -114,6 +117,7 @@ const HANG_CONFIRM: u8 = b'H';
 const CHANNEL_STOP: u8 = 0xD9;
 const STOP_OFF: u8 = 1;
 const STOP_CONFIRM: u8 = b'S';
+const STOP_LINK: u8 = b'L';
 const STOP_DIAG: u8 = b'D';
 #[cfg(feature = "rom-peek")]
 const CHANNEL_PEEK: u8 = 0xDA;
@@ -332,8 +336,9 @@ fn custom_value(buf: &mut [u8]) {
         }
         CHANNEL_STOP if buf.len() >= 17 => {
             match buf[2] {
-                STOP_OFF => power::set_stop_mode(false),
-                STOP_CONFIRM => power::set_stop_mode(true),
+                STOP_OFF => power::set_stop_mode(power::StopMode::Off),
+                STOP_CONFIRM => power::set_stop_mode(power::StopMode::Always),
+                STOP_LINK => power::set_stop_mode(power::StopMode::Link),
                 STOP_DIAG => power::set_stop_diag(buf[3]),
                 _ => {}
             }

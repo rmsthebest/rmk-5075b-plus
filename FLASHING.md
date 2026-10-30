@@ -108,7 +108,7 @@ Diagnostics live on extra Vial channels. The scripts in `tools/` use them over e
 | 0xD5 | stack peak | workbench Capture |
 | 0xD6 | debounce: eager or defer | `tools/debounce.py` |
 | 0xD7 | sleep timeout | `tools/sleep.py` |
-| 0xD9 | stop mode while asleep | `tools/sleep.py stop on\|off` |
+| 0xD9 | stop mode while asleep (default: only with the host gone) | `tools/sleep.py stop link\|on\|off` |
 
 ## Back to QMK
 
