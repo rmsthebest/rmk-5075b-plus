@@ -47,7 +47,7 @@ use wb32_sim::uart::{UartLine, UartPeer};
 
 /// UART3_TX and UART3_RX on AF7 (the datasheet's alternate-function table).
 const TX: Pin = (C, 10);
-const RX: Pin = (C, 11);
+pub const RX: Pin = (C, 11);
 const AF_UART: u8 = 7;
 
 pub const ACK: [u8; 3] = [0x61, 0x0D, 0x0A];

@@ -296,10 +296,11 @@ impl Wb32 {
     fn clock_timers(&mut self) {
         let c = self.sysctl.clocks();
         let hz = |g| if self.sysctl.clock_on(g) { 1 } else { 0 };
-        let (tim2, qspi, spim2) = (
+        let (tim2, qspi, spim2, uart3) = (
             hz(Gate::Apb1(2)) * c.pclk1,
             hz(Gate::Apb1(12)) * c.pclk1,
             hz(Gate::Apb2(4)) * c.pclk2,
+            hz(Gate::Apb2(3)) * c.pclk2,
         );
         if tim2 != self.tim2.hz() {
             self.tim2.set_clock(tim2, self.now);
@@ -309,6 +310,9 @@ impl Wb32 {
         }
         if spim2 != self.spim2.hz() {
             self.spim2.set_clock(spim2, self.now);
+        }
+        if uart3 != self.uart3.hz() {
+            self.uart3.set_clock(uart3, self.now, &self.gpio);
         }
     }
 
@@ -602,7 +606,13 @@ impl Bus for Wb32 {
         if self.tim2.next_event() <= now {
             self.tim2.sync(now);
         }
-        self.uart3.advance(now);
+        self.uart3.advance(now, &self.gpio);
+        if let Some(pin) = self.uart3.rx_pin {
+            let level = self.uart3.rx_level();
+            if self.gpio.driven.insert(pin, level) != Some(level) {
+                self.gpio.update();
+            }
+        }
         if self.qspi.next_event() <= now {
             self.qspi.advance(now, &self.gpio);
         }

@@ -265,6 +265,7 @@ impl Board {
         chip.qspi.device = Some(Box::new(nor.clone()));
         chip.spim2.device = Some(Box::new(leds.clone()));
         chip.uart3.peer = Some(Box::new(radio.clone()));
+        chip.uart3.rx_pin = Some(radio::RX);
         chip.gpio.watch(ws2812::SUPPLY);
         // The cable in (the host is plugged in), the switch on Win.
         chip.gpio.driven.insert(CABLE, true);
@@ -613,7 +614,9 @@ impl Board {
 
     /// Bytes from the radio module to the keyboard, as they are.
     pub fn module_sends(&mut self, bytes: &[u8]) {
-        self.radio.borrow_mut().send(bytes, &mut self.chip.uart3.rx);
+        self.radio
+            .borrow_mut()
+            .send(bytes, &mut self.chip.uart3.wire);
     }
 
     /// A module frame "cmd arg sum", whatever the module's model would say.
@@ -621,7 +624,7 @@ impl Board {
         let now = self.cpu.now;
         self.radio
             .borrow_mut()
-            .send_frame(cmd, arg, now, &mut self.chip.uart3.rx);
+            .send_frame(cmd, arg, now, &mut self.chip.uart3.wire);
     }
 
     /// The radio's host goes away (`Radio::link_drop`): back after
@@ -631,7 +634,7 @@ impl Board {
         self.radio.borrow_mut().link_drop(
             back_after.map(|s| (s * 1000.0) as u64),
             now,
-            &mut self.chip.uart3.rx,
+            &mut self.chip.uart3.wire,
         );
     }
 
@@ -641,7 +644,7 @@ impl Board {
         let now = self.cpu.now;
         self.radio
             .borrow_mut()
-            .host_present(dev, present, now, &mut self.chip.uart3.rx);
+            .host_present(dev, present, now, &mut self.chip.uart3.wire);
     }
 
     /// The host behind the dongle suspends (false) or resumes.
@@ -649,7 +652,7 @@ impl Board {
         let now = self.cpu.now;
         self.radio
             .borrow_mut()
-            .host_state(resume, now, &mut self.chip.uart3.rx);
+            .host_state(resume, now, &mut self.chip.uart3.wire);
     }
 
     /// A Vial request from the host through the dongle (AF 60); its answer
@@ -658,7 +661,7 @@ impl Board {
         let now = self.cpu.now;
         let n = {
             let mut r = self.radio.borrow_mut();
-            r.raw_out(request, now, &mut self.chip.uart3.rx);
+            r.raw_out(request, now, &mut self.chip.uart3.wire);
             r.raw_in.len()
         };
         self.run_until(secs, |b| b.radio.borrow().raw_in.len() > n)
@@ -691,7 +694,11 @@ impl Board {
         );
         e.extend(self.leds.borrow().errors.iter().cloned());
         e.extend(self.radio.borrow().errors.iter().cloned());
-        for s in [&self.chip.qspi.errors, &self.chip.spim2.errors] {
+        for s in [
+            &self.chip.qspi.errors,
+            &self.chip.spim2.errors,
+            &self.chip.uart3.errors,
+        ] {
             e.extend(s.iter().cloned());
         }
         e.extend(
