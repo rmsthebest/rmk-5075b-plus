@@ -24,8 +24,8 @@ embassy-time = "0.5.1"
 embassy-usb-driver = "0.2.0"
 embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.1"
-# musb 0.3.1 plus our WB32 profile: submodule of github.com/rmsthebest/musb,
-# branch wb32 (third_party/musb/README-wb32.md).
+# musb 0.3.1 plus the PRs offered upstream (fixes and the WB32 profile):
+# submodule of github.com/rmsthebest/musb, branch akko-next.
 musb = { path = "../../third_party/musb", default-features = false, features = ["prebuild", "builtin-wb32fq95", "embassy-usb-driver-impl"] }
 
 [package.metadata.docs.rs]

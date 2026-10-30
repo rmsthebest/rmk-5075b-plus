@@ -80,7 +80,7 @@ build aren't published, so they don't count here. Both images ran in the same si
 | `crates/akko-lighting` | `akko-lighting` | QMK rgb_matrix port plus this board's lights and indicators | This board (the rgb_matrix part is generic in nature, but tied to this layout) |
 | `firmware` | `firmware` | The `akko-rmk` image and the bring-up images `m1a-bounce`, `m1b-stub`, `m2-blink`, `m3-usb` | This board |
 | `third_party/rmk` | `rmk` | Submodule: [our fork](https://github.com/rmsthebest/rmk), branch `akko-main`: RMK main with our hooks and fixes (`rmk/README-akko.md`) | |
-| `third_party/musb` | `musb` | Submodule: [our fork](https://github.com/rmsthebest/musb), branch `wb32`: musb 0.3.1 with WB32 support and fixes (`README-wb32.md`) | |
+| `third_party/musb` | `musb` | Submodule: [our fork](https://github.com/rmsthebest/musb), branch `akko-next`: musb 0.3.1 plus our upstream PRs (decaday/musb #6-#10: fixes and the WB32 profile) | |
 | `sim-rs/` | | Our own simulator of the board (a Cortex-M3 interpreter and the WB32FQ95's peripherals in Rust) and the test suites, under `cargo test`: the gate for every image (`sim-rs/README.md`) | |
 | `rom/` | | The chip's ROM bootloader, studied: read-out (`rom-peek` feature), disassembly tools, write-up (`rom/README.md`). The ROM itself isn't in the repo | |
 | `tools/` | | Generators (PAC, keymap, LED layout, Vial JSON), checks (precheck, rgbref, PAC vs manual), the workbench | |
