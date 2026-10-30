@@ -462,7 +462,8 @@ impl Cpu {
 
     /// Follows the bus's core clock.
     fn sync_clock(&mut self, bus: &impl Bus) {
-        let hz = bus.hclk_hz().max(1);
+        // 0 while the chip is stopped: SysTick and CYCCNT stand still.
+        let hz = bus.hclk_hz();
         if hz != self.hclk_hz {
             self.ppb.set_hclk(hz, self.now);
             self.hclk_hz = hz;
@@ -474,7 +475,7 @@ impl Cpu {
     pub(crate) fn spend(&mut self, cycles: u64) {
         self.cycles += cycles;
         let n = cycles as u128 * crate::TICK_HZ as u128 + self.tick_frac as u128;
-        let hz = self.hclk_hz as u128;
+        let hz = self.hclk_hz.max(1) as u128;
         self.now += (n / hz) as u64;
         self.tick_frac = (n % hz) as u64;
     }
@@ -582,6 +583,7 @@ impl Cpu {
         self.update_irqs(bus);
         if self.should_wake() {
             self.sleep = Sleep::Awake;
+            self.now += bus.woke();
             return;
         }
         let next = bus.next_event().min(self.ppb.next_event()).min(deadline);
@@ -1116,9 +1118,10 @@ impl Cpu {
     }
 
     fn enter_sleep(&mut self, bus: &mut impl Bus, kind: Sleep) {
-        self.sleep = kind;
-        self.sleeps += 1;
-        bus.sleep(self.ppb.sleepdeep());
+        if bus.sleep(self.ppb.sleepdeep()) {
+            self.sleep = kind;
+            self.sleeps += 1;
+        }
     }
 }
 

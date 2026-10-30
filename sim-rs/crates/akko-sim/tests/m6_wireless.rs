@@ -699,14 +699,27 @@ fn every_stop_diag_variant_at_once_still_stops_and_wakes_on_a_key() {
     );
 }
 
-/// A frame from the module ends the stop (EXTI 11 on the chip; the UART's
-/// interrupt in the sim); the radio reads it: the host resuming wakes the
-/// keyboard.
+/// A frame from the module ends the stop: its start bit is the falling
+/// edge on C11, EXTI 11. The whole frame is lost: UART3 has no clock
+/// until the HSE has started and the PLL locked (over 2 ms), and the frame
+/// takes 0.26 ms. Not ACKed, the module sends it again (assumed, as the
+/// keyboard does its own after 10 ms) and the radio reads it: the host
+/// resuming wakes the keyboard.
 #[test]
 fn in_stop_mode_the_modules_uart_wakes_it() {
     let mut t = asleep_and_stopped();
+    t.b.radio.borrow_mut().retransmit_ms = Some(10);
+    let lost = t.b.chip.uart3.lost;
     t.b.dongle_host(true);
     radio_should_get(&mut t, SEL_DONGLE, 1.0);
+    assert_eq!(t.b.chip.uart3.lost - lost, 3, "the frame that woke it");
+    assert!(
+        t.b.radio
+            .borrow()
+            .log
+            .iter()
+            .any(|l| l == "-> 60 01 61 (again)")
+    );
     t.b.run_for(0.3);
     should_be_stopped(&mut t, false);
     should_be_asleep(&mut t, false, false);

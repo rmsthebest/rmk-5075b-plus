@@ -229,8 +229,11 @@ impl Bus for BoardBus<'_> {
     fn ppb_write(&mut self, addr: u32, size: Size, value: u32) {
         self.chip.ppb_write(addr, size, value)
     }
-    fn sleep(&mut self, deep: bool) {
+    fn sleep(&mut self, deep: bool) -> bool {
         self.chip.sleep(deep)
+    }
+    fn woke(&mut self) -> u64 {
+        self.chip.woke()
     }
     fn hclk_hz(&self) -> u64 {
         self.chip.hclk_hz()

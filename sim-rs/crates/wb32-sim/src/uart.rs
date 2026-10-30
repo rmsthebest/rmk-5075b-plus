@@ -14,8 +14,8 @@
 //! written to a full THR/FIFO is lost and reported. The peer gets each byte
 //! when its stop bit ends; the bytes the peer puts on `wire` arrive one
 //! character time each, from when the line is free, into the RX FIFO. One
-//! arriving at a full FIFO is lost and sets LSR.OE; one arriving while
-//! UART3 has no clock (stop mode) is lost unseen. The line's level, start
+//! arriving at a full FIFO is lost and sets LSR.OE; one with UART3's clock
+//! off at any time from its start bit on (stop mode) is lost unseen. The line's level, start
 //! bit first, is `rx_level`: the chip puts it on C11, so EXTI 11 sees it.
 //!
 //! Interrupts (IIR, table 25-2, highest first): receive line status (OE,
@@ -84,6 +84,22 @@ impl<T: UartPeer> UartPeer for Rc<RefCell<T>> {
     }
 }
 
+/// A byte on the RX line: its bits, when its start bit began, its bit time
+/// (fixed for the byte), and whether the receiver had its clock throughout.
+#[derive(Clone, Copy)]
+struct RxByte {
+    b: u8,
+    start: u64,
+    bit: u64,
+    clocked: bool,
+}
+
+impl RxByte {
+    fn end(&self) -> u64 {
+        self.start + 10 * self.bit
+    }
+}
+
 pub struct Uart {
     pub block: &'static str,
     irq: u32,
@@ -101,8 +117,8 @@ pub struct Uart {
     /// The byte going out and when its stop bit ends.
     tx_shift: Option<(u8, u64)>,
     rx: VecDeque<u8>,
-    /// The byte coming in and when its start bit began.
-    rx_shift: Option<(u8, u64)>,
+    /// The byte coming in.
+    rx_shift: Option<RxByte>,
     oe: bool,
     thre_irq: bool,
     /// When the receiver last saw a byte or RBR was read (the character
@@ -175,6 +191,11 @@ impl Uart {
     pub fn set_clock(&mut self, hz: u64, now: u64, gpio: &Gpio) {
         self.advance_to(now, gpio);
         self.hz = hz;
+        if hz == 0
+            && let Some(r) = &mut self.rx_shift
+        {
+            r.clocked = false;
+        }
         self.start_tx(now);
     }
 
@@ -255,26 +276,23 @@ impl Uart {
 
     /// The RX line now: idle high, or the bits of the byte arriving.
     pub fn rx_level(&self) -> bool {
-        let Some((b, start)) = self.rx_shift else {
+        let Some(r) = self.rx_shift else {
             return true;
         };
-        let bit = self.bit_ticks().unwrap_or(DEFAULT_CHAR / 10);
-        let i = (self.now.saturating_sub(start) / bit) as u32;
-        let data = 5 + (self.lcr & 3);
-        match i {
+        // The far end sends 8N1.
+        match (self.now.saturating_sub(r.start) / r.bit) as u32 {
             0 => false,
-            i if i <= data => b >> (i - 1) & 1 != 0,
+            i if i <= 8 => r.b >> (i - 1) & 1 != 0,
             _ => true,
         }
     }
 
     /// When the RX line's level may next change.
     fn rx_edge(&self) -> u64 {
-        let Some((_, start)) = self.rx_shift else {
+        let Some(r) = self.rx_shift else {
             return u64::MAX;
         };
-        let bit = self.bit_ticks().unwrap_or(DEFAULT_CHAR / 10);
-        start + (self.now.saturating_sub(start) / bit + 1) * bit
+        r.start + (self.now.saturating_sub(r.start) / r.bit + 1) * r.bit
     }
 
     fn start_tx(&mut self, now: u64) {
@@ -294,7 +312,15 @@ impl Uart {
         if self.rx_shift.is_none()
             && let Some(b) = self.wire.pop_front()
         {
-            self.rx_shift = Some((b, now));
+            // At the chip's rate while it has one (the far end's must
+            // match), else 115,200 baud.
+            let bit = self.bit_ticks().unwrap_or(DEFAULT_CHAR / 10);
+            self.rx_shift = Some(RxByte {
+                b,
+                start: now,
+                bit,
+                clocked: self.hz != 0,
+            });
         }
     }
 
@@ -423,7 +449,7 @@ impl Uart {
     pub fn next_event(&self) -> u64 {
         let peer = self.peer.as_ref().map_or(u64::MAX, |p| p.next_event());
         let rx_end = match self.rx_shift {
-            Some((_, start)) => start + self.char_ticks(),
+            Some(r) => r.end(),
             // Bytes on the wire start arriving at once.
             None if !self.wire.is_empty() => self.now,
             None => u64::MAX,
@@ -455,9 +481,7 @@ impl Uart {
         self.start_rx(self.now);
         loop {
             let tx_end = self.tx_shift.map_or(u64::MAX, |(_, end)| end);
-            let rx_end = self
-                .rx_shift
-                .map_or(u64::MAX, |(_, s)| s + self.char_ticks());
+            let rx_end = self.rx_shift.map_or(u64::MAX, |r| r.end());
             let peer = self.peer.as_ref().map_or(u64::MAX, |p| p.next_event());
             let t = tx_end.min(rx_end).min(peer);
             if t > now {
@@ -465,8 +489,9 @@ impl Uart {
             }
             self.now = self.now.max(t);
             if t == rx_end {
-                let (b, _) = self.rx_shift.take().unwrap();
-                if self.hz == 0 {
+                let RxByte { b, clocked, .. } = self.rx_shift.take().unwrap();
+                // The receiver missed its start bit, or more.
+                if !clocked {
                     self.lost += 1;
                 } else if self.rx.len() < self.depth() {
                     self.rx.push_back(b);
@@ -588,6 +613,27 @@ mod tests {
         u.wire.push_back(0xAA);
         u.advance(1 << 41, &gpio);
         assert_eq!((u.read(0x84), u.lost), (16, 1));
+    }
+
+    #[test]
+    fn a_byte_that_starts_without_a_clock_is_lost_though_it_comes_back() {
+        let (mut u, _, gpio) = uart3();
+        u.set_clock(0, 0, &gpio);
+        u.wire.extend([0x55, 0x66]);
+        u.advance(0, &gpio);
+        assert!(!u.rx_level(), "the start bit, for EXTI 11");
+        u.set_clock(96_000_000, 10 * US, &gpio);
+        u.advance(1 << 30, &gpio);
+        assert_eq!((u.lost, u.read(0x84), u.read(0x00)), (1, 1, 0x66));
+        // Or whose clock stops for a moment while it comes in.
+        let t = 1 << 31;
+        u.advance(t, &gpio);
+        u.wire.push_back(0x77);
+        u.advance(t, &gpio);
+        u.set_clock(0, t + 20 * US, &gpio);
+        u.set_clock(96_000_000, t + 30 * US, &gpio);
+        u.advance(t + (1 << 30), &gpio);
+        assert_eq!((u.lost, u.read(0x84)), (2, 0));
     }
 
     #[test]

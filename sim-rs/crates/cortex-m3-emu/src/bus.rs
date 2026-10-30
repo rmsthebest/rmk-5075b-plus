@@ -62,8 +62,17 @@ pub trait Bus {
     /// for a chip that logs writes. The core handles the write itself.
     fn ppb_write(&mut self, _addr: u32, _size: Size, _value: u32) {}
 
-    /// The core went to sleep (WFI/WFE); `deep` is SCR.SLEEPDEEP.
-    fn sleep(&mut self, _deep: bool) {}
+    /// The core goes to sleep (WFI/WFE, or SLEEPONEXIT); `deep` is
+    /// SCR.SLEEPDEEP. False if the chip won't: the core carries on.
+    fn sleep(&mut self, _deep: bool) -> bool {
+        true
+    }
+
+    /// The core woke from a sleep, before it runs again: how long (core
+    /// ticks) the chip takes to let it.
+    fn woke(&mut self) -> u64 {
+        0
+    }
     /// The core's clock (HCLK) in Hz, read before every instruction: it
     /// times the instructions, SysTick and DWT CYCCNT.
     fn hclk_hz(&self) -> u64 {

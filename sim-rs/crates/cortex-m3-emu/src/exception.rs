@@ -267,9 +267,10 @@ impl Cpu {
         self.event = true;
         self.returned = true;
         if to_thread && self.ppb.sleeponexit() {
-            self.sleep = Sleep::Wfi;
-            self.sleeps += 1;
-            bus.sleep(self.ppb.sleepdeep());
+            if bus.sleep(self.ppb.sleepdeep()) {
+                self.sleep = Sleep::Wfi;
+                self.sleeps += 1;
+            }
         }
     }
 }

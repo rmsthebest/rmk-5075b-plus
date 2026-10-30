@@ -17,6 +17,11 @@
 //!
 //! A system reset keeps PWR SR1, GPREG0/1 and CFGR (RM 5.4.5-5.4.8: only
 //! a power-on reset clears them).
+//!
+//! Out of a stop (RM 5.3.4) every clock configuration is back at its reset
+//! value: RCC's registers but its reset bits, and the oscillators (MHSI and
+//! FHSI on, starting up again; HSE and the PLL off); MAINCLK is MHSI. PWR
+//! SR1 then has SPF and CKF set, which writing CSPF/CCKF to CR1 clears.
 
 use crate::chip::Write;
 use cortex_m3_emu::TICK_HZ;
@@ -28,6 +33,12 @@ const IWDG: u32 = 0x800;
 const RCC: u32 = 0xC00;
 const ANAKEY1: u32 = PWR + 0x28;
 const ANAKEY2: u32 = PWR + 0x2C;
+const PWR_CR0: u32 = PWR;
+const PWR_CR1: u32 = PWR + 0x04;
+const PWR_SR1: u32 = PWR + 0x14;
+/// SR1: woke from a stop (SPF), with the clocks reset (CKF).
+pub const SR1_SPF: u32 = 1 << 2;
+pub const SR1_CKF: u32 = 1 << 3;
 const BLOCKS: [&str; 4] = ["PWR", "ANCTL", "IWDG", "RCC"];
 
 // RCC (RM 7.3).
@@ -187,6 +198,34 @@ impl Sysctl {
         self.clocks = self.compute_clocks();
     }
 
+    /// SLEEPDEEP enters stop rather than standby: CR0 PDDS (bits 6:5) 00.
+    pub fn deep_sleep_is_stop(&self) -> bool {
+        self.reg(PWR_CR0) >> 5 & 3 == 0
+    }
+
+    /// Out of a stop at `now` (see the top of this file).
+    pub fn stop_exit(&mut self, now: u64) {
+        let rcc_kept = [AHBRSTR1, APB1RSTR, APB2RSTR].map(|o| (o, self.reg(o)));
+        self.regs.retain(|&o, _| o < RCC);
+        for (o, v) in RESET {
+            if o >= RCC {
+                self.regs.insert(o, v);
+            }
+        }
+        self.regs.extend(rcc_kept);
+        for (e, v) in [(MHSIENR, 1), (FHSIENR, 1), (HSECR0, 0), (PLLENR, 0)] {
+            self.regs.insert(e, v);
+        }
+        self.on = [
+            (MHSIENR, now + startup(MHSIENR)),
+            (FHSIENR, now + startup(FHSIENR)),
+        ]
+        .into();
+        self.mainclk_src = 0;
+        *self.regs.entry(PWR_SR1).or_default() |= SR1_SPF | SR1_CKF;
+        self.clocks = self.compute_clocks();
+    }
+
     pub fn reg(&self, off: u32) -> u32 {
         self.regs.get(&off).copied().unwrap_or(0)
     }
@@ -310,7 +349,7 @@ impl Sysctl {
             return if e == PLLENR { 3 * ready } else { ready };
         }
         match off {
-            ANAKEY1 | ANAKEY2 | MAINCLKUEN => 0,
+            ANAKEY1 | ANAKEY2 | MAINCLKUEN | PWR_CR1 => 0,
             _ => self.reg(off),
         }
     }
@@ -346,6 +385,14 @@ impl Sysctl {
             } else if was && !is {
                 self.on.remove(&e);
             }
+        }
+        match off {
+            PWR_CR1 => {
+                *self.regs.entry(PWR_SR1).or_default() &= !(v & 0xF);
+                return Ok(());
+            }
+            PWR_SR1 => return Ok(()),
+            _ => {}
         }
         self.regs.insert(off, v);
         if off == MAINCLKUEN && v & 1 != 0 {

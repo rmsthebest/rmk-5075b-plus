@@ -220,6 +220,11 @@ impl Gpio {
     }
 
     /// Bit n: IRQ n is held high.
+    /// EXTI PR: the lines with a request pending.
+    pub fn exti_pending(&self) -> u32 {
+        self.exti[PR]
+    }
+
     pub fn irq_level(&self) -> u64 {
         self.irq_level
     }

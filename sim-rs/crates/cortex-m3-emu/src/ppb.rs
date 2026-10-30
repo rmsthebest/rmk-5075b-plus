@@ -204,10 +204,10 @@ impl Ppb {
             if rvr == 0 {
                 u64::MAX
             } else {
-                now + self.systick_ticks(rvr as u64 + 1)
+                now.saturating_add(self.systick_ticks(rvr as u64 + 1))
             }
         } else {
-            now + self.systick_ticks(value as u64)
+            now.saturating_add(self.systick_ticks(value as u64))
         };
         let st = &mut self.systick;
         st.value = value;
@@ -249,7 +249,7 @@ impl Ppb {
         self.systick.next_zero = if st.rvr == 0 {
             u64::MAX
         } else {
-            zero + self.systick_period(st.rvr)
+            zero.saturating_add(self.systick_period(st.rvr))
         };
         if self.systick.next_zero <= now {
             // A long jump (asleep with SysTick off its interrupt): catch up.
@@ -583,6 +583,10 @@ impl Ppb {
 /// Ticks until `clocks` clocks at `hz` have passed (rounded up, so the
 /// count has reached it then).
 fn to_ticks(clocks: u64, hz: u64) -> u64 {
+    if hz == 0 {
+        // A stopped clock never gets there.
+        return u64::MAX;
+    }
     (clocks as u128 * crate::TICK_HZ as u128).div_ceil(hz as u128) as u64
 }
 

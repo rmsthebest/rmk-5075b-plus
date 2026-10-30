@@ -7,8 +7,8 @@
 //! - the cable, A7 (EXTI 7), rising. Line 7 is the knob's B7 otherwise: it's
 //!   A7's while stopped and B7's again after;
 //! - the radio module's UART RX, C11 (EXTI 11), falling (a start bit), as an
-//!   input, as the vendor's. That byte is likely lost (the UART's clock is
-//!   stopped); the module's frame comes again.
+//!   input, as the vendor's. That frame is lost (UART3 has no clock until
+//!   the PLL is back, over 2 ms); the module sends it again.
 //!
 //! In lower sleep (the flat battery) only the cable and the UART wake it.
 //!

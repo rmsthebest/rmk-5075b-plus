@@ -24,6 +24,15 @@
 //! dropped and `Diag::ClockOff` reports it. Setting a reset bit (RM
 //! 7.3.21-7.3.23) puts the model back to its reset state. The system
 //! control block (PWR, ANCTL, IWDG, RCC) has no gate.
+//!
+//! Stop mode (RM 5.3.4, table 5-6): a WFI or WFE with SLEEPDEEP set and
+//! PWR CR0 PDDS 00. With an EXTI request pending it isn't entered: the
+//! core carries on. Stopped, every clock is off (HCLK too: SysTick and
+//! CYCCNT stand still; TIM2, the SSIs and UART3 freeze) and only the EXTI
+//! lines reach the NVIC. Waking takes `STOP_WAKE` (the MHSI start-up, DS
+//! 5.2.4; the regulator's and bandgap's aren't given), then the chip runs
+//! from MHSI with every clock configuration at its reset value
+//! (`Sysctl::stop_exit`). Standby (PDDS 10) isn't modelled: a plain sleep.
 
 use crate::diag::Diag;
 use crate::fmc::{self, Fmc};
@@ -57,6 +66,10 @@ pub const USB_BASE: u32 = 0x4001_4000;
 pub const SYS_BASE: u32 = 0x4001_6400;
 pub const FMC_BASE: u32 = 0x4001_7800;
 
+/// From an EXTI edge in stop to the core running: the MHSI's start-up, at
+/// its maximum (DS 5.2.4). A board check.
+pub const STOP_WAKE: u64 = 2 * cortex_m3_emu::TICK_HZ / 1_000_000;
+
 pub struct Wb32 {
     flash: Memory,
     rom: Memory,
@@ -76,6 +89,11 @@ pub struct Wb32 {
     flash_busy_seen: u64,
     /// The time `advance` last brought the chip to.
     now: u64,
+    /// In stop mode.
+    stopped: bool,
+    /// Stops entered, and stops skipped for a pending EXTI request.
+    pub stops: u32,
+    pub stops_skipped: u32,
     /// The instruction executing (`Bus::executing`).
     pc: u32,
     /// Times an instruction at each of these addresses ran, while `Some`:
@@ -253,6 +271,9 @@ impl Wb32 {
             fmc: Fmc::default(),
             flash_busy_seen: 0,
             now: 0,
+            stopped: false,
+            stops: 0,
+            stops_skipped: 0,
             pc: 0,
             pc_hits: None,
             writes: None,
@@ -280,6 +301,7 @@ impl Wb32 {
         self.cache.clear();
         *self.usb.borrow_mut() = Musb::new();
         self.fmc = Fmc::default();
+        self.stopped = false;
         self.clock_timers();
     }
 
@@ -298,7 +320,14 @@ impl Wb32 {
     /// to them: TIM2 and QSPI PCLK1, SPIM2 PCLK2.
     fn clock_timers(&mut self) {
         let c = self.sysctl.clocks();
-        let hz = |g| if self.sysctl.clock_on(g) { 1 } else { 0 };
+        let stopped = self.stopped;
+        let hz = |g| {
+            if !stopped && self.sysctl.clock_on(g) {
+                1
+            } else {
+                0
+            }
+        };
         let (tim2, qspi, spim2, uart3) = (
             hz(Gate::Apb1(2)) * c.pclk1,
             hz(Gate::Apb1(12)) * c.pclk1,
@@ -648,9 +677,36 @@ impl Bus for Wb32 {
             .min(self.spim2.next_event())
     }
 
-    /// The clock tree's AHB clock (sysctl.rs).
+    /// The clock tree's AHB clock (sysctl.rs); none while stopped.
     fn hclk_hz(&self) -> u64 {
-        self.sysctl.clocks().hclk
+        if self.stopped {
+            0
+        } else {
+            self.sysctl.clocks().hclk
+        }
+    }
+
+    fn sleep(&mut self, deep: bool) -> bool {
+        if !deep || !self.sysctl.deep_sleep_is_stop() {
+            return true;
+        }
+        if self.gpio.exti_pending() != 0 {
+            self.stops_skipped += 1;
+            return false;
+        }
+        self.stopped = true;
+        self.stops += 1;
+        self.clock_timers();
+        true
+    }
+
+    fn woke(&mut self) -> u64 {
+        if !std::mem::take(&mut self.stopped) {
+            return 0;
+        }
+        self.sysctl.stop_exit(self.now + STOP_WAKE);
+        self.clock_timers();
+        STOP_WAKE
     }
 
     fn executing(&mut self, pc: u32) {
@@ -665,6 +721,12 @@ impl Bus for Wb32 {
     }
 
     fn irq_lines(&mut self) -> IrqLines {
+        if self.stopped {
+            return IrqLines {
+                level: self.gpio.irq_level(),
+                raised: 0,
+            };
+        }
         let level = self.gpio.irq_level()
             | (self.tim2.irq() as u64) << tim2::IRQ
             | (self.usb.borrow().irq() as u64) << usb::IRQ
@@ -832,5 +894,43 @@ mod tests {
         // Gating APB1's clock (SRCEN) stops it.
         chip.write(RCC + 0x1C, Size::Word, 0);
         assert_eq!(chip.tim2.hz(), 0);
+    }
+
+    #[test]
+    fn a_stop_freezes_the_clocks_until_an_exti_line_and_wakes_on_mhsi() {
+        let mut chip = Wb32::new();
+        let (exti, pwr) = (GPIO_BASE + 0x1800, SYSCTL_BASE);
+        apb1_on(&mut chip, 1 << 2 | 1 << 9);
+        chip.write(TIM2_BASE, Size::Word, 1);
+        // EXTI 0 (A0, held high) on its falling edge.
+        chip.write(GPIO_BASE + 0xFF4, Size::Word, 1 << 16);
+        chip.write(exti + 0x0C, Size::Word, 1);
+        chip.write(exti, Size::Word, 1);
+        // Not SLEEPDEEP, or a request pending: no stop.
+        assert!(chip.sleep(false));
+        assert_eq!(chip.hclk_hz(), 8_000_000);
+        chip.write(exti + 0x10, Size::Word, 1);
+        assert!(!chip.sleep(true));
+        assert_eq!((chip.stops, chip.stops_skipped), (0, 1));
+        chip.write(exti + 0x14, Size::Word, 1);
+        chip.write(exti + 0x10, Size::Word, 0);
+        assert!(chip.sleep(true));
+        assert_eq!((chip.hclk_hz(), chip.tim2.hz()), (0, 0));
+        // Only EXTI reaches the NVIC.
+        chip.advance(TICK_HZ);
+        assert_eq!(chip.irq_lines().level, 0);
+        chip.write(GPIO_BASE + 0xFF4, Size::Word, 0);
+        assert_eq!(chip.irq_lines().level, 1 << 6, "EXTI0");
+        assert_eq!(chip.woke(), STOP_WAKE);
+        let c = chip.sysctl.clocks();
+        assert_eq!((c.hclk, c.pclk1), (8_000_000, 0), "MHSI, APB1 off");
+        assert_eq!(chip.read(RCC + 0x48, Size::Word), 0, "APB1ENR reset");
+        assert_eq!(chip.read(pwr + 0x14, Size::Word), 0xC, "SR1 SPF, CKF");
+        chip.write(pwr + 0x04, Size::Word, 0xC);
+        assert_eq!(chip.read(pwr + 0x14, Size::Word), 0);
+        // PDDS 10 is standby, not modelled: a plain sleep.
+        chip.write(pwr, Size::Word, 0x40);
+        assert!(chip.sleep(true));
+        assert_eq!((chip.hclk_hz(), chip.stops), (8_000_000, 1));
     }
 }
