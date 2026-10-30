@@ -693,11 +693,14 @@ impl Board {
         leds.leds.clone()
     }
 
-    /// Everything a test fails on unless it says otherwise: host errors,
-    /// the board parts' errors, the controllers' errors, and locked,
-    /// unmapped or unclocked accesses and refused clock switches.
+    /// Everything a test fails on unless it says otherwise: the core's
+    /// diagnostics (faults, lockup, UNPREDICTABLE encodings, the PPB beyond
+    /// the model), host errors, the board parts' errors, the controllers'
+    /// errors, and locked, unmapped or unclocked accesses and refused clock
+    /// switches.
     pub fn errors(&self) -> Vec<String> {
-        let mut e = self.host_errors();
+        let mut e: Vec<String> = self.cpu.diags.iter().map(|d| d.to_string()).collect();
+        e.extend(self.host_errors());
         e.extend(
             self.nor
                 .borrow()

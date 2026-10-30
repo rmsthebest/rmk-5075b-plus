@@ -33,6 +33,18 @@ pub struct T {
     pub nor: usize,
     pub radio: usize,
     pub trace: usize,
+    /// Errors the test means to cause (`allow_errors`).
+    pub errors_allowed: bool,
+}
+
+/// A test ends with no errors (`Board::errors`) unless it calls
+/// `allow_errors`; one that has already failed isn't checked again.
+impl Drop for T {
+    fn drop(&mut self) {
+        if !self.errors_allowed && !std::thread::panicking() {
+            self.no_errors();
+        }
+    }
 }
 
 impl T {
@@ -45,7 +57,13 @@ impl T {
             nor: 0,
             radio: 0,
             trace: 0,
+            errors_allowed: false,
         }
+    }
+
+    /// The test causes errors on purpose (and checks them itself).
+    pub fn allow_errors(&mut self) {
+        self.errors_allowed = true;
     }
 
     pub fn boot() -> T {
