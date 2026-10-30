@@ -73,7 +73,11 @@ pub struct Opts {
 }
 
 impl Opts {
-    pub const VENDOR: Opts = Opts { clear_pending: false, settle: 35, restart_clocks: false };
+    pub const VENDOR: Opts = Opts {
+        clear_pending: false,
+        settle: 35,
+        restart_clocks: false,
+    };
 }
 
 /// Reads of PLLSR out of a stop before giving up (`rcc::reinit`): well
@@ -151,7 +155,11 @@ pub enum Mark {
 /// (the critical section): the wake doesn't run a handler, the caller
 /// clears the lines it set up. `mark` is called as the wake gets past each
 /// [`Mark`].
-pub fn enter(_cs: critical_section::CriticalSection<'_>, opts: Opts, mark: impl Fn(Mark)) -> Option<u32> {
+pub fn enter(
+    _cs: critical_section::CriticalSection<'_>,
+    opts: Opts,
+    mark: impl Fn(Mark),
+) -> Option<u32> {
     // SAFETY: the caller has interrupts off; SysTick, SCB and these
     // registers are only touched here meanwhile.
     let syst = unsafe { &*SYST::PTR };
@@ -168,7 +176,11 @@ pub fn enter(_cs: critical_section::CriticalSection<'_>, opts: Opts, mark: impl 
     }
     let apb1 = RCC.apb1enr().read();
     let apb2 = RCC.apb2enr().read();
-    let ahb = (RCC.ahbenr0().read(), RCC.ahbenr1().read(), RCC.ahbenr2().read());
+    let ahb = (
+        RCC.ahbenr0().read(),
+        RCC.ahbenr1().read(),
+        RCC.ahbenr2().read(),
+    );
     let usb = UsbClocks::save();
     let tim2 = TIM2.cr1().read();
     TIM2.cr1().modify(|w| w.set_cen(false));

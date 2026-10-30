@@ -47,7 +47,11 @@ struct Ring<const N: usize> {
 
 impl<const N: usize> Ring<N> {
     const fn new() -> Self {
-        Ring { buf: [0; N], head: 0, len: 0 }
+        Ring {
+            buf: [0; N],
+            head: 0,
+            len: 0,
+        }
     }
 
     fn push(&mut self, b: u8) -> bool {
@@ -139,7 +143,11 @@ impl Uart3 {
     pub async fn wait_readable(&self) {
         poll_fn(|cx| {
             RX_WAKER.register(cx.waker());
-            if self.rx_empty() { Poll::Pending } else { Poll::Ready(()) }
+            if self.rx_empty() {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
         })
         .await
     }
@@ -155,14 +163,19 @@ impl Uart3 {
 /// doesn't clear the error flags when read). Stop mode (`crate::stop`)
 /// waits for this: its clock stops with the chip's.
 pub fn idle() -> bool {
-    let rings = critical_section::with(|cs| TX.borrow(cs).borrow().len == 0 && RX.borrow(cs).borrow().len == 0);
+    let rings = critical_section::with(|cs| {
+        TX.borrow(cs).borrow().len == 0 && RX.borrow(cs).borrow().len == 0
+    });
     let usr = UART3.usr().read();
     rings && usr.tfe() && !usr.busy()
 }
 
 /// Called in the interrupt's critical section.
 fn count_error() {
-    RX_ERRORS.store(RX_ERRORS.load(Ordering::Relaxed).saturating_add(1), Ordering::Relaxed);
+    RX_ERRORS.store(
+        RX_ERRORS.load(Ordering::Relaxed).saturating_add(1),
+        Ordering::Relaxed,
+    );
 }
 
 fn on_interrupt() {

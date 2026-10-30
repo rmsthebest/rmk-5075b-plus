@@ -6,8 +6,8 @@
 
 use akko_boot_guard as _;
 // Device interrupt vectors (all DefaultHandler -> DFU).
-use wb32_pac as _;
 use cortex_m_rt::entry;
+use wb32_pac as _;
 
 #[entry]
 fn main() -> ! {

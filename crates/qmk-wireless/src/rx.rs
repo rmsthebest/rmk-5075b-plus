@@ -43,7 +43,9 @@ pub enum Event {
     /// Battery percent.
     Battery(u8),
     FwVersion(u8),
-    HostState { resume: bool },
+    HostState {
+        resume: bool,
+    },
     /// Checked and ACKed but nothing for the keyboard.
     Other,
 }
@@ -75,7 +77,12 @@ pub struct Parser {
 
 impl Parser {
     pub const fn new() -> Self {
-        Parser { buf: [0; MAX_LEN], count: 0, remain: 0, last_rx: 0 }
+        Parser {
+            buf: [0; MAX_LEN],
+            count: 0,
+            remain: 0,
+            last_rx: 0,
+        }
     }
 
     /// Call when no received bytes are waiting: drops a partial frame whose
@@ -101,7 +108,13 @@ impl Parser {
             0 => {
                 if matches!(
                     byte,
-                    cmd::RAW | cmd::INDICATOR | cmd::DEVCTRL | cmd::BATTERY | cmd::FW_VERSION | cmd::HOST_STATE | cmd::ACK
+                    cmd::RAW
+                        | cmd::INDICATOR
+                        | cmd::DEVCTRL
+                        | cmd::BATTERY
+                        | cmd::FW_VERSION
+                        | cmd::HOST_STATE
+                        | cmd::ACK
                 ) {
                     self.buf[0] = byte;
                     self.count = 1;

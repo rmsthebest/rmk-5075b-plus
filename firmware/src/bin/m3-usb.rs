@@ -32,7 +32,7 @@ use embassy_sync::pipe::Pipe;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb::class::cdc_acm::{self, CdcAcmClass};
-use embassy_usb::class::hid::{self, HidReaderWriter, HidSubclass, HidBootProtocol, ReportId};
+use embassy_usb::class::hid::{self, HidBootProtocol, HidReaderWriter, HidSubclass, ReportId};
 use embassy_usb::control::OutResponse;
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Handler};
@@ -105,7 +105,14 @@ impl Handler for DeviceEvents {
     fn configured(&mut self, configured: bool) {
         CONFIGURED.store(configured, Ordering::Relaxed);
         USB_STATE.signal(());
-        log!("usb: {}", if configured { "configured" } else { "unconfigured" });
+        log!(
+            "usb: {}",
+            if configured {
+                "configured"
+            } else {
+                "unconfigured"
+            }
+        );
     }
     fn suspended(&mut self, suspended: bool) {
         SUSPENDED.store(suspended, Ordering::Relaxed);
@@ -309,10 +316,15 @@ async fn main(_spawner: Spawner) {
         core::future::pending::<()>().await
     };
 
-    let usb_side = join(join(join(device.run(), log_out), port_watch), join(commands, typing));
+    let usb_side = join(
+        join(join(device.run(), log_out), port_watch),
+        join(commands, typing),
+    );
     let app_side = join(join(host_leds, state_led), watchdog);
     match select3(usb_side, app_side, esc.wait_for_falling_edge()).await {
-        Either3::First(_) | Either3::Second(_) | Either3::Third(()) => akko_boot_guard::request_bootloader(),
+        Either3::First(_) | Either3::Second(_) | Either3::Third(()) => {
+            akko_boot_guard::request_bootloader()
+        }
     }
 }
 
@@ -323,7 +335,11 @@ fn check_time_base() -> bool {
     let before = Instant::now().as_micros();
     cortex_m::asm::delay(rcc::HCLK_HZ / 1000);
     let after = Instant::now().as_micros();
-    log!("time: {} us -> {} us across 1 ms of CPU cycles", before, after);
+    log!(
+        "time: {} us -> {} us across 1 ms of CPU cycles",
+        before,
+        after
+    );
     after != before
 }
 
@@ -341,6 +357,9 @@ fn run_command(line: &[u8], type_request: &Signal<CriticalSectionRawMutex, ()>) 
         b"type" => type_request.signal(()),
         b"panic" => panic!("requested over USB"),
         b"dfu" => akko_boot_guard::request_bootloader(),
-        _ => log!("unknown command \"{}\" (info, type, panic, dfu)", line.escape_ascii()),
+        _ => log!(
+            "unknown command \"{}\" (info, type, panic, dfu)",
+            line.escape_ascii()
+        ),
     }
 }

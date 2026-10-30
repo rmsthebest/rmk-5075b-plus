@@ -52,9 +52,13 @@ const WRITE_TIMEOUT: Duration = Duration::from_millis(20);
 /// Byte `i` of the frame for `rgb` (one [r, g, b] per LED; `frame_len`
 /// bytes in all).
 pub fn frame_byte(rgb: &[[u8; 3]], i: usize) -> u8 {
-    let Some(at) = i.checked_sub(PREAMBLE_BYTES) else { return 0 };
+    let Some(at) = i.checked_sub(PREAMBLE_BYTES) else {
+        return 0;
+    };
     let (led, k) = (at / BYTES_PER_LED, at % BYTES_PER_LED);
-    let Some(&[r, g, b]) = rgb.get(led) else { return 0 };
+    let Some(&[r, g, b]) = rgb.get(led) else {
+        return 0;
+    };
     let c = [g, r, b][k / 4];
     let pos = k % 4;
     let hi = (c >> (7 - 2 * pos)) & 1;
@@ -72,7 +76,13 @@ struct Xfer {
     rx_left: usize,
 }
 
-const IDLE: Xfer = Xfer { rgb: core::ptr::null(), leds: 0, next: 0, tx_left: 0, rx_left: 0 };
+const IDLE: Xfer = Xfer {
+    rgb: core::ptr::null(),
+    leds: 0,
+    next: 0,
+    tx_left: 0,
+    rx_left: 0,
+};
 
 // Only touched inside critical sections or the SPIM2 interrupt.
 unsafe impl Send for Xfer {}
@@ -130,7 +140,11 @@ impl Ws2812 {
     async fn finished() {
         let done = poll_fn(|cx| {
             DONE.register(cx.waker());
-            if BUSY.load(Ordering::Acquire) { Poll::Pending } else { Poll::Ready(()) }
+            if BUSY.load(Ordering::Acquire) {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
         });
         if let Either::Second(()) = select(done, Timer::after(WRITE_TIMEOUT)).await {
             critical_section::with(|cs| {
@@ -151,11 +165,18 @@ impl Ws2812 {
         critical_section::with(|cs| {
             let rgb = self.rgb.as_ptr();
             let leds = self.rgb.len();
-            XFER.borrow(cs).set(Xfer { rgb, leds, next: 0, tx_left: n, rx_left: n });
+            XFER.borrow(cs).set(Xfer {
+                rgb,
+                leds,
+                next: 0,
+                tx_left: n,
+                rx_left: n,
+            });
             BUSY.store(true, Ordering::Release);
             let level = n.min(FIFO_LEN.borrow(cs).get() / 2) as u32;
             r.txftlr().write_value(spi::regs::Txftlr(level));
-            r.rxftlr().write_value(spi::regs::Rxftlr(level.saturating_sub(1)));
+            r.rxftlr()
+                .write_value(spi::regs::Rxftlr(level.saturating_sub(1)));
             r.ier().modify(|w| w.0 |= IT_TXE | IT_RXF);
             r.spienr().write_value(spi::regs::Spienr(1));
         });
@@ -181,7 +202,8 @@ fn on_interrupt() {
             BUSY.store(false, Ordering::Release);
             DONE.wake();
         } else if x.rx_left as u32 <= r.rxftlr().read().0 {
-            r.rxftlr().write_value(spi::regs::Rxftlr(x.rx_left as u32 - 1));
+            r.rxftlr()
+                .write_value(spi::regs::Rxftlr(x.rx_left as u32 - 1));
         }
 
         if isr & IT_TXE != 0 {

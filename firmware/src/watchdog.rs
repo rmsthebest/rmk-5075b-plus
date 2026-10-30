@@ -35,7 +35,10 @@ static STUCK: [AtomicU32; 2] = [AtomicU32::new(0), AtomicU32::new(0)];
 
 /// The scan made a pass.
 pub fn scan_alive() {
-    SCAN_ALIVE.store(SCAN_ALIVE.load(Ordering::Relaxed).wrapping_add(1), Ordering::Relaxed);
+    SCAN_ALIVE.store(
+        SCAN_ALIVE.load(Ordering::Relaxed).wrapping_add(1),
+        Ordering::Relaxed,
+    );
 }
 
 /// The scan parked (waiting for a key) or went back to its passes.
@@ -52,13 +55,19 @@ pub fn start() {
 /// Bumps `MAIN_ALIVE` every 500 ms.
 pub async fn heartbeat() -> ! {
     loop {
-        MAIN_ALIVE.store(MAIN_ALIVE.load(Ordering::Relaxed).wrapping_add(1), Ordering::Relaxed);
+        MAIN_ALIVE.store(
+            MAIN_ALIVE.load(Ordering::Relaxed).wrapping_add(1),
+            Ordering::Relaxed,
+        );
         Timer::after_millis(500).await;
     }
 }
 
 fn check() {
-    for (i, (counter, name)) in [(&SCAN_ALIVE, "scan"), (&MAIN_ALIVE, "main")].into_iter().enumerate() {
+    for (i, (counter, name)) in [(&SCAN_ALIVE, "scan"), (&MAIN_ALIVE, "main")]
+        .into_iter()
+        .enumerate()
+    {
         let v = counter.load(Ordering::Relaxed);
         if v != SEEN[i].load(Ordering::Relaxed) || i == 0 && SCAN_PARKED.load(Ordering::Relaxed) {
             SEEN[i].store(v, Ordering::Relaxed);

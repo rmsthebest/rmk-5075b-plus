@@ -126,7 +126,12 @@ impl SysTickDriver {
     /// Sets the period to end at the alarm (at most `MAX_PERIOD` on).
     fn program(&self, cs: CriticalSection) {
         let now = self.now_parts(cs);
-        let left = self.alarm.borrow(cs).get().saturating_sub(now.0).min(MAX_TICKS) as u32;
+        let left = self
+            .alarm
+            .borrow(cs)
+            .get()
+            .saturating_sub(now.0)
+            .min(MAX_TICKS) as u32;
         let cycles = (left * CYCLES_PER_TICK).saturating_sub(now.1);
         self.restart(cs, now, cycles.clamp(MIN_PERIOD, MAX_PERIOD));
     }
@@ -146,7 +151,11 @@ impl SysTickDriver {
 
     /// Wakes every expired timer and remembers when the next one is due.
     fn next_alarm(&self, cs: CriticalSection) {
-        let next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now_cs(cs));
+        let next = self
+            .queue
+            .borrow(cs)
+            .borrow_mut()
+            .next_expiration(self.now_cs(cs));
         self.alarm.borrow(cs).set(next);
     }
 

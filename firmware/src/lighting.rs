@@ -94,26 +94,26 @@
 use core::cell::Cell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use akko_lighting::board::{CHANNELS, KEYS};
+use akko_lighting::engine::MAX_BRIGHTNESS;
+use akko_lighting::record::{self, Record};
+use akko_lighting::vialrgb;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
-use akko_lighting::board::{CHANNELS, KEYS};
-use akko_lighting::record::{self, Record};
-use akko_lighting::engine::MAX_BRIGHTNESS;
-use akko_lighting::vialrgb;
 
 use crate::keymap::{layer, user};
 use crate::{power, radio};
 use akko_lighting::{Board, Key};
+use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
 use rmk::event::{ActionEvent, ConnectionStatusChangeEvent, KeyboardEvent, KeyboardEventSource};
+use rmk::hid::BatteryReport;
 use rmk::macros::processor;
 use rmk::processor::DeadlineProcessor;
 use rmk::types::action::{Action, KeyboardAction, LightAction};
-use rmk::types::keycode::{HidKeyCode, KeyCode};
-use rmk::hid::BatteryReport;
 use rmk::types::connection::UsbState;
+use rmk::types::keycode::{HidKeyCode, KeyCode};
 use rmk::types::modifier::ModifierCombination;
-use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
 use wb32_hal::gpio::{Input, Output};
 use wb32_hal::spi_nor::{Partition, SECTOR_SIZE};
 use wb32_hal::ws2812::Ws2812;
@@ -172,7 +172,15 @@ impl Store {
             [None, Some(_)] => Some(1),
             [None, None] => None,
         };
-        let mut s = Store { flash, buf, current, seq: 0, crc: 0, save_at: None, asked: false };
+        let mut s = Store {
+            flash,
+            buf,
+            current,
+            seq: 0,
+            crc: 0,
+            save_at: None,
+            asked: false,
+        };
         if let Some(c) = current {
             // The second read left sector 1 in `buf`.
             if c == 0 && s.flash.read(0, s.buf).await.is_err() {
@@ -202,25 +210,42 @@ impl Store {
     }
 
     fn due(&self, now: u32) -> bool {
-        self.save_at.is_some_and(|t| now.wrapping_sub(t) as i32 >= 0)
+        self.save_at
+            .is_some_and(|t| now.wrapping_sub(t) as i32 >= 0)
     }
 
     /// Writes `board`'s settings if they changed since the last save.
     async fn save(&mut self, board: &Board) {
         self.save_at = None;
         self.asked = false;
-        record::encode(board, flags(), flags2(), crate::power::setting(), self.seq, self.buf);
+        record::encode(
+            board,
+            flags(),
+            flags2(),
+            crate::power::setting(),
+            self.seq,
+            self.buf,
+        );
         if self.current.is_some() && record::stored_crc(self.buf) == self.crc {
             return;
         }
         let seq = self.seq.wrapping_add(1);
-        record::encode(board, flags(), flags2(), crate::power::setting(), seq, self.buf);
+        record::encode(
+            board,
+            flags(),
+            flags2(),
+            crate::power::setting(),
+            seq,
+            self.buf,
+        );
         let to = match self.current {
             Some(0) => 1,
             _ => 0,
         };
         let at = to * SECTOR_SIZE;
-        if self.flash.erase(at, at + SECTOR_SIZE).await.is_err() || self.flash.write(at, &self.buf[..]).await.is_err() {
+        if self.flash.erase(at, at + SECTOR_SIZE).await.is_err()
+            || self.flash.write(at, &self.buf[..]).await.is_err()
+        {
             return;
         }
         self.current = Some(to);
@@ -234,7 +259,8 @@ type VialMode = [u8; 6];
 /// The effect as Vial sees it, kept by the task.
 static VIAL_MODE: Mutex<CriticalSectionRawMutex, Cell<VialMode>> = Mutex::new(Cell::new([0; 6]));
 /// A mode set from Vial, for the task.
-static VIAL_SET: Mutex<CriticalSectionRawMutex, Cell<Option<VialMode>>> = Mutex::new(Cell::new(None));
+static VIAL_SET: Mutex<CriticalSectionRawMutex, Cell<Option<VialMode>>> =
+    Mutex::new(Cell::new(None));
 static VIAL_SAVE: AtomicBool = AtomicBool::new(false);
 
 const VIA_SET_VALUE: u8 = 0x07;
@@ -331,7 +357,11 @@ fn flags() -> u8 {
 
 /// The second flags byte (`record::FLAG2_*`).
 fn flags2() -> u8 {
-    if DIR.load(Ordering::Relaxed) { record::FLAG2_DIR } else { 0 }
+    if DIR.load(Ordering::Relaxed) {
+        record::FLAG2_DIR
+    } else {
+        0
+    }
 }
 
 /// The saved keyboard flags at start-up, before `action_hook` is set.
@@ -408,20 +438,28 @@ pub fn action_hook(a: &mut Action, e: &KeyboardEvent, mods: ModifierCombination)
         // The edit keys as the shortcuts every OS knows (the HID usages
         // mostly do nothing): Ctrl in Windows mode, Cmd in Mac mode. The
         // vendor sends Ctrl in both.
-        Action::Key(KeyCode::Hid(k @ (HidKeyCode::Cut | HidKeyCode::Copy | HidKeyCode::Paste | HidKeyCode::Find))) => {
+        Action::Key(KeyCode::Hid(
+            k @ (HidKeyCode::Cut | HidKeyCode::Copy | HidKeyCode::Paste | HidKeyCode::Find),
+        )) => {
             let key = match k {
                 HidKeyCode::Cut => HidKeyCode::X,
                 HidKeyCode::Copy => HidKeyCode::C,
                 HidKeyCode::Paste => HidKeyCode::V,
                 _ => HidKeyCode::F,
             };
-            let m = if MAC.load(Ordering::Relaxed) { ModifierCombination::LGUI } else { ModifierCombination::LCTRL };
+            let m = if MAC.load(Ordering::Relaxed) {
+                ModifierCombination::LGUI
+            } else {
+                ModifierCombination::LCTRL
+            };
             *a = Action::KeyWithModifier(key, m);
         }
         // The vendor's Mac keys (feature `mac`): HS_SIRI is Cmd+Space, and
         // Mission Control is Ctrl+Up rather than its consumer usage.
         #[cfg(feature = "mac")]
-        Action::User(user::HS_SIRI) => *a = Action::KeyWithModifier(HidKeyCode::Space, ModifierCombination::LGUI),
+        Action::User(user::HS_SIRI) => {
+            *a = Action::KeyWithModifier(HidKeyCode::Space, ModifierCombination::LGUI)
+        }
         #[cfg(feature = "mac")]
         Action::Key(KeyCode::Hid(HidKeyCode::MissionControl)) => {
             *a = Action::KeyWithModifier(HidKeyCode::Up, ModifierCombination::LCTRL);
@@ -510,7 +548,10 @@ impl Lighting {
     fn update_leds(&mut self) {
         let asleep = power::sleeping();
         let usb_suspended = !radio::wireless() && self.usb_suspended_at.is_some();
-        let locked = NO_GUI.load(Ordering::Relaxed) && !MAC.load(Ordering::Relaxed) && !asleep && !usb_suspended;
+        let locked = NO_GUI.load(Ordering::Relaxed)
+            && !MAC.load(Ordering::Relaxed)
+            && !asleep
+            && !usb_suspended;
         self.win_lock_led.set_level((!locked).into());
         let aux = self.board.vendor.conf.rgb_enable && self.cable.is_low() && !asleep;
         self.aux_led.set_level(aux.into());
@@ -520,7 +561,10 @@ impl Lighting {
     /// Asleep, or on USB with the host suspended for USB_LIGHTS_OFF_MS.
     fn lights_off(&self, now: u32) -> bool {
         power::sleeping()
-            || (!radio::wireless() && self.usb_suspended_at.is_some_and(|t| now.wrapping_sub(t) >= USB_LIGHTS_OFF_MS))
+            || (!radio::wireless()
+                && self
+                    .usb_suspended_at
+                    .is_some_and(|t| now.wrapping_sub(t) >= USB_LIGHTS_OFF_MS))
     }
 
     /// HS_CT_A's hold, as the vendor's housekeeping times it.
@@ -552,7 +596,11 @@ impl Lighting {
     /// After anything that may have changed the board's state.
     async fn sync(&mut self) {
         let c = &self.board.engine.config;
-        let id = if c.enable { vialrgb::to_vial(c.mode) } else { vialrgb::OFF };
+        let id = if c.enable {
+            vialrgb::to_vial(c.mode)
+        } else {
+            vialrgb::OFF
+        };
         let [lo, hi] = id.to_le_bytes();
         VIAL_MODE.lock(|m| m.set([lo, hi, c.speed, c.hsv.h, c.hsv.s, c.hsv.v]));
         self.update_power();
@@ -603,7 +651,8 @@ impl Lighting {
             EE_CLR_DONE.store(false, Ordering::Relaxed);
         }
         let now = now_ms();
-        self.board.key(key, row, col, pressed, SHIFTED.load(Ordering::Relaxed), now);
+        self.board
+            .key(key, row, col, pressed, SHIFTED.load(Ordering::Relaxed), now);
         self.store.touch(now);
         self.sync().await;
     }
@@ -618,7 +667,9 @@ impl Lighting {
         // Suspended keeps the host's copy; anything else but configured
         // loses it.
         match e.0.usb {
-            UsbState::Configured => self.usb_configured_at = self.usb_configured_at.or(Some(now_ms())),
+            UsbState::Configured => {
+                self.usb_configured_at = self.usb_configured_at.or(Some(now_ms()))
+            }
             UsbState::Suspended => {}
             _ => (self.usb_configured_at, self.battery_sent) = (None, None),
         }
@@ -634,9 +685,14 @@ impl Lighting {
             return;
         }
         let v = &self.board.vendor;
-        let report = BatteryReport { level: v.bat, charging: v.charging && !v.full };
+        let report = BatteryReport {
+            level: v.bat,
+            charging: v.charging && !v.full,
+        };
         rmk::hid::set_battery_now(report);
-        let Some(at) = self.usb_configured_at else { return };
+        let Some(at) = self.usb_configured_at else {
+            return;
+        };
         if now.wrapping_sub(at) < BATTERY_REPORT_DELAY_MS {
             return;
         }
@@ -669,7 +725,9 @@ impl Lighting {
         let off = self.lights_off(now);
         if off != self.board.engine.suspended {
             if self.board.set_sleep(off, now) {
-                self.leds.write(self.board.engine.leds.rgb.iter().map(|c| [c.r, c.g, c.b])).await;
+                self.leds
+                    .write(self.board.engine.leds.rgb.iter().map(|c| [c.r, c.g, c.b]))
+                    .await;
             }
             self.update_power();
             self.update_leds();
@@ -677,7 +735,9 @@ impl Lighting {
         loop {
             if self.board.task_sparse(now) {
                 self.update_power();
-                self.leds.write(self.board.engine.leds.rgb.iter().map(|c| [c.r, c.g, c.b])).await;
+                self.leds
+                    .write(self.board.engine.leds.rgb.iter().map(|c| [c.r, c.g, c.b]))
+                    .await;
             }
             if !self.board.engine.frame_due(now) {
                 break;
@@ -712,11 +772,19 @@ impl DeadlineProcessor for Lighting {
         let engine = &self.board.engine;
         // Coming back from suspended: at once.
         let resumed = engine.suspended && !self.lights_off(now);
-        let frame = if engine.suspended { resumed || self.suspended_wait(now) == 0 } else { engine.frame_due(now) };
+        let frame = if engine.suspended {
+            resumed || self.suspended_wait(now) == 0
+        } else {
+            engine.frame_due(now)
+        };
         if frame || self.store.due(now) {
             return Some(Instant::now());
         }
-        let mut wait = if engine.suspended { self.suspended_wait(now) } else { engine.next_frame().wrapping_sub(now) };
+        let mut wait = if engine.suspended {
+            self.suspended_wait(now)
+        } else {
+            engine.next_frame().wrapping_sub(now)
+        };
         if let Some(t) = self.store.save_at {
             wait = wait.min(t.wrapping_sub(now));
         }
@@ -729,7 +797,11 @@ impl DeadlineProcessor for Lighting {
         }
         let now = now_ms();
         let engine = &self.board.engine;
-        let due = if engine.suspended { self.suspended_wait(now) == 0 || !self.lights_off(now) } else { engine.frame_due(now) };
+        let due = if engine.suspended {
+            self.suspended_wait(now) == 0 || !self.lights_off(now)
+        } else {
+            engine.frame_due(now)
+        };
         if due {
             self.frame().await;
         }

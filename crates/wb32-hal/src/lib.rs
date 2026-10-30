@@ -11,8 +11,8 @@ pub mod stop;
 pub mod tick;
 pub mod time_driver;
 pub mod uart;
-pub mod ws2812;
 pub mod usb;
+pub mod ws2812;
 
 /// Sets `irq`'s priority and unmasks it.
 pub(crate) fn unmask_irq(irq: pac::Interrupt, prio: u8) {

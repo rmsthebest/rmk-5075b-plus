@@ -23,6 +23,7 @@ Writes crates/wb32-pac/src/lib.rs and crates/wb32-pac/device.x. The API follows 
 """
 
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -597,6 +598,7 @@ def main():
 
     (OUT / "src").mkdir(parents=True, exist_ok=True)
     (OUT / "src" / "lib.rs").write_text("\n".join(lines) + "\n")
+    subprocess.run(["rustfmt", "--edition", "2024", OUT / "src" / "lib.rs"], check=True)
     (OUT / "device.x").write_text("".join(f"PROVIDE({n} = DefaultHandler);\n" for n, _ in irqs))
     for r in report:
         print(r, file=sys.stderr)

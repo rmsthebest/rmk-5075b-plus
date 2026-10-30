@@ -90,8 +90,12 @@ const WIN_LOCK_LED: u32 = 1 << 0;
 /// The diagnostic LEDs: `on` low (BSRR's upper half), the rest high.
 fn diag_leds(caps: bool, win_lock: bool) {
     let bsrr = |on: bool, pin: u32| if on { pin << 16 } else { pin };
-    GPIOC.bsrr().write_value(wb32_pac::gpio::regs::Bsrr(bsrr(caps, CAPS_LED)));
-    GPIOB.bsrr().write_value(wb32_pac::gpio::regs::Bsrr(bsrr(win_lock, WIN_LOCK_LED)));
+    GPIOC
+        .bsrr()
+        .write_value(wb32_pac::gpio::regs::Bsrr(bsrr(caps, CAPS_LED)));
+    GPIOB
+        .bsrr()
+        .write_value(wb32_pac::gpio::regs::Bsrr(bsrr(win_lock, WIN_LOCK_LED)));
 }
 
 /// Stops until a wake line fires; returns those that fired, or None if it
@@ -100,14 +104,23 @@ fn diag_leds(caps: bool, win_lock: bool) {
 /// file).
 pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
     let v = diag.unwrap_or(0);
-    let knob = if v & VARIANT_NO_KNOB != 0 { 0 } else { KNOB_LINE };
+    let knob = if v & VARIANT_NO_KNOB != 0 {
+        0
+    } else {
+        KNOB_LINE
+    };
     let lines = CABLE_LINE | UART_LINE | if lower { 0 } else { ROW_LINES | knob };
-    let both = if v & VARIANT_BOTH_EDGES != 0 { ROW_LINES | UART_LINE } else { 0 };
+    let both = if v & VARIANT_BOTH_EDGES != 0 {
+        ROW_LINES | UART_LINE
+    } else {
+        0
+    };
     let rising = CABLE_LINE | KNOB_LINE | both;
     let falling = ROW_LINES | KNOB_LINE | UART_LINE;
     let opts = wb32_hal::stop::Opts {
         clear_pending: v & VARIANT_CLEAR_PENDING != 0,
-        settle: wb32_hal::stop::Opts::VENDOR.settle * if v & VARIANT_SLOW_SETTLE != 0 { 100 } else { 1 },
+        settle: wb32_hal::stop::Opts::VENDOR.settle
+            * if v & VARIANT_SLOW_SETTLE != 0 { 100 } else { 1 },
         restart_clocks: v & VARIANT_RESTART_CLOCKS != 0,
     };
     let emr_was = EXTI.emr().read().0;
@@ -122,17 +135,21 @@ pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
         let rtsr = EXTI.rtsr().read().0;
         let ftsr = EXTI.ftsr().read().0;
         let exticr: [u32; 4] = core::array::from_fn(|i| AFIO.exticr(i).read().0);
-        let nvic_was: [bool; 7] = core::array::from_fn(|i| cortex_m::peripheral::NVIC::is_enabled(IRQS[i]));
+        let nvic_was: [bool; 7] =
+            core::array::from_fn(|i| cortex_m::peripheral::NVIC::is_enabled(IRQS[i]));
 
         for (line, port) in PORTS {
             if lines & 1 << line != 0 {
                 let line = line as usize;
-                AFIO.exticr(line / 4).modify(|w| w.set_exti(line % 4, port as u8));
+                AFIO.exticr(line / 4)
+                    .modify(|w| w.set_exti(line % 4, port as u8));
             }
         }
         EXTI.imr().write_value(wb32_pac::exti::regs::Imr(0));
-        EXTI.rtsr().write_value(wb32_pac::exti::regs::Rtsr(rtsr & !lines | rising & lines));
-        EXTI.ftsr().write_value(wb32_pac::exti::regs::Ftsr(ftsr & !lines | falling & lines));
+        EXTI.rtsr()
+            .write_value(wb32_pac::exti::regs::Rtsr(rtsr & !lines | rising & lines));
+        EXTI.ftsr()
+            .write_value(wb32_pac::exti::regs::Ftsr(ftsr & !lines | falling & lines));
         rx.set_mode(Mode::input(Pull::None));
         EXTI.pr().write_value(wb32_pac::exti::regs::Pr(lines));
         EXTI.imr().write_value(wb32_pac::exti::regs::Imr(lines));
@@ -166,7 +183,8 @@ pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
         }
         EXTI.rtsr().write_value(wb32_pac::exti::regs::Rtsr(rtsr));
         EXTI.ftsr().write_value(wb32_pac::exti::regs::Ftsr(ftsr));
-        EXTI.pr().write_value(wb32_pac::exti::regs::Pr(lines & !keep));
+        EXTI.pr()
+            .write_value(wb32_pac::exti::regs::Pr(lines & !keep));
         EXTI.imr().write_value(wb32_pac::exti::regs::Imr(imr));
         for (irq, was) in IRQS.into_iter().zip(nvic_was) {
             if keep & IRQ_LINES[irq_index(irq)] == 0 {

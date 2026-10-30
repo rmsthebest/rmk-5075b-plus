@@ -9,7 +9,13 @@ use qmk_wireless::rx::{self, Event};
 use qmk_wireless::{Device, DeviceStrings, Link, ModuleState};
 
 static STRINGS: DeviceStrings = DeviceStrings {
-    bt_names: [b"Test BT1", b"Test BT2", b"Test BT3", b"Test BT4", b"Test BT5"],
+    bt_names: [
+        b"Test BT1",
+        b"Test BT2",
+        b"Test BT3",
+        b"Test BT4",
+        b"Test BT5",
+    ],
     dongle_manufacturer: b"T\0\0\0",
     dongle_product: b"P\0\0\0",
     vid: 0x342D,
@@ -30,7 +36,13 @@ struct Bench {
 
 impl Bench {
     fn new() -> Self {
-        Bench { link: Link::new(&STRINGS), now: 0, rx: VecDeque::new(), tx: Vec::new(), events: Vec::new() }
+        Bench {
+            link: Link::new(&STRINGS),
+            now: 0,
+            rx: VecDeque::new(),
+            tx: Vec::new(),
+            events: Vec::new(),
+        }
     }
 
     fn feed(&mut self, bytes: &[u8]) {
@@ -43,13 +55,17 @@ impl Bench {
 
     fn task(&mut self) {
         let tx = &mut self.tx;
-        self.link.poll(self.now, &mut |b: &[u8]| tx.extend_from_slice(b));
+        self.link
+            .poll(self.now, &mut |b: &[u8]| tx.extend_from_slice(b));
         if self.rx.is_empty() {
             self.link.rx_idle(self.now);
         }
         while let Some(byte) = self.rx.pop_front() {
             let tx = &mut self.tx;
-            if let Some(e) = self.link.receive(byte, self.now, &mut |b: &[u8]| tx.extend_from_slice(b)) {
+            if let Some(e) = self
+                .link
+                .receive(byte, self.now, &mut |b: &[u8]| tx.extend_from_slice(b))
+            {
                 self.events.push(e);
             }
         }
@@ -73,7 +89,11 @@ impl Bench {
         for _ in 0..100 {
             self.task();
             let sent = self.take_tx();
-            quiet = if sent.is_empty() && !self.link.busy() { quiet + 1 } else { 0 };
+            quiet = if sent.is_empty() && !self.link.busy() {
+                quiet + 1
+            } else {
+                0
+            };
             if quiet == 3 {
                 break;
             }
@@ -183,11 +203,19 @@ fn test_parser_queue_c_cases() {
     }
     assert!(!b.link.busy());
     assert_eq!(b.link.stats.retry_drops, 1);
-    assert_eq!((b.link.stats.tx_pkts, b.link.stats.ack_timeouts), (42, 41), "41 sends of the dropped frame, as the C");
+    assert_eq!(
+        (b.link.stats.tx_pkts, b.link.stats.ack_timeouts),
+        (42, 41),
+        "41 sends of the dropped frame, as the C"
+    );
     let tries = b.take_tx();
     assert_eq!(tries.len(), 41 * 10);
     b.task();
-    assert_eq!(b.take_tx(), [0xA1, 0, 0, 4, 0, 0, 0, 0, 0, 0xA5], "the latest report, resent");
+    assert_eq!(
+        b.take_tx(),
+        [0xA1, 0, 0, 4, 0, 0, 0, 0, 0, 0xA5],
+        "the latest report, resent"
+    );
 
     // 11. a queued frame behind a dropped one still goes out
     b.feed(&ACK);
@@ -241,12 +269,19 @@ fn release_while_disconnected_is_sent_on_reconnect() {
     b.take_tx();
     b.link.send_keyboard([0; 8], b.now);
     let sent = b.drain();
-    assert_eq!(sent, [0xA6, 0x31, 0xD7], "no report while down; BT1 re-selected");
+    assert_eq!(
+        sent,
+        [0xA6, 0x31, 0xD7],
+        "no report while down; BT1 re-selected"
+    );
 
     b.frame3(rx::cmd::DEVCTRL, rx::devctrl::CONNECTED);
     b.task();
     b.task();
-    assert_eq!(b.take_tx(), [ACK.as_slice(), &[0xA1, 0, 0, 0, 0, 0, 0, 0, 0, 0xA1]].concat());
+    assert_eq!(
+        b.take_tx(),
+        [ACK.as_slice(), &[0xA1, 0, 0, 0, 0, 0, 0, 0, 0, 0xA1]].concat()
+    );
 }
 
 /// Fixed-tree bug 5: reports while the link is down re-select the device at
@@ -260,12 +295,20 @@ fn reselect_is_rate_limited() {
     for _ in 0..1000 {
         b.link.send_keyboard([0; 8], b.now);
         b.link.send_consumer(0, b.now);
-        selects += b.drain().chunks(3).filter(|f| *f == [0xA6, 0x30, 0xD6]).count();
+        selects += b
+            .drain()
+            .chunks(3)
+            .filter(|f| *f == [0xA6, 0x30, 0xD6])
+            .count();
         b.now += 1;
     }
     // One select when the reports start, then one per 500 ms.
     let most = b.now as usize / 500 + 1;
-    assert!((most - 1..=most).contains(&selects), "{selects} selects in {} ms", b.now);
+    assert!(
+        (most - 1..=most).contains(&selects),
+        "{selects} selects in {} ms",
+        b.now
+    );
 }
 
 #[test]

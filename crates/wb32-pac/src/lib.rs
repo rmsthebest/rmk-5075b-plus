@@ -34,7 +34,10 @@ pub mod common {
     impl<T: Copy, A: Access> Reg<T, A> {
         #[inline(always)]
         pub const unsafe fn from_ptr(ptr: *mut T) -> Self {
-            Self { ptr: ptr as _, phantom: PhantomData }
+            Self {
+                ptr: ptr as _,
+                phantom: PhantomData,
+            }
         }
         #[inline(always)]
         pub const fn as_ptr(&self) -> *mut T {
@@ -211,8 +214,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sr(pub u32);
-        impl Sr {
-        }
+        impl Sr {}
         impl Default for Sr {
             #[inline(always)]
             fn default() -> Self {
@@ -228,8 +230,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cr1(pub u32);
-        impl Cr1 {
-        }
+        impl Cr1 {}
         impl Default for Cr1 {
             #[inline(always)]
             fn default() -> Self {
@@ -245,8 +246,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cr2(pub u32);
-        impl Cr2 {
-        }
+        impl Cr2 {}
         impl Default for Cr2 {
             #[inline(always)]
             fn default() -> Self {
@@ -262,8 +262,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Smpr1(pub u32);
-        impl Smpr1 {
-        }
+        impl Smpr1 {}
         impl Default for Smpr1 {
             #[inline(always)]
             fn default() -> Self {
@@ -279,8 +278,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Smpr2(pub u32);
-        impl Smpr2 {
-        }
+        impl Smpr2 {}
         impl Default for Smpr2 {
             #[inline(always)]
             fn default() -> Self {
@@ -296,8 +294,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Jofr1(pub u32);
-        impl Jofr1 {
-        }
+        impl Jofr1 {}
         impl Default for Jofr1 {
             #[inline(always)]
             fn default() -> Self {
@@ -313,8 +310,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Jofr2(pub u32);
-        impl Jofr2 {
-        }
+        impl Jofr2 {}
         impl Default for Jofr2 {
             #[inline(always)]
             fn default() -> Self {
@@ -330,8 +326,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Jofr3(pub u32);
-        impl Jofr3 {
-        }
+        impl Jofr3 {}
         impl Default for Jofr3 {
             #[inline(always)]
             fn default() -> Self {
@@ -347,8 +342,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Jofr4(pub u32);
-        impl Jofr4 {
-        }
+        impl Jofr4 {}
         impl Default for Jofr4 {
             #[inline(always)]
             fn default() -> Self {
@@ -364,8 +358,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Htr(pub u32);
-        impl Htr {
-        }
+        impl Htr {}
         impl Default for Htr {
             #[inline(always)]
             fn default() -> Self {
@@ -381,8 +374,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Ltr(pub u32);
-        impl Ltr {
-        }
+        impl Ltr {}
         impl Default for Ltr {
             #[inline(always)]
             fn default() -> Self {
@@ -398,8 +390,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sqr1(pub u32);
-        impl Sqr1 {
-        }
+        impl Sqr1 {}
         impl Default for Sqr1 {
             #[inline(always)]
             fn default() -> Self {
@@ -415,8 +406,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sqr2(pub u32);
-        impl Sqr2 {
-        }
+        impl Sqr2 {}
         impl Default for Sqr2 {
             #[inline(always)]
             fn default() -> Self {
@@ -432,8 +422,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sqr3(pub u32);
-        impl Sqr3 {
-        }
+        impl Sqr3 {}
         impl Default for Sqr3 {
             #[inline(always)]
             fn default() -> Self {
@@ -449,8 +438,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Jsqr(pub u32);
-        impl Jsqr {
-        }
+        impl Jsqr {}
         impl Default for Jsqr {
             #[inline(always)]
             fn default() -> Self {
@@ -466,8 +454,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Jdr1(pub u32);
-        impl Jdr1 {
-        }
+        impl Jdr1 {}
         impl Default for Jdr1 {
             #[inline(always)]
             fn default() -> Self {
@@ -483,8 +470,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Jdr2(pub u32);
-        impl Jdr2 {
-        }
+        impl Jdr2 {}
         impl Default for Jdr2 {
             #[inline(always)]
             fn default() -> Self {
@@ -500,8 +486,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Jdr3(pub u32);
-        impl Jdr3 {
-        }
+        impl Jdr3 {}
         impl Default for Jdr3 {
             #[inline(always)]
             fn default() -> Self {
@@ -517,8 +502,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Jdr4(pub u32);
-        impl Jdr4 {
-        }
+        impl Jdr4 {}
         impl Default for Jdr4 {
             #[inline(always)]
             fn default() -> Self {
@@ -534,8 +518,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr(pub u32);
-        impl Dr {
-        }
+        impl Dr {}
         impl Default for Dr {
             #[inline(always)]
             fn default() -> Self {
@@ -551,8 +534,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Hs(pub u32);
-        impl Hs {
-        }
+        impl Hs {}
         impl Default for Hs {
             #[inline(always)]
             fn default() -> Self {
@@ -568,8 +550,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cr3(pub u32);
-        impl Cr3 {
-        }
+        impl Cr3 {}
         impl Default for Cr3 {
             #[inline(always)]
             fn default() -> Self {
@@ -585,8 +566,7 @@ pub mod adc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Jdmar(pub u32);
-        impl Jdmar {
-        }
+        impl Jdmar {}
         impl Default for Jdmar {
             #[inline(always)]
             fn default() -> Self {
@@ -621,7 +601,9 @@ pub mod afio {
         #[inline(always)]
         pub const fn exticr(self, n: usize) -> crate::common::Reg<regs::Exticr, crate::common::RW> {
             assert!(n < 4usize);
-            unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x8usize + n * 4usize) as _) }
+            unsafe {
+                crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x8usize + n * 4usize) as _)
+            }
         }
     }
     pub mod regs {
@@ -1302,8 +1284,7 @@ pub mod anctl {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Porcr(pub u32);
-        impl Porcr {
-        }
+        impl Porcr {}
         impl Default for Porcr {
             #[inline(always)]
             fn default() -> Self {
@@ -1638,8 +1619,7 @@ pub mod anctl {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cmpasr(pub u32);
-        impl Cmpasr {
-        }
+        impl Cmpasr {}
         impl Default for Cmpasr {
             #[inline(always)]
             fn default() -> Self {
@@ -1655,8 +1635,7 @@ pub mod anctl {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cmpbsr(pub u32);
-        impl Cmpbsr {
-        }
+        impl Cmpbsr {}
         impl Default for Cmpbsr {
             #[inline(always)]
             fn default() -> Self {
@@ -1870,8 +1849,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rtccr(pub u32);
-        impl Rtccr {
-        }
+        impl Rtccr {}
         impl Default for Rtccr {
             #[inline(always)]
             fn default() -> Self {
@@ -1887,8 +1865,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cr(pub u32);
-        impl Cr {
-        }
+        impl Cr {}
         impl Default for Cr {
             #[inline(always)]
             fn default() -> Self {
@@ -1904,8 +1881,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Csr(pub u32);
-        impl Csr {
-        }
+        impl Csr {}
         impl Default for Csr {
             #[inline(always)]
             fn default() -> Self {
@@ -1921,8 +1897,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr1(pub u32);
-        impl Dr1 {
-        }
+        impl Dr1 {}
         impl Default for Dr1 {
             #[inline(always)]
             fn default() -> Self {
@@ -1938,8 +1913,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr2(pub u32);
-        impl Dr2 {
-        }
+        impl Dr2 {}
         impl Default for Dr2 {
             #[inline(always)]
             fn default() -> Self {
@@ -1955,8 +1929,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr3(pub u32);
-        impl Dr3 {
-        }
+        impl Dr3 {}
         impl Default for Dr3 {
             #[inline(always)]
             fn default() -> Self {
@@ -1972,8 +1945,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr4(pub u32);
-        impl Dr4 {
-        }
+        impl Dr4 {}
         impl Default for Dr4 {
             #[inline(always)]
             fn default() -> Self {
@@ -1989,8 +1961,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr5(pub u32);
-        impl Dr5 {
-        }
+        impl Dr5 {}
         impl Default for Dr5 {
             #[inline(always)]
             fn default() -> Self {
@@ -2006,8 +1977,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr6(pub u32);
-        impl Dr6 {
-        }
+        impl Dr6 {}
         impl Default for Dr6 {
             #[inline(always)]
             fn default() -> Self {
@@ -2023,8 +1993,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr7(pub u32);
-        impl Dr7 {
-        }
+        impl Dr7 {}
         impl Default for Dr7 {
             #[inline(always)]
             fn default() -> Self {
@@ -2040,8 +2009,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr8(pub u32);
-        impl Dr8 {
-        }
+        impl Dr8 {}
         impl Default for Dr8 {
             #[inline(always)]
             fn default() -> Self {
@@ -2057,8 +2025,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr9(pub u32);
-        impl Dr9 {
-        }
+        impl Dr9 {}
         impl Default for Dr9 {
             #[inline(always)]
             fn default() -> Self {
@@ -2074,8 +2041,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr10(pub u32);
-        impl Dr10 {
-        }
+        impl Dr10 {}
         impl Default for Dr10 {
             #[inline(always)]
             fn default() -> Self {
@@ -2091,8 +2057,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr11(pub u32);
-        impl Dr11 {
-        }
+        impl Dr11 {}
         impl Default for Dr11 {
             #[inline(always)]
             fn default() -> Self {
@@ -2108,8 +2073,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr12(pub u32);
-        impl Dr12 {
-        }
+        impl Dr12 {}
         impl Default for Dr12 {
             #[inline(always)]
             fn default() -> Self {
@@ -2125,8 +2089,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr13(pub u32);
-        impl Dr13 {
-        }
+        impl Dr13 {}
         impl Default for Dr13 {
             #[inline(always)]
             fn default() -> Self {
@@ -2142,8 +2105,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr14(pub u32);
-        impl Dr14 {
-        }
+        impl Dr14 {}
         impl Default for Dr14 {
             #[inline(always)]
             fn default() -> Self {
@@ -2159,8 +2121,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr15(pub u32);
-        impl Dr15 {
-        }
+        impl Dr15 {}
         impl Default for Dr15 {
             #[inline(always)]
             fn default() -> Self {
@@ -2176,8 +2137,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr16(pub u32);
-        impl Dr16 {
-        }
+        impl Dr16 {}
         impl Default for Dr16 {
             #[inline(always)]
             fn default() -> Self {
@@ -2193,8 +2153,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr17(pub u32);
-        impl Dr17 {
-        }
+        impl Dr17 {}
         impl Default for Dr17 {
             #[inline(always)]
             fn default() -> Self {
@@ -2210,8 +2169,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr18(pub u32);
-        impl Dr18 {
-        }
+        impl Dr18 {}
         impl Default for Dr18 {
             #[inline(always)]
             fn default() -> Self {
@@ -2227,8 +2185,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr19(pub u32);
-        impl Dr19 {
-        }
+        impl Dr19 {}
         impl Default for Dr19 {
             #[inline(always)]
             fn default() -> Self {
@@ -2244,8 +2201,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr20(pub u32);
-        impl Dr20 {
-        }
+        impl Dr20 {}
         impl Default for Dr20 {
             #[inline(always)]
             fn default() -> Self {
@@ -2261,8 +2217,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr21(pub u32);
-        impl Dr21 {
-        }
+        impl Dr21 {}
         impl Default for Dr21 {
             #[inline(always)]
             fn default() -> Self {
@@ -2278,8 +2233,7 @@ pub mod bkp {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Bdcr(pub u32);
-        impl Bdcr {
-        }
+        impl Bdcr {}
         impl Default for Bdcr {
             #[inline(always)]
             fn default() -> Self {
@@ -2411,7 +2365,9 @@ pub mod crc {
         }
         #[doc = "WR_DATA_HALF_WORD @ 0x008"]
         #[inline(always)]
-        pub const fn wr_data_half_word(self) -> crate::common::Reg<regs::WrDataHalfWord, crate::common::W> {
+        pub const fn wr_data_half_word(
+            self,
+        ) -> crate::common::Reg<regs::WrDataHalfWord, crate::common::W> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x8usize) as _) }
         }
         #[doc = "WR_DATA_BYTE @ 0x008"]
@@ -2505,8 +2461,7 @@ pub mod crc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Seed(pub u32);
-        impl Seed {
-        }
+        impl Seed {}
         impl Default for Seed {
             #[inline(always)]
             fn default() -> Self {
@@ -2522,8 +2477,7 @@ pub mod crc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sum(pub u32);
-        impl Sum {
-        }
+        impl Sum {}
         impl Default for Sum {
             #[inline(always)]
             fn default() -> Self {
@@ -2539,8 +2493,7 @@ pub mod crc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct WrDataWord(pub u32);
-        impl WrDataWord {
-        }
+        impl WrDataWord {}
         impl Default for WrDataWord {
             #[inline(always)]
             fn default() -> Self {
@@ -2556,8 +2509,7 @@ pub mod crc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct WrDataHalfWord(pub u16);
-        impl WrDataHalfWord {
-        }
+        impl WrDataHalfWord {}
         impl Default for WrDataHalfWord {
             #[inline(always)]
             fn default() -> Self {
@@ -2573,8 +2525,7 @@ pub mod crc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct WrDataByte(pub u8);
-        impl WrDataByte {
-        }
+        impl WrDataByte {}
         impl Default for WrDataByte {
             #[inline(always)]
             fn default() -> Self {
@@ -2744,12 +2695,16 @@ pub mod dmac {
         }
         #[doc = "StatusSrcTran @ 0x2F8"]
         #[inline(always)]
-        pub const fn statussrctran(self) -> crate::common::Reg<regs::Statussrctran, crate::common::R> {
+        pub const fn statussrctran(
+            self,
+        ) -> crate::common::Reg<regs::Statussrctran, crate::common::R> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x2f8usize) as _) }
         }
         #[doc = "StatusDstTran @ 0x300"]
         #[inline(always)]
-        pub const fn statusdsttran(self) -> crate::common::Reg<regs::Statusdsttran, crate::common::R> {
+        pub const fn statusdsttran(
+            self,
+        ) -> crate::common::Reg<regs::Statusdsttran, crate::common::R> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x300usize) as _) }
         }
         #[doc = "StatusErr @ 0x308"]
@@ -2794,12 +2749,16 @@ pub mod dmac {
         }
         #[doc = "ClearSrcTran @ 0x348"]
         #[inline(always)]
-        pub const fn clearsrctran(self) -> crate::common::Reg<regs::Clearsrctran, crate::common::W> {
+        pub const fn clearsrctran(
+            self,
+        ) -> crate::common::Reg<regs::Clearsrctran, crate::common::W> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x348usize) as _) }
         }
         #[doc = "ClearDstTran @ 0x350"]
         #[inline(always)]
-        pub const fn cleardsttran(self) -> crate::common::Reg<regs::Cleardsttran, crate::common::W> {
+        pub const fn cleardsttran(
+            self,
+        ) -> crate::common::Reg<regs::Cleardsttran, crate::common::W> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x350usize) as _) }
         }
         #[doc = "ClearErr @ 0x358"]
@@ -2824,12 +2783,16 @@ pub mod dmac {
         }
         #[doc = "SglReqSrcReg @ 0x378"]
         #[inline(always)]
-        pub const fn sglreqsrcreg(self) -> crate::common::Reg<regs::Sglreqsrcreg, crate::common::RW> {
+        pub const fn sglreqsrcreg(
+            self,
+        ) -> crate::common::Reg<regs::Sglreqsrcreg, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x378usize) as _) }
         }
         #[doc = "SglReqDstReg @ 0x380"]
         #[inline(always)]
-        pub const fn sglreqdstreg(self) -> crate::common::Reg<regs::Sglreqdstreg, crate::common::RW> {
+        pub const fn sglreqdstreg(
+            self,
+        ) -> crate::common::Reg<regs::Sglreqdstreg, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x380usize) as _) }
         }
         #[doc = "LstSrcReg @ 0x388"]
@@ -2915,8 +2878,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rawtfr(pub u32);
-        impl Rawtfr {
-        }
+        impl Rawtfr {}
         impl Default for Rawtfr {
             #[inline(always)]
             fn default() -> Self {
@@ -2932,8 +2894,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rawblock(pub u32);
-        impl Rawblock {
-        }
+        impl Rawblock {}
         impl Default for Rawblock {
             #[inline(always)]
             fn default() -> Self {
@@ -2949,8 +2910,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rawsrctran(pub u32);
-        impl Rawsrctran {
-        }
+        impl Rawsrctran {}
         impl Default for Rawsrctran {
             #[inline(always)]
             fn default() -> Self {
@@ -2966,8 +2926,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rawdsttran(pub u32);
-        impl Rawdsttran {
-        }
+        impl Rawdsttran {}
         impl Default for Rawdsttran {
             #[inline(always)]
             fn default() -> Self {
@@ -2983,8 +2942,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rawerr(pub u32);
-        impl Rawerr {
-        }
+        impl Rawerr {}
         impl Default for Rawerr {
             #[inline(always)]
             fn default() -> Self {
@@ -3000,8 +2958,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Statustfr(pub u32);
-        impl Statustfr {
-        }
+        impl Statustfr {}
         impl Default for Statustfr {
             #[inline(always)]
             fn default() -> Self {
@@ -3017,8 +2974,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Statusblock(pub u32);
-        impl Statusblock {
-        }
+        impl Statusblock {}
         impl Default for Statusblock {
             #[inline(always)]
             fn default() -> Self {
@@ -3034,8 +2990,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Statussrctran(pub u32);
-        impl Statussrctran {
-        }
+        impl Statussrctran {}
         impl Default for Statussrctran {
             #[inline(always)]
             fn default() -> Self {
@@ -3051,8 +3006,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Statusdsttran(pub u32);
-        impl Statusdsttran {
-        }
+        impl Statusdsttran {}
         impl Default for Statusdsttran {
             #[inline(always)]
             fn default() -> Self {
@@ -3068,8 +3022,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Statuserr(pub u32);
-        impl Statuserr {
-        }
+        impl Statuserr {}
         impl Default for Statuserr {
             #[inline(always)]
             fn default() -> Self {
@@ -3085,8 +3038,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Masktfr(pub u32);
-        impl Masktfr {
-        }
+        impl Masktfr {}
         impl Default for Masktfr {
             #[inline(always)]
             fn default() -> Self {
@@ -3102,8 +3054,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Maskblock(pub u32);
-        impl Maskblock {
-        }
+        impl Maskblock {}
         impl Default for Maskblock {
             #[inline(always)]
             fn default() -> Self {
@@ -3119,8 +3070,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Masksrctran(pub u32);
-        impl Masksrctran {
-        }
+        impl Masksrctran {}
         impl Default for Masksrctran {
             #[inline(always)]
             fn default() -> Self {
@@ -3136,8 +3086,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Maskdsttran(pub u32);
-        impl Maskdsttran {
-        }
+        impl Maskdsttran {}
         impl Default for Maskdsttran {
             #[inline(always)]
             fn default() -> Self {
@@ -3153,8 +3102,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Maskerr(pub u32);
-        impl Maskerr {
-        }
+        impl Maskerr {}
         impl Default for Maskerr {
             #[inline(always)]
             fn default() -> Self {
@@ -3170,8 +3118,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cleartfr(pub u32);
-        impl Cleartfr {
-        }
+        impl Cleartfr {}
         impl Default for Cleartfr {
             #[inline(always)]
             fn default() -> Self {
@@ -3187,8 +3134,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Clearblock(pub u32);
-        impl Clearblock {
-        }
+        impl Clearblock {}
         impl Default for Clearblock {
             #[inline(always)]
             fn default() -> Self {
@@ -3204,8 +3150,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Clearsrctran(pub u32);
-        impl Clearsrctran {
-        }
+        impl Clearsrctran {}
         impl Default for Clearsrctran {
             #[inline(always)]
             fn default() -> Self {
@@ -3221,8 +3166,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cleardsttran(pub u32);
-        impl Cleardsttran {
-        }
+        impl Cleardsttran {}
         impl Default for Cleardsttran {
             #[inline(always)]
             fn default() -> Self {
@@ -3238,8 +3182,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Clearerr(pub u32);
-        impl Clearerr {
-        }
+        impl Clearerr {}
         impl Default for Clearerr {
             #[inline(always)]
             fn default() -> Self {
@@ -3255,8 +3198,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Statusint(pub u32);
-        impl Statusint {
-        }
+        impl Statusint {}
         impl Default for Statusint {
             #[inline(always)]
             fn default() -> Self {
@@ -3272,8 +3214,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Reqsrcreg(pub u32);
-        impl Reqsrcreg {
-        }
+        impl Reqsrcreg {}
         impl Default for Reqsrcreg {
             #[inline(always)]
             fn default() -> Self {
@@ -3289,8 +3230,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Reqdstreg(pub u32);
-        impl Reqdstreg {
-        }
+        impl Reqdstreg {}
         impl Default for Reqdstreg {
             #[inline(always)]
             fn default() -> Self {
@@ -3306,8 +3246,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sglreqsrcreg(pub u32);
-        impl Sglreqsrcreg {
-        }
+        impl Sglreqsrcreg {}
         impl Default for Sglreqsrcreg {
             #[inline(always)]
             fn default() -> Self {
@@ -3323,8 +3262,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sglreqdstreg(pub u32);
-        impl Sglreqdstreg {
-        }
+        impl Sglreqdstreg {}
         impl Default for Sglreqdstreg {
             #[inline(always)]
             fn default() -> Self {
@@ -3340,8 +3278,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Lstsrcreg(pub u32);
-        impl Lstsrcreg {
-        }
+        impl Lstsrcreg {}
         impl Default for Lstsrcreg {
             #[inline(always)]
             fn default() -> Self {
@@ -3357,8 +3294,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Lstdstreg(pub u32);
-        impl Lstdstreg {
-        }
+        impl Lstdstreg {}
         impl Default for Lstdstreg {
             #[inline(always)]
             fn default() -> Self {
@@ -3374,8 +3310,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dmacfgreg(pub u32);
-        impl Dmacfgreg {
-        }
+        impl Dmacfgreg {}
         impl Default for Dmacfgreg {
             #[inline(always)]
             fn default() -> Self {
@@ -3391,8 +3326,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Chenreg(pub u32);
-        impl Chenreg {
-        }
+        impl Chenreg {}
         impl Default for Chenreg {
             #[inline(always)]
             fn default() -> Self {
@@ -3408,8 +3342,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sar(pub u32);
-        impl Sar {
-        }
+        impl Sar {}
         impl Default for Sar {
             #[inline(always)]
             fn default() -> Self {
@@ -3425,8 +3358,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dar(pub u32);
-        impl Dar {
-        }
+        impl Dar {}
         impl Default for Dar {
             #[inline(always)]
             fn default() -> Self {
@@ -3762,8 +3694,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sgr(pub u32);
-        impl Sgr {
-        }
+        impl Sgr {}
         impl Default for Sgr {
             #[inline(always)]
             fn default() -> Self {
@@ -3779,8 +3710,7 @@ pub mod dmac {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dsr(pub u32);
-        impl Dsr {
-        }
+        impl Dsr {}
         impl Default for Dsr {
             #[inline(always)]
             fn default() -> Self {
@@ -4076,7 +4006,9 @@ pub mod fmc {
         #[inline(always)]
         pub const fn buf(self, n: usize) -> crate::common::Reg<regs::Buf, crate::common::W> {
             assert!(n < 64usize);
-            unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x100usize + n * 4usize) as _) }
+            unsafe {
+                crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x100usize + n * 4usize) as _)
+            }
         }
     }
     pub mod regs {
@@ -4243,8 +4175,7 @@ pub mod fmc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Key(pub u32);
-        impl Key {
-        }
+        impl Key {}
         impl Default for Key {
             #[inline(always)]
             fn default() -> Self {
@@ -4260,8 +4191,7 @@ pub mod fmc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Addr(pub u32);
-        impl Addr {
-        }
+        impl Addr {}
         impl Default for Addr {
             #[inline(always)]
             fn default() -> Self {
@@ -4277,8 +4207,7 @@ pub mod fmc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Data1(pub u32);
-        impl Data1 {
-        }
+        impl Data1 {}
         impl Default for Data1 {
             #[inline(always)]
             fn default() -> Self {
@@ -4294,8 +4223,7 @@ pub mod fmc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Buf(pub u32);
-        impl Buf {
-        }
+        impl Buf {}
         impl Default for Buf {
             #[inline(always)]
             fn default() -> Self {
@@ -5153,7 +5081,9 @@ pub mod i2c {
         }
         #[doc = "RAW_INTR_STAT @ 0x034"]
         #[inline(always)]
-        pub const fn raw_intr_stat(self) -> crate::common::Reg<regs::RawIntrStat, crate::common::R> {
+        pub const fn raw_intr_stat(
+            self,
+        ) -> crate::common::Reg<regs::RawIntrStat, crate::common::R> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x34usize) as _) }
         }
         #[doc = "RX_TL @ 0x038"]
@@ -5213,7 +5143,9 @@ pub mod i2c {
         }
         #[doc = "CLR_START_DET @ 0x064"]
         #[inline(always)]
-        pub const fn clr_start_det(self) -> crate::common::Reg<regs::ClrStartDet, crate::common::R> {
+        pub const fn clr_start_det(
+            self,
+        ) -> crate::common::Reg<regs::ClrStartDet, crate::common::R> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x64usize) as _) }
         }
         #[doc = "CLR_GEN_CALL @ 0x068"]
@@ -5248,12 +5180,16 @@ pub mod i2c {
         }
         #[doc = "TX_ABRT_SOURCE @ 0x080"]
         #[inline(always)]
-        pub const fn tx_abrt_source(self) -> crate::common::Reg<regs::TxAbrtSource, crate::common::R> {
+        pub const fn tx_abrt_source(
+            self,
+        ) -> crate::common::Reg<regs::TxAbrtSource, crate::common::R> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x80usize) as _) }
         }
         #[doc = "SLV_DATA_NACK_ONLY @ 0x084"]
         #[inline(always)]
-        pub const fn slv_data_nack_only(self) -> crate::common::Reg<regs::SlvDataNackOnly, crate::common::RW> {
+        pub const fn slv_data_nack_only(
+            self,
+        ) -> crate::common::Reg<regs::SlvDataNackOnly, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x84usize) as _) }
         }
         #[doc = "DMA_CR @ 0x088"]
@@ -5278,12 +5214,16 @@ pub mod i2c {
         }
         #[doc = "ACK_GENERAL_CALL @ 0x098"]
         #[inline(always)]
-        pub const fn ack_general_call(self) -> crate::common::Reg<regs::AckGeneralCall, crate::common::RW> {
+        pub const fn ack_general_call(
+            self,
+        ) -> crate::common::Reg<regs::AckGeneralCall, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x98usize) as _) }
         }
         #[doc = "ENABLE_STATUS @ 0x09C"]
         #[inline(always)]
-        pub const fn enable_status(self) -> crate::common::Reg<regs::EnableStatus, crate::common::R> {
+        pub const fn enable_status(
+            self,
+        ) -> crate::common::Reg<regs::EnableStatus, crate::common::R> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x9cusize) as _) }
         }
         #[doc = "FS_SPKLEN @ 0x0A0"]
@@ -5298,67 +5238,93 @@ pub mod i2c {
         }
         #[doc = "CLR_RESTART_DET @ 0x0A8"]
         #[inline(always)]
-        pub const fn clr_restart_det(self) -> crate::common::Reg<regs::ClrRestartDet, crate::common::R> {
+        pub const fn clr_restart_det(
+            self,
+        ) -> crate::common::Reg<regs::ClrRestartDet, crate::common::R> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xa8usize) as _) }
         }
         #[doc = "SCL_STUCK_AT_LOW_TIMEOUT @ 0x0AC"]
         #[inline(always)]
-        pub const fn scl_stuck_at_low_timeout(self) -> crate::common::Reg<regs::SclStuckAtLowTimeout, crate::common::RW> {
+        pub const fn scl_stuck_at_low_timeout(
+            self,
+        ) -> crate::common::Reg<regs::SclStuckAtLowTimeout, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xacusize) as _) }
         }
         #[doc = "SDA_STUCK_AT_LOW_TIMEOUT @ 0x0B0"]
         #[inline(always)]
-        pub const fn sda_stuck_at_low_timeout(self) -> crate::common::Reg<regs::SdaStuckAtLowTimeout, crate::common::RW> {
+        pub const fn sda_stuck_at_low_timeout(
+            self,
+        ) -> crate::common::Reg<regs::SdaStuckAtLowTimeout, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xb0usize) as _) }
         }
         #[doc = "CLR_SCL_STUCK_DET @ 0x0B4"]
         #[inline(always)]
-        pub const fn clr_scl_stuck_det(self) -> crate::common::Reg<regs::ClrSclStuckDet, crate::common::R> {
+        pub const fn clr_scl_stuck_det(
+            self,
+        ) -> crate::common::Reg<regs::ClrSclStuckDet, crate::common::R> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xb4usize) as _) }
         }
         #[doc = "SMBUS_CLK_LOW_SEXT @ 0x0BC"]
         #[inline(always)]
-        pub const fn smbus_clk_low_sext(self) -> crate::common::Reg<regs::SmbusClkLowSext, crate::common::RW> {
+        pub const fn smbus_clk_low_sext(
+            self,
+        ) -> crate::common::Reg<regs::SmbusClkLowSext, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xbcusize) as _) }
         }
         #[doc = "SMBUS_CLK_LOW_MEXT @ 0x0C0"]
         #[inline(always)]
-        pub const fn smbus_clk_low_mext(self) -> crate::common::Reg<regs::SmbusClkLowMext, crate::common::RW> {
+        pub const fn smbus_clk_low_mext(
+            self,
+        ) -> crate::common::Reg<regs::SmbusClkLowMext, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xc0usize) as _) }
         }
         #[doc = "SMBUS_THIGH_MAX_IDLE_COUNT @ 0x0C4"]
         #[inline(always)]
-        pub const fn smbus_thigh_max_idle_count(self) -> crate::common::Reg<regs::SmbusThighMaxIdleCount, crate::common::RW> {
+        pub const fn smbus_thigh_max_idle_count(
+            self,
+        ) -> crate::common::Reg<regs::SmbusThighMaxIdleCount, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xc4usize) as _) }
         }
         #[doc = "SMBUS_INTR_STAT @ 0x0C8"]
         #[inline(always)]
-        pub const fn smbus_intr_stat(self) -> crate::common::Reg<regs::SmbusIntrStat, crate::common::R> {
+        pub const fn smbus_intr_stat(
+            self,
+        ) -> crate::common::Reg<regs::SmbusIntrStat, crate::common::R> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xc8usize) as _) }
         }
         #[doc = "SMBUS_INTR_MASK @ 0x0CC"]
         #[inline(always)]
-        pub const fn smbus_intr_mask(self) -> crate::common::Reg<regs::SmbusIntrMask, crate::common::RW> {
+        pub const fn smbus_intr_mask(
+            self,
+        ) -> crate::common::Reg<regs::SmbusIntrMask, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xccusize) as _) }
         }
         #[doc = "SMBUS_RAW_INTR_STAT @ 0x0D0"]
         #[inline(always)]
-        pub const fn smbus_raw_intr_stat(self) -> crate::common::Reg<regs::SmbusRawIntrStat, crate::common::R> {
+        pub const fn smbus_raw_intr_stat(
+            self,
+        ) -> crate::common::Reg<regs::SmbusRawIntrStat, crate::common::R> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xd0usize) as _) }
         }
         #[doc = "CLR_SMBUS_INTR @ 0x0D4"]
         #[inline(always)]
-        pub const fn clr_smbus_intr(self) -> crate::common::Reg<regs::ClrSmbusIntr, crate::common::W> {
+        pub const fn clr_smbus_intr(
+            self,
+        ) -> crate::common::Reg<regs::ClrSmbusIntr, crate::common::W> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xd4usize) as _) }
         }
         #[doc = "OPTIONAL_SAR @ 0x0D8"]
         #[inline(always)]
-        pub const fn optional_sar(self) -> crate::common::Reg<regs::OptionalSar, crate::common::RW> {
+        pub const fn optional_sar(
+            self,
+        ) -> crate::common::Reg<regs::OptionalSar, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xd8usize) as _) }
         }
         #[doc = "SMBUS_UDID_LSB @ 0x0DC"]
         #[inline(always)]
-        pub const fn smbus_udid_lsb(self) -> crate::common::Reg<regs::SmbusUdidLsb, crate::common::RW> {
+        pub const fn smbus_udid_lsb(
+            self,
+        ) -> crate::common::Reg<regs::SmbusUdidLsb, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xdcusize) as _) }
         }
     }
@@ -5590,8 +5556,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sar(pub u32);
-        impl Sar {
-        }
+        impl Sar {}
         impl Default for Sar {
             #[inline(always)]
             fn default() -> Self {
@@ -5607,8 +5572,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct HsMaddr(pub u32);
-        impl HsMaddr {
-        }
+        impl HsMaddr {}
         impl Default for HsMaddr {
             #[inline(always)]
             fn default() -> Self {
@@ -5686,8 +5650,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SsSclHcnt(pub u32);
-        impl SsSclHcnt {
-        }
+        impl SsSclHcnt {}
         impl Default for SsSclHcnt {
             #[inline(always)]
             fn default() -> Self {
@@ -5703,8 +5666,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SsSclLcnt(pub u32);
-        impl SsSclLcnt {
-        }
+        impl SsSclLcnt {}
         impl Default for SsSclLcnt {
             #[inline(always)]
             fn default() -> Self {
@@ -5720,8 +5682,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct FsSclHcnt(pub u32);
-        impl FsSclHcnt {
-        }
+        impl FsSclHcnt {}
         impl Default for FsSclHcnt {
             #[inline(always)]
             fn default() -> Self {
@@ -5737,8 +5698,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct FsSclLcnt(pub u32);
-        impl FsSclLcnt {
-        }
+        impl FsSclLcnt {}
         impl Default for FsSclLcnt {
             #[inline(always)]
             fn default() -> Self {
@@ -5754,8 +5714,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct HsSclHcnt(pub u32);
-        impl HsSclHcnt {
-        }
+        impl HsSclHcnt {}
         impl Default for HsSclHcnt {
             #[inline(always)]
             fn default() -> Self {
@@ -5771,8 +5730,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct HsSclLcnt(pub u32);
-        impl HsSclLcnt {
-        }
+        impl HsSclLcnt {}
         impl Default for HsSclLcnt {
             #[inline(always)]
             fn default() -> Self {
@@ -5788,8 +5746,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct IntrStat(pub u32);
-        impl IntrStat {
-        }
+        impl IntrStat {}
         impl Default for IntrStat {
             #[inline(always)]
             fn default() -> Self {
@@ -5805,8 +5762,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct IntrMask(pub u32);
-        impl IntrMask {
-        }
+        impl IntrMask {}
         impl Default for IntrMask {
             #[inline(always)]
             fn default() -> Self {
@@ -5822,8 +5778,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct RawIntrStat(pub u32);
-        impl RawIntrStat {
-        }
+        impl RawIntrStat {}
         impl Default for RawIntrStat {
             #[inline(always)]
             fn default() -> Self {
@@ -5839,8 +5794,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct RxTl(pub u32);
-        impl RxTl {
-        }
+        impl RxTl {}
         impl Default for RxTl {
             #[inline(always)]
             fn default() -> Self {
@@ -5856,8 +5810,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct TxTl(pub u32);
-        impl TxTl {
-        }
+        impl TxTl {}
         impl Default for TxTl {
             #[inline(always)]
             fn default() -> Self {
@@ -5873,8 +5826,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrIntr(pub u32);
-        impl ClrIntr {
-        }
+        impl ClrIntr {}
         impl Default for ClrIntr {
             #[inline(always)]
             fn default() -> Self {
@@ -5890,8 +5842,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrRxUnder(pub u32);
-        impl ClrRxUnder {
-        }
+        impl ClrRxUnder {}
         impl Default for ClrRxUnder {
             #[inline(always)]
             fn default() -> Self {
@@ -5907,8 +5858,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrRxOver(pub u32);
-        impl ClrRxOver {
-        }
+        impl ClrRxOver {}
         impl Default for ClrRxOver {
             #[inline(always)]
             fn default() -> Self {
@@ -5924,8 +5874,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrTxOver(pub u32);
-        impl ClrTxOver {
-        }
+        impl ClrTxOver {}
         impl Default for ClrTxOver {
             #[inline(always)]
             fn default() -> Self {
@@ -5941,8 +5890,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrRdReq(pub u32);
-        impl ClrRdReq {
-        }
+        impl ClrRdReq {}
         impl Default for ClrRdReq {
             #[inline(always)]
             fn default() -> Self {
@@ -5958,8 +5906,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrTxAbrt(pub u32);
-        impl ClrTxAbrt {
-        }
+        impl ClrTxAbrt {}
         impl Default for ClrTxAbrt {
             #[inline(always)]
             fn default() -> Self {
@@ -5975,8 +5922,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrRxDone(pub u32);
-        impl ClrRxDone {
-        }
+        impl ClrRxDone {}
         impl Default for ClrRxDone {
             #[inline(always)]
             fn default() -> Self {
@@ -5992,8 +5938,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrActivity(pub u32);
-        impl ClrActivity {
-        }
+        impl ClrActivity {}
         impl Default for ClrActivity {
             #[inline(always)]
             fn default() -> Self {
@@ -6009,8 +5954,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrStopDet(pub u32);
-        impl ClrStopDet {
-        }
+        impl ClrStopDet {}
         impl Default for ClrStopDet {
             #[inline(always)]
             fn default() -> Self {
@@ -6026,8 +5970,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrStartDet(pub u32);
-        impl ClrStartDet {
-        }
+        impl ClrStartDet {}
         impl Default for ClrStartDet {
             #[inline(always)]
             fn default() -> Self {
@@ -6043,8 +5986,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrGenCall(pub u32);
-        impl ClrGenCall {
-        }
+        impl ClrGenCall {}
         impl Default for ClrGenCall {
             #[inline(always)]
             fn default() -> Self {
@@ -6310,8 +6252,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Txflr(pub u32);
-        impl Txflr {
-        }
+        impl Txflr {}
         impl Default for Txflr {
             #[inline(always)]
             fn default() -> Self {
@@ -6327,8 +6268,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rxflr(pub u32);
-        impl Rxflr {
-        }
+        impl Rxflr {}
         impl Default for Rxflr {
             #[inline(always)]
             fn default() -> Self {
@@ -6344,8 +6284,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SdaHold(pub u32);
-        impl SdaHold {
-        }
+        impl SdaHold {}
         impl Default for SdaHold {
             #[inline(always)]
             fn default() -> Self {
@@ -6637,8 +6576,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct DmaTdlr(pub u32);
-        impl DmaTdlr {
-        }
+        impl DmaTdlr {}
         impl Default for DmaTdlr {
             #[inline(always)]
             fn default() -> Self {
@@ -6654,8 +6592,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct DmaRdlr(pub u32);
-        impl DmaRdlr {
-        }
+        impl DmaRdlr {}
         impl Default for DmaRdlr {
             #[inline(always)]
             fn default() -> Self {
@@ -6671,8 +6608,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SdaSetup(pub u32);
-        impl SdaSetup {
-        }
+        impl SdaSetup {}
         impl Default for SdaSetup {
             #[inline(always)]
             fn default() -> Self {
@@ -6688,8 +6624,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct AckGeneralCall(pub u32);
-        impl AckGeneralCall {
-        }
+        impl AckGeneralCall {}
         impl Default for AckGeneralCall {
             #[inline(always)]
             fn default() -> Self {
@@ -6749,8 +6684,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct FsSpklen(pub u32);
-        impl FsSpklen {
-        }
+        impl FsSpklen {}
         impl Default for FsSpklen {
             #[inline(always)]
             fn default() -> Self {
@@ -6766,8 +6700,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct HsSpklen(pub u32);
-        impl HsSpklen {
-        }
+        impl HsSpklen {}
         impl Default for HsSpklen {
             #[inline(always)]
             fn default() -> Self {
@@ -6783,8 +6716,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrRestartDet(pub u32);
-        impl ClrRestartDet {
-        }
+        impl ClrRestartDet {}
         impl Default for ClrRestartDet {
             #[inline(always)]
             fn default() -> Self {
@@ -6800,8 +6732,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SclStuckAtLowTimeout(pub u32);
-        impl SclStuckAtLowTimeout {
-        }
+        impl SclStuckAtLowTimeout {}
         impl Default for SclStuckAtLowTimeout {
             #[inline(always)]
             fn default() -> Self {
@@ -6817,8 +6748,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SdaStuckAtLowTimeout(pub u32);
-        impl SdaStuckAtLowTimeout {
-        }
+        impl SdaStuckAtLowTimeout {}
         impl Default for SdaStuckAtLowTimeout {
             #[inline(always)]
             fn default() -> Self {
@@ -6834,8 +6764,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrSclStuckDet(pub u32);
-        impl ClrSclStuckDet {
-        }
+        impl ClrSclStuckDet {}
         impl Default for ClrSclStuckDet {
             #[inline(always)]
             fn default() -> Self {
@@ -6851,8 +6780,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SmbusClkLowSext(pub u32);
-        impl SmbusClkLowSext {
-        }
+        impl SmbusClkLowSext {}
         impl Default for SmbusClkLowSext {
             #[inline(always)]
             fn default() -> Self {
@@ -6868,8 +6796,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SmbusClkLowMext(pub u32);
-        impl SmbusClkLowMext {
-        }
+        impl SmbusClkLowMext {}
         impl Default for SmbusClkLowMext {
             #[inline(always)]
             fn default() -> Self {
@@ -6885,8 +6812,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SmbusThighMaxIdleCount(pub u32);
-        impl SmbusThighMaxIdleCount {
-        }
+        impl SmbusThighMaxIdleCount {}
         impl Default for SmbusThighMaxIdleCount {
             #[inline(always)]
             fn default() -> Self {
@@ -6902,8 +6828,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SmbusIntrStat(pub u32);
-        impl SmbusIntrStat {
-        }
+        impl SmbusIntrStat {}
         impl Default for SmbusIntrStat {
             #[inline(always)]
             fn default() -> Self {
@@ -6919,8 +6844,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SmbusIntrMask(pub u32);
-        impl SmbusIntrMask {
-        }
+        impl SmbusIntrMask {}
         impl Default for SmbusIntrMask {
             #[inline(always)]
             fn default() -> Self {
@@ -6936,8 +6860,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SmbusRawIntrStat(pub u32);
-        impl SmbusRawIntrStat {
-        }
+        impl SmbusRawIntrStat {}
         impl Default for SmbusRawIntrStat {
             #[inline(always)]
             fn default() -> Self {
@@ -6953,8 +6876,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct ClrSmbusIntr(pub u32);
-        impl ClrSmbusIntr {
-        }
+        impl ClrSmbusIntr {}
         impl Default for ClrSmbusIntr {
             #[inline(always)]
             fn default() -> Self {
@@ -6970,8 +6892,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct OptionalSar(pub u32);
-        impl OptionalSar {
-        }
+        impl OptionalSar {}
         impl Default for OptionalSar {
             #[inline(always)]
             fn default() -> Self {
@@ -6987,8 +6908,7 @@ pub mod i2c {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct SmbusUdidLsb(pub u32);
-        impl SmbusUdidLsb {
-        }
+        impl SmbusUdidLsb {}
         impl Default for SmbusUdidLsb {
             #[inline(always)]
             fn default() -> Self {
@@ -7373,8 +7293,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rxdma(pub u32);
-        impl Rxdma {
-        }
+        impl Rxdma {}
         impl Default for Rxdma {
             #[inline(always)]
             fn default() -> Self {
@@ -7390,8 +7309,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rrxdma(pub u32);
-        impl Rrxdma {
-        }
+        impl Rrxdma {}
         impl Default for Rrxdma {
             #[inline(always)]
             fn default() -> Self {
@@ -7407,8 +7325,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Txdma(pub u32);
-        impl Txdma {
-        }
+        impl Txdma {}
         impl Default for Txdma {
             #[inline(always)]
             fn default() -> Self {
@@ -7424,8 +7341,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rtxdma(pub u32);
-        impl Rtxdma {
-        }
+        impl Rtxdma {}
         impl Default for Rtxdma {
             #[inline(always)]
             fn default() -> Self {
@@ -7441,8 +7357,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Lrbr(pub u32);
-        impl Lrbr {
-        }
+        impl Lrbr {}
         impl Default for Lrbr {
             #[inline(always)]
             fn default() -> Self {
@@ -7458,8 +7373,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Lthr(pub u32);
-        impl Lthr {
-        }
+        impl Lthr {}
         impl Default for Lthr {
             #[inline(always)]
             fn default() -> Self {
@@ -7475,8 +7389,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rrbr(pub u32);
-        impl Rrbr {
-        }
+        impl Rrbr {}
         impl Default for Rrbr {
             #[inline(always)]
             fn default() -> Self {
@@ -7492,8 +7405,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rthr(pub u32);
-        impl Rthr {
-        }
+        impl Rthr {}
         impl Default for Rthr {
             #[inline(always)]
             fn default() -> Self {
@@ -7509,8 +7421,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rer(pub u32);
-        impl Rer {
-        }
+        impl Rer {}
         impl Default for Rer {
             #[inline(always)]
             fn default() -> Self {
@@ -7526,8 +7437,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Ter(pub u32);
-        impl Ter {
-        }
+        impl Ter {}
         impl Default for Ter {
             #[inline(always)]
             fn default() -> Self {
@@ -7543,8 +7453,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rcr(pub u32);
-        impl Rcr {
-        }
+        impl Rcr {}
         impl Default for Rcr {
             #[inline(always)]
             fn default() -> Self {
@@ -7560,8 +7469,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Tcr(pub u32);
-        impl Tcr {
-        }
+        impl Tcr {}
         impl Default for Tcr {
             #[inline(always)]
             fn default() -> Self {
@@ -7577,8 +7485,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Isr(pub u32);
-        impl Isr {
-        }
+        impl Isr {}
         impl Default for Isr {
             #[inline(always)]
             fn default() -> Self {
@@ -7594,8 +7501,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Imr(pub u32);
-        impl Imr {
-        }
+        impl Imr {}
         impl Default for Imr {
             #[inline(always)]
             fn default() -> Self {
@@ -7611,8 +7517,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Ror(pub u32);
-        impl Ror {
-        }
+        impl Ror {}
         impl Default for Ror {
             #[inline(always)]
             fn default() -> Self {
@@ -7628,8 +7533,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Tor(pub u32);
-        impl Tor {
-        }
+        impl Tor {}
         impl Default for Tor {
             #[inline(always)]
             fn default() -> Self {
@@ -7645,8 +7549,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rfcr(pub u32);
-        impl Rfcr {
-        }
+        impl Rfcr {}
         impl Default for Rfcr {
             #[inline(always)]
             fn default() -> Self {
@@ -7662,8 +7565,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Tfcr(pub u32);
-        impl Tfcr {
-        }
+        impl Tfcr {}
         impl Default for Tfcr {
             #[inline(always)]
             fn default() -> Self {
@@ -7679,8 +7581,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rff(pub u32);
-        impl Rff {
-        }
+        impl Rff {}
         impl Default for Rff {
             #[inline(always)]
             fn default() -> Self {
@@ -7696,8 +7597,7 @@ pub mod i2s {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Tff(pub u32);
-        impl Tff {
-        }
+        impl Tff {}
         impl Default for Tff {
             #[inline(always)]
             fn default() -> Self {
@@ -7754,8 +7654,7 @@ pub mod iwdg {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Kr(pub u32);
-        impl Kr {
-        }
+        impl Kr {}
         impl Default for Kr {
             #[inline(always)]
             fn default() -> Self {
@@ -7771,8 +7670,7 @@ pub mod iwdg {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Pr(pub u32);
-        impl Pr {
-        }
+        impl Pr {}
         impl Default for Pr {
             #[inline(always)]
             fn default() -> Self {
@@ -7788,8 +7686,7 @@ pub mod iwdg {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rlr(pub u32);
-        impl Rlr {
-        }
+        impl Rlr {}
         impl Default for Rlr {
             #[inline(always)]
             fn default() -> Self {
@@ -7805,8 +7702,7 @@ pub mod iwdg {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sr(pub u32);
-        impl Sr {
-        }
+        impl Sr {}
         impl Default for Sr {
             #[inline(always)]
             fn default() -> Self {
@@ -8113,8 +8009,7 @@ pub mod pwr {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Gpreg0(pub u32);
-        impl Gpreg0 {
-        }
+        impl Gpreg0 {}
         impl Default for Gpreg0 {
             #[inline(always)]
             fn default() -> Self {
@@ -8130,8 +8025,7 @@ pub mod pwr {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Gpreg1(pub u32);
-        impl Gpreg1 {
-        }
+        impl Gpreg1 {}
         impl Default for Gpreg1 {
             #[inline(always)]
             fn default() -> Self {
@@ -8147,8 +8041,7 @@ pub mod pwr {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cfgr(pub u32);
-        impl Cfgr {
-        }
+        impl Cfgr {}
         impl Default for Cfgr {
             #[inline(always)]
             fn default() -> Self {
@@ -8164,8 +8057,7 @@ pub mod pwr {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Anakey1(pub u32);
-        impl Anakey1 {
-        }
+        impl Anakey1 {}
         impl Default for Anakey1 {
             #[inline(always)]
             fn default() -> Self {
@@ -8181,8 +8073,7 @@ pub mod pwr {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Anakey2(pub u32);
-        impl Anakey2 {
-        }
+        impl Anakey2 {}
         impl Default for Anakey2 {
             #[inline(always)]
             fn default() -> Self {
@@ -8270,7 +8161,9 @@ pub mod rcc {
         }
         #[doc = "USBFIFOCLKSRC @ 0x034"]
         #[inline(always)]
-        pub const fn usbfifoclksrc(self) -> crate::common::Reg<regs::Usbfifoclksrc, crate::common::RW> {
+        pub const fn usbfifoclksrc(
+            self,
+        ) -> crate::common::Reg<regs::Usbfifoclksrc, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x34usize) as _) }
         }
         #[doc = "MCOSEL @ 0x038"]
@@ -8340,7 +8233,9 @@ pub mod rcc {
         }
         #[doc = "USBFIFOCLKENR @ 0x07C"]
         #[inline(always)]
-        pub const fn usbfifoclkenr(self) -> crate::common::Reg<regs::Usbfifoclkenr, crate::common::RW> {
+        pub const fn usbfifoclkenr(
+            self,
+        ) -> crate::common::Reg<regs::Usbfifoclkenr, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x7cusize) as _) }
         }
         #[doc = "AHBRSTR1 @ 0x088"]
@@ -8438,8 +8333,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Pllsrc(pub u32);
-        impl Pllsrc {
-        }
+        impl Pllsrc {}
         impl Default for Pllsrc {
             #[inline(always)]
             fn default() -> Self {
@@ -8455,8 +8349,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Mainclksrc(pub u32);
-        impl Mainclksrc {
-        }
+        impl Mainclksrc {}
         impl Default for Mainclksrc {
             #[inline(always)]
             fn default() -> Self {
@@ -8472,8 +8365,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Mainclkuen(pub u32);
-        impl Mainclkuen {
-        }
+        impl Mainclkuen {}
         impl Default for Mainclkuen {
             #[inline(always)]
             fn default() -> Self {
@@ -8744,8 +8636,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Mclksrc(pub u32);
-        impl Mclksrc {
-        }
+        impl Mclksrc {}
         impl Default for Mclksrc {
             #[inline(always)]
             fn default() -> Self {
@@ -8761,8 +8652,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Usbfifoclksrc(pub u32);
-        impl Usbfifoclksrc {
-        }
+        impl Usbfifoclksrc {}
         impl Default for Usbfifoclksrc {
             #[inline(always)]
             fn default() -> Self {
@@ -9267,8 +9157,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rngclkenr(pub u32);
-        impl Rngclkenr {
-        }
+        impl Rngclkenr {}
         impl Default for Rngclkenr {
             #[inline(always)]
             fn default() -> Self {
@@ -9284,8 +9173,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Pclkenr(pub u32);
-        impl Pclkenr {
-        }
+        impl Pclkenr {}
         impl Default for Pclkenr {
             #[inline(always)]
             fn default() -> Self {
@@ -9327,8 +9215,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Usbclkenr(pub u32);
-        impl Usbclkenr {
-        }
+        impl Usbclkenr {}
         impl Default for Usbclkenr {
             #[inline(always)]
             fn default() -> Self {
@@ -9344,8 +9231,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct I2sclkenr(pub u32);
-        impl I2sclkenr {
-        }
+        impl I2sclkenr {}
         impl Default for I2sclkenr {
             #[inline(always)]
             fn default() -> Self {
@@ -9361,8 +9247,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Spis1clkenr(pub u32);
-        impl Spis1clkenr {
-        }
+        impl Spis1clkenr {}
         impl Default for Spis1clkenr {
             #[inline(always)]
             fn default() -> Self {
@@ -9378,8 +9263,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Spis2clkenr(pub u32);
-        impl Spis2clkenr {
-        }
+        impl Spis2clkenr {}
         impl Default for Spis2clkenr {
             #[inline(always)]
             fn default() -> Self {
@@ -9395,8 +9279,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Usbfifoclkenr(pub u32);
-        impl Usbfifoclkenr {
-        }
+        impl Usbfifoclkenr {}
         impl Default for Usbfifoclkenr {
             #[inline(always)]
             fn default() -> Self {
@@ -9769,8 +9652,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct I2sclkrstr(pub u32);
-        impl I2sclkrstr {
-        }
+        impl I2sclkrstr {}
         impl Default for I2sclkrstr {
             #[inline(always)]
             fn default() -> Self {
@@ -9786,8 +9668,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Clrrststat(pub u32);
-        impl Clrrststat {
-        }
+        impl Clrrststat {}
         impl Default for Clrrststat {
             #[inline(always)]
             fn default() -> Self {
@@ -9803,8 +9684,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Bdrstr(pub u32);
-        impl Bdrstr {
-        }
+        impl Bdrstr {}
         impl Default for Bdrstr {
             #[inline(always)]
             fn default() -> Self {
@@ -9820,8 +9700,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Lsi2rtcenr(pub u32);
-        impl Lsi2rtcenr {
-        }
+        impl Lsi2rtcenr {}
         impl Default for Lsi2rtcenr {
             #[inline(always)]
             fn default() -> Self {
@@ -9837,8 +9716,7 @@ pub mod rcc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Hse2rtcenr(pub u32);
-        impl Hse2rtcenr {
-        }
+        impl Hse2rtcenr {}
         impl Default for Hse2rtcenr {
             #[inline(always)]
             fn default() -> Self {
@@ -10016,8 +9894,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Crh(pub u16);
-        impl Crh {
-        }
+        impl Crh {}
         impl Default for Crh {
             #[inline(always)]
             fn default() -> Self {
@@ -10033,8 +9910,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Crl(pub u16);
-        impl Crl {
-        }
+        impl Crl {}
         impl Default for Crl {
             #[inline(always)]
             fn default() -> Self {
@@ -10050,8 +9926,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Prlh(pub u16);
-        impl Prlh {
-        }
+        impl Prlh {}
         impl Default for Prlh {
             #[inline(always)]
             fn default() -> Self {
@@ -10067,8 +9942,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Prl(pub u32);
-        impl Prl {
-        }
+        impl Prl {}
         impl Default for Prl {
             #[inline(always)]
             fn default() -> Self {
@@ -10084,8 +9958,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Prll(pub u16);
-        impl Prll {
-        }
+        impl Prll {}
         impl Default for Prll {
             #[inline(always)]
             fn default() -> Self {
@@ -10101,8 +9974,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Divh(pub u16);
-        impl Divh {
-        }
+        impl Divh {}
         impl Default for Divh {
             #[inline(always)]
             fn default() -> Self {
@@ -10118,8 +9990,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Div(pub u32);
-        impl Div {
-        }
+        impl Div {}
         impl Default for Div {
             #[inline(always)]
             fn default() -> Self {
@@ -10135,8 +10006,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Divl(pub u16);
-        impl Divl {
-        }
+        impl Divl {}
         impl Default for Divl {
             #[inline(always)]
             fn default() -> Self {
@@ -10152,8 +10022,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cnth(pub u16);
-        impl Cnth {
-        }
+        impl Cnth {}
         impl Default for Cnth {
             #[inline(always)]
             fn default() -> Self {
@@ -10169,8 +10038,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cnt(pub u32);
-        impl Cnt {
-        }
+        impl Cnt {}
         impl Default for Cnt {
             #[inline(always)]
             fn default() -> Self {
@@ -10186,8 +10054,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cntl(pub u16);
-        impl Cntl {
-        }
+        impl Cntl {}
         impl Default for Cntl {
             #[inline(always)]
             fn default() -> Self {
@@ -10203,8 +10070,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Alrh(pub u16);
-        impl Alrh {
-        }
+        impl Alrh {}
         impl Default for Alrh {
             #[inline(always)]
             fn default() -> Self {
@@ -10220,8 +10086,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Alr(pub u32);
-        impl Alr {
-        }
+        impl Alr {}
         impl Default for Alr {
             #[inline(always)]
             fn default() -> Self {
@@ -10237,8 +10102,7 @@ pub mod rtc {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Alrl(pub u16);
-        impl Alrl {
-        }
+        impl Alrl {}
         impl Default for Alrl {
             #[inline(always)]
             fn default() -> Self {
@@ -10283,7 +10147,9 @@ pub mod sfm {
         #[inline(always)]
         pub const fn dout(self, n: usize) -> crate::common::Reg<regs::Dout, crate::common::R> {
             assert!(n < 8usize);
-            unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x8usize + n * 4usize) as _) }
+            unsafe {
+                crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x8usize + n * 4usize) as _)
+            }
         }
         #[doc = "USBPCON @ 0x040"]
         #[inline(always)]
@@ -10341,8 +10207,7 @@ pub mod sfm {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Data(pub u32);
-        impl Data {
-        }
+        impl Data {}
         impl Default for Data {
             #[inline(always)]
             fn default() -> Self {
@@ -10358,8 +10223,7 @@ pub mod sfm {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dout(pub u32);
-        impl Dout {
-        }
+        impl Dout {}
         impl Default for Dout {
             #[inline(always)]
             fn default() -> Self {
@@ -10375,8 +10239,7 @@ pub mod sfm {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Usbpcon(pub u32);
-        impl Usbpcon {
-        }
+        impl Usbpcon {}
         impl Default for Usbpcon {
             #[inline(always)]
             fn default() -> Self {
@@ -10481,8 +10344,7 @@ pub mod sfm {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Usbpstat(pub u32);
-        impl Usbpstat {
-        }
+        impl Usbpstat {}
         impl Default for Usbpstat {
             #[inline(always)]
             fn default() -> Self {
@@ -10630,7 +10492,9 @@ pub mod spi {
         }
         #[doc = "RX_SAMPLE_DLY @ 0x0F0"]
         #[inline(always)]
-        pub const fn rx_sample_dly(self) -> crate::common::Reg<regs::RxSampleDly, crate::common::RW> {
+        pub const fn rx_sample_dly(
+            self,
+        ) -> crate::common::Reg<regs::RxSampleDly, crate::common::RW> {
             unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0xf0usize) as _) }
         }
         #[doc = "ESPICR @ 0x0F4"]
@@ -10847,8 +10711,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Ser(pub u32);
-        impl Ser {
-        }
+        impl Ser {}
         impl Default for Ser {
             #[inline(always)]
             fn default() -> Self {
@@ -10890,8 +10753,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Txftlr(pub u32);
-        impl Txftlr {
-        }
+        impl Txftlr {}
         impl Default for Txftlr {
             #[inline(always)]
             fn default() -> Self {
@@ -10907,8 +10769,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rxftlr(pub u32);
-        impl Rxftlr {
-        }
+        impl Rxftlr {}
         impl Default for Rxftlr {
             #[inline(always)]
             fn default() -> Self {
@@ -10924,8 +10785,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Txflr(pub u32);
-        impl Txflr {
-        }
+        impl Txflr {}
         impl Default for Txflr {
             #[inline(always)]
             fn default() -> Self {
@@ -10941,8 +10801,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rxflr(pub u32);
-        impl Rxflr {
-        }
+        impl Rxflr {}
         impl Default for Rxflr {
             #[inline(always)]
             fn default() -> Self {
@@ -11251,8 +11110,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Txoicr(pub u32);
-        impl Txoicr {
-        }
+        impl Txoicr {}
         impl Default for Txoicr {
             #[inline(always)]
             fn default() -> Self {
@@ -11268,8 +11126,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rxoicr(pub u32);
-        impl Rxoicr {
-        }
+        impl Rxoicr {}
         impl Default for Rxoicr {
             #[inline(always)]
             fn default() -> Self {
@@ -11285,8 +11142,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rxuicr(pub u32);
-        impl Rxuicr {
-        }
+        impl Rxuicr {}
         impl Default for Rxuicr {
             #[inline(always)]
             fn default() -> Self {
@@ -11302,8 +11158,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Msticr(pub u32);
-        impl Msticr {
-        }
+        impl Msticr {}
         impl Default for Msticr {
             #[inline(always)]
             fn default() -> Self {
@@ -11319,8 +11174,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Icr(pub u32);
-        impl Icr {
-        }
+        impl Icr {}
         impl Default for Icr {
             #[inline(always)]
             fn default() -> Self {
@@ -11371,8 +11225,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dmatdlr(pub u32);
-        impl Dmatdlr {
-        }
+        impl Dmatdlr {}
         impl Default for Dmatdlr {
             #[inline(always)]
             fn default() -> Self {
@@ -11388,8 +11241,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dmardlr(pub u32);
-        impl Dmardlr {
-        }
+        impl Dmardlr {}
         impl Default for Dmardlr {
             #[inline(always)]
             fn default() -> Self {
@@ -11405,8 +11257,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dr(pub u32);
-        impl Dr {
-        }
+        impl Dr {}
         impl Default for Dr {
             #[inline(always)]
             fn default() -> Self {
@@ -11422,8 +11273,7 @@ pub mod spi {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct RxSampleDly(pub u32);
-        impl RxSampleDly {
-        }
+        impl RxSampleDly {}
         impl Default for RxSampleDly {
             #[inline(always)]
             fn default() -> Self {
@@ -11568,8 +11418,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Id(pub u32);
-        impl Id {
-        }
+        impl Id {}
         impl Default for Id {
             #[inline(always)]
             fn default() -> Self {
@@ -11585,8 +11434,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Memsz(pub u32);
-        impl Memsz {
-        }
+        impl Memsz {}
         impl Default for Memsz {
             #[inline(always)]
             fn default() -> Self {
@@ -11602,8 +11450,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Btcr(pub u32);
-        impl Btcr {
-        }
+        impl Btcr {}
         impl Default for Btcr {
             #[inline(always)]
             fn default() -> Self {
@@ -11619,8 +11466,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Memwen(pub u32);
-        impl Memwen {
-        }
+        impl Memwen {}
         impl Default for Memwen {
             #[inline(always)]
             fn default() -> Self {
@@ -11636,8 +11482,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sendev(pub u32);
-        impl Sendev {
-        }
+        impl Sendev {}
         impl Default for Sendev {
             #[inline(always)]
             fn default() -> Self {
@@ -11653,8 +11498,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rstcr(pub u32);
-        impl Rstcr {
-        }
+        impl Rstcr {}
         impl Default for Rstcr {
             #[inline(always)]
             fn default() -> Self {
@@ -11670,8 +11514,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct If4lck(pub u32);
-        impl If4lck {
-        }
+        impl If4lck {}
         impl Default for If4lck {
             #[inline(always)]
             fn default() -> Self {
@@ -11687,8 +11530,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct If5lck(pub u32);
-        impl If5lck {
-        }
+        impl If5lck {}
         impl Default for If5lck {
             #[inline(always)]
             fn default() -> Self {
@@ -11704,8 +11546,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct If6lck(pub u32);
-        impl If6lck {
-        }
+        impl If6lck {}
         impl Default for If6lck {
             #[inline(always)]
             fn default() -> Self {
@@ -11721,8 +11562,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct If7lck(pub u32);
-        impl If7lck {
-        }
+        impl If7lck {}
         impl Default for If7lck {
             #[inline(always)]
             fn default() -> Self {
@@ -11738,8 +11578,7 @@ pub mod sys {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Btsr(pub u32);
-        impl Btsr {
-        }
+        impl Btsr {}
         impl Default for Btsr {
             #[inline(always)]
             fn default() -> Self {
@@ -12739,8 +12578,7 @@ pub mod tim {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cnt(pub u32);
-        impl Cnt {
-        }
+        impl Cnt {}
         impl Default for Cnt {
             #[inline(always)]
             fn default() -> Self {
@@ -12756,8 +12594,7 @@ pub mod tim {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Psc(pub u32);
-        impl Psc {
-        }
+        impl Psc {}
         impl Default for Psc {
             #[inline(always)]
             fn default() -> Self {
@@ -12773,8 +12610,7 @@ pub mod tim {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Arr(pub u32);
-        impl Arr {
-        }
+        impl Arr {}
         impl Default for Arr {
             #[inline(always)]
             fn default() -> Self {
@@ -12790,8 +12626,7 @@ pub mod tim {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rcr(pub u32);
-        impl Rcr {
-        }
+        impl Rcr {}
         impl Default for Rcr {
             #[inline(always)]
             fn default() -> Self {
@@ -12807,8 +12642,7 @@ pub mod tim {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Ccr1(pub u32);
-        impl Ccr1 {
-        }
+        impl Ccr1 {}
         impl Default for Ccr1 {
             #[inline(always)]
             fn default() -> Self {
@@ -12824,8 +12658,7 @@ pub mod tim {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Ccr2(pub u32);
-        impl Ccr2 {
-        }
+        impl Ccr2 {}
         impl Default for Ccr2 {
             #[inline(always)]
             fn default() -> Self {
@@ -12841,8 +12674,7 @@ pub mod tim {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Ccr3(pub u32);
-        impl Ccr3 {
-        }
+        impl Ccr3 {}
         impl Default for Ccr3 {
             #[inline(always)]
             fn default() -> Self {
@@ -12858,8 +12690,7 @@ pub mod tim {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Ccr4(pub u32);
-        impl Ccr4 {
-        }
+        impl Ccr4 {}
         impl Default for Ccr4 {
             #[inline(always)]
             fn default() -> Self {
@@ -13120,8 +12951,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rbr(pub u32);
-        impl Rbr {
-        }
+        impl Rbr {}
         impl Default for Rbr {
             #[inline(always)]
             fn default() -> Self {
@@ -13137,8 +12967,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Thr(pub u32);
-        impl Thr {
-        }
+        impl Thr {}
         impl Default for Thr {
             #[inline(always)]
             fn default() -> Self {
@@ -13154,8 +12983,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dll(pub u32);
-        impl Dll {
-        }
+        impl Dll {}
         impl Default for Dll {
             #[inline(always)]
             fn default() -> Self {
@@ -13171,8 +12999,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dlh(pub u32);
-        impl Dlh {
-        }
+        impl Dlh {}
         impl Default for Dlh {
             #[inline(always)]
             fn default() -> Self {
@@ -13586,8 +13413,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Scr(pub u32);
-        impl Scr {
-        }
+        impl Scr {}
         impl Default for Scr {
             #[inline(always)]
             fn default() -> Self {
@@ -13665,8 +13491,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Tfl(pub u32);
-        impl Tfl {
-        }
+        impl Tfl {}
         impl Default for Tfl {
             #[inline(always)]
             fn default() -> Self {
@@ -13682,8 +13507,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rfl(pub u32);
-        impl Rfl {
-        }
+        impl Rfl {}
         impl Default for Rfl {
             #[inline(always)]
             fn default() -> Self {
@@ -13821,8 +13645,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Srt(pub u32);
-        impl Srt {
-        }
+        impl Srt {}
         impl Default for Srt {
             #[inline(always)]
             fn default() -> Self {
@@ -13838,8 +13661,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Stet(pub u32);
-        impl Stet {
-        }
+        impl Stet {}
         impl Default for Stet {
             #[inline(always)]
             fn default() -> Self {
@@ -13881,8 +13703,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dmasa(pub u32);
-        impl Dmasa {
-        }
+        impl Dmasa {}
         impl Default for Dmasa {
             #[inline(always)]
             fn default() -> Self {
@@ -13898,8 +13719,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dlf(pub u32);
-        impl Dlf {
-        }
+        impl Dlf {}
         impl Default for Dlf {
             #[inline(always)]
             fn default() -> Self {
@@ -13915,8 +13735,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Rar(pub u32);
-        impl Rar {
-        }
+        impl Rar {}
         impl Default for Rar {
             #[inline(always)]
             fn default() -> Self {
@@ -13932,8 +13751,7 @@ pub mod uart {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Tar(pub u32);
-        impl Tar {
-        }
+        impl Tar {}
         impl Default for Tar {
             #[inline(always)]
             fn default() -> Self {
@@ -14126,7 +13944,9 @@ pub mod usb {
         #[inline(always)]
         pub const fn fifo(self, n: usize) -> crate::common::Reg<regs::Fifo, crate::common::RW> {
             assert!(n < 16usize);
-            unsafe { crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x20usize + n * 4usize) as _) }
+            unsafe {
+                crate::common::Reg::from_ptr(self.ptr.wrapping_add(0x20usize + n * 4usize) as _)
+            }
         }
         #[doc = "DMAINTR @ 0x200"]
         #[inline(always)]
@@ -14573,8 +14393,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Framel(pub u8);
-        impl Framel {
-        }
+        impl Framel {}
         impl Default for Framel {
             #[inline(always)]
             fn default() -> Self {
@@ -14590,8 +14409,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Frameh(pub u8);
-        impl Frameh {
-        }
+        impl Frameh {}
         impl Default for Frameh {
             #[inline(always)]
             fn default() -> Self {
@@ -14607,8 +14425,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Index(pub u8);
-        impl Index {
-        }
+        impl Index {}
         impl Default for Index {
             #[inline(always)]
             fn default() -> Self {
@@ -14624,8 +14441,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Inmaxp(pub u8);
-        impl Inmaxp {
-        }
+        impl Inmaxp {}
         impl Default for Inmaxp {
             #[inline(always)]
             fn default() -> Self {
@@ -14872,8 +14688,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Outmaxp(pub u8);
-        impl Outmaxp {
-        }
+        impl Outmaxp {}
         impl Default for Outmaxp {
             #[inline(always)]
             fn default() -> Self {
@@ -15031,8 +14846,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Count0(pub u8);
-        impl Count0 {
-        }
+        impl Count0 {}
         impl Default for Count0 {
             #[inline(always)]
             fn default() -> Self {
@@ -15048,8 +14862,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Outcountl(pub u8);
-        impl Outcountl {
-        }
+        impl Outcountl {}
         impl Default for Outcountl {
             #[inline(always)]
             fn default() -> Self {
@@ -15065,8 +14878,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Outcounth(pub u8);
-        impl Outcounth {
-        }
+        impl Outcounth {}
         impl Default for Outcounth {
             #[inline(always)]
             fn default() -> Self {
@@ -15082,8 +14894,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Fifo(pub u32);
-        impl Fifo {
-        }
+        impl Fifo {}
         impl Default for Fifo {
             #[inline(always)]
             fn default() -> Self {
@@ -15099,8 +14910,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Dmaintr(pub u32);
-        impl Dmaintr {
-        }
+        impl Dmaintr {}
         impl Default for Dmaintr {
             #[inline(always)]
             fn default() -> Self {
@@ -15116,8 +14926,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cntl(pub u32);
-        impl Cntl {
-        }
+        impl Cntl {}
         impl Default for Cntl {
             #[inline(always)]
             fn default() -> Self {
@@ -15133,8 +14942,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Addr(pub u32);
-        impl Addr {
-        }
+        impl Addr {}
         impl Default for Addr {
             #[inline(always)]
             fn default() -> Self {
@@ -15150,8 +14958,7 @@ pub mod usb {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Count(pub u32);
-        impl Count {
-        }
+        impl Count {}
         impl Default for Count {
             #[inline(always)]
             fn default() -> Self {
@@ -15203,8 +15010,7 @@ pub mod wwdg {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cr(pub u32);
-        impl Cr {
-        }
+        impl Cr {}
         impl Default for Cr {
             #[inline(always)]
             fn default() -> Self {
@@ -15220,8 +15026,7 @@ pub mod wwdg {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Cfr(pub u32);
-        impl Cfr {
-        }
+        impl Cfr {}
         impl Default for Cfr {
             #[inline(always)]
             fn default() -> Self {
@@ -15237,8 +15042,7 @@ pub mod wwdg {
         #[repr(transparent)]
         #[derive(Copy, Clone, Eq, PartialEq)]
         pub struct Sr(pub u32);
-        impl Sr {
-        }
+        impl Sr {}
         impl Default for Sr {
             #[inline(always)]
             fn default() -> Self {
@@ -15442,7 +15246,9 @@ mod _vectors {
         Vector { _handler: EXTI9_5 },
         Vector { _handler: TIM1_BRK },
         Vector { _handler: TIM1_UP },
-        Vector { _handler: TIM1_TRG_COM },
+        Vector {
+            _handler: TIM1_TRG_COM,
+        },
         Vector { _handler: TIM1_CC },
         Vector { _handler: TIM2 },
         Vector { _handler: TIM3 },
@@ -15456,12 +15262,16 @@ mod _vectors {
         Vector { _handler: UART1 },
         Vector { _handler: UART2 },
         Vector { _handler: UART3 },
-        Vector { _handler: EXTI15_10 },
+        Vector {
+            _handler: EXTI15_10,
+        },
         Vector { _handler: RTCAlarm },
-        Vector { _handler: USBP_WKUP },
+        Vector {
+            _handler: USBP_WKUP,
+        },
         Vector { _handler: I2S },
     ];
 }
+pub use Interrupt as interrupt;
 #[cfg(feature = "rt")]
 pub use cortex_m_rt::interrupt;
-pub use Interrupt as interrupt;

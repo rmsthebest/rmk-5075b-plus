@@ -57,22 +57,24 @@ mod stop;
 mod watchdog;
 
 use akko_boot_guard as _;
-use embassy_executor::Spawner;
-use rmk::config::{BehaviorConfig, DeviceConfig, PositionalConfig, RmkConfig, StorageConfig, VialConfig};
-use rmk::host::HostService;
-use rmk::keyboard::Keyboard;
-use rmk::processor::builtin::led_indicator::KeyboardIndicatorProcessor;
-use rmk::types::led_indicator::LedIndicatorType;
-use rmk::usb::UsbTransport;
-use rmk::KeymapData;
-use rmk::keymap::KeyMap;
-use rmk::storage::Storage;
 use core::future::Future;
 use core::mem::MaybeUninit;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll};
+use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
+use rmk::KeymapData;
+use rmk::config::{
+    BehaviorConfig, DeviceConfig, PositionalConfig, RmkConfig, StorageConfig, VialConfig,
+};
+use rmk::host::HostService;
+use rmk::keyboard::Keyboard;
+use rmk::keymap::KeyMap;
+use rmk::processor::builtin::led_indicator::KeyboardIndicatorProcessor;
+use rmk::storage::Storage;
+use rmk::types::led_indicator::LedIndicatorType;
+use rmk::usb::UsbTransport;
 use wb32_hal::exti::ExtiInput;
 use wb32_hal::gpio::{AnyPin, Input, Level, Output, Pins, Pull};
 use wb32_hal::qspi::Qspi;
@@ -144,7 +146,8 @@ const STABLE_AFTER: Duration = Duration::from_secs(60);
 /// The LED chain's colours as sent (the WS2812 driver's), and the lighting
 /// state.
 #[unsafe(link_section = ".ram2")]
-static mut LED_FRAME: MaybeUninit<[[u8; 3]; akko_lighting::layout::LED_COUNT]> = MaybeUninit::uninit();
+static mut LED_FRAME: MaybeUninit<[[u8; 3]; akko_lighting::layout::LED_COUNT]> =
+    MaybeUninit::uninit();
 #[unsafe(link_section = ".ram2")]
 static mut LIGHTING: MaybeUninit<akko_lighting::Board> = MaybeUninit::uninit();
 #[unsafe(link_section = ".ram2")]
@@ -153,11 +156,11 @@ static mut LIGHTING_RECORD: MaybeUninit<[u8; akko_lighting::record::LEN]> = Mayb
 #[unsafe(link_section = ".ram2")]
 static mut NOR: MaybeUninit<SharedNor> = MaybeUninit::uninit();
 
-
 /// The keymap in RAM and the behaviour settings it borrows (Vial edits
 /// change them): 3.4 KB that would otherwise sit in main's future.
 #[unsafe(link_section = ".ram2")]
-static mut KEYMAP_DATA: MaybeUninit<KeymapData<ROW, COL, NUM_LAYER, NUM_ENCODER>> = MaybeUninit::uninit();
+static mut KEYMAP_DATA: MaybeUninit<KeymapData<ROW, COL, NUM_LAYER, NUM_ENCODER>> =
+    MaybeUninit::uninit();
 #[unsafe(link_section = ".ram2")]
 static mut BEHAVIOR: MaybeUninit<BehaviorConfig> = MaybeUninit::uninit();
 #[unsafe(link_section = ".ram2")]
@@ -203,7 +206,8 @@ fn keymap_parts(
 /// The previous run's panic message and its length, taken from boot-guard
 /// at start-up, before `custom_get_value` is hooked in; read-only after.
 #[unsafe(link_section = ".ram2")]
-static mut PANIC_MSG: MaybeUninit<([u8; akko_boot_guard::PANIC_MSG_MAX], usize)> = MaybeUninit::uninit();
+static mut PANIC_MSG: MaybeUninit<([u8; akko_boot_guard::PANIC_MSG_MAX], usize)> =
+    MaybeUninit::uninit();
 
 /// A .ram2 static (memory.x's RAM2, above the magic word: out of .bss and
 /// the main task, which share RAM with the stack), handed out once by
@@ -359,7 +363,10 @@ fn custom_value(buf: &mut [u8]) {
 fn peek(buf: &mut [u8]) {
     let addr = u32::from_le_bytes([buf[2], buf[3], buf[4], buf[5]]);
     buf[6..32].fill(0);
-    let Some(&(_, end)) = PEEK_RANGES.iter().find(|&&(start, end)| addr % 4 == 0 && (start..end).contains(&addr)) else {
+    let Some(&(_, end)) = PEEK_RANGES
+        .iter()
+        .find(|&&(start, end)| addr % 4 == 0 && (start..end).contains(&addr))
+    else {
         buf[6] = 1;
         return;
     };
@@ -481,11 +488,30 @@ async fn main(spawner: Spawner) {
     let caps_led = Output::new(p.PC5, Level::High);
 
     let mut scan = scan::Scan::new(
-        [p.PA0.into(), p.PA1.into(), p.PA2.into(), p.PA3.into(), p.PA4.into(), p.PC13.into()],
         [
-            AnyPin::from(p.PC0), p.PC1.into(), p.PC2.into(), p.PC3.into(), p.PA6.into(),
-            p.PB10.into(), p.PB11.into(), p.PB12.into(), p.PB13.into(), p.PB14.into(),
-            p.PA10.into(), p.PC6.into(), p.PC7.into(), p.PC8.into(), p.PC9.into(),
+            p.PA0.into(),
+            p.PA1.into(),
+            p.PA2.into(),
+            p.PA3.into(),
+            p.PA4.into(),
+            p.PC13.into(),
+        ],
+        [
+            AnyPin::from(p.PC0),
+            p.PC1.into(),
+            p.PC2.into(),
+            p.PC3.into(),
+            p.PA6.into(),
+            p.PB10.into(),
+            p.PB11.into(),
+            p.PB12.into(),
+            p.PB13.into(),
+            p.PB14.into(),
+            p.PA10.into(),
+            p.PC6.into(),
+            p.PC7.into(),
+            p.PC8.into(),
+            p.PC9.into(),
         ],
         p.PC15.into(),
         p.PC14.into(),
@@ -498,14 +524,20 @@ async fn main(spawner: Spawner) {
         0,
     );
 
-    let nor = SpiNor::new(Qspi::new(p.PB3, p.PB4, p.PB5, SPI_DIVISOR), Output::new(p.PC12, Level::High));
+    let nor = SpiNor::new(
+        Qspi::new(p.PB3, p.PB4, p.PB5, SPI_DIVISOR),
+        Output::new(p.PC12, Level::High),
+    );
     let nor: &'static SharedNor = ram2.nor.write(SharedNor::new(nor));
     let jedec = nor.jedec_id();
     let (Some(flash), Some(lighting_flash)) = (
         nor.partition(STORAGE_START, STORAGE_LEN),
         nor.partition(lighting::STORE_START, lighting::STORE_LEN),
     ) else {
-        panic!("SPI flash {:02x} {:02x} {:02x}: too small or not found", jedec[0], jedec[1], jedec[2]);
+        panic!(
+            "SPI flash {:02x} {:02x} {:02x}: too small or not found",
+            jedec[0], jedec[1], jedec[2]
+        );
     };
 
     let rmk_config = RmkConfig {
@@ -516,24 +548,54 @@ async fn main(spawner: Spawner) {
             product_name: "AKKO 5075B Plus (RMK)",
             serial_number: heapless::String::try_from(SERIAL).unwrap(),
         },
-        vial_config: VialConfig { insecure: true, ..VialConfig::new(&VIAL_KEYBOARD_ID, &VIAL_KEYBOARD_DEF, &[]) },
+        vial_config: VialConfig {
+            insecure: true,
+            ..VialConfig::new(&VIAL_KEYBOARD_ID, &VIAL_KEYBOARD_DEF, &[])
+        },
         // start_addr 0: the last num_sectors of the window, here all 16 of
         // it. More room means fewer page migrations (each moves every item).
-        storage_config: StorageConfig { start_addr: 0, num_sectors: 16, ..Default::default() },
+        storage_config: StorageConfig {
+            start_addr: 0,
+            num_sectors: 16,
+            ..Default::default()
+        },
     };
 
-    let (data, behavior, positional) = keymap_parts(ram2.keymap_data, ram2.behavior, ram2.positional);
-    let storage = OwnFrame(init_storage(ram2.storage, flash, &rmk_config.storage_config)).await;
-    let keymap = OwnFrame(KeyMap::new_from_storage(data, Some(&mut *storage), behavior, positional)).await;
+    let (data, behavior, positional) =
+        keymap_parts(ram2.keymap_data, ram2.behavior, ram2.positional);
+    let storage = OwnFrame(init_storage(
+        ram2.storage,
+        flash,
+        &rmk_config.storage_config,
+    ))
+    .await;
+    let keymap = OwnFrame(KeyMap::new_from_storage(
+        data,
+        Some(&mut *storage),
+        behavior,
+        positional,
+    ))
+    .await;
 
     rmk::host::set_custom_value_hook(custom_value);
     let mut keyboard = Keyboard::new(&keymap);
     let host_service = HostService::new(&keymap, &rmk_config);
-    let mut usb = UsbTransport::new(usb::Driver::new(p.PA11, p.PA12, PRIO_USB), rmk_config.device_config)
-        .with_host_service(&host_service);
-    let caps = KeyboardIndicatorProcessor::new(power::CapsPin::new(caps_led), true, LedIndicatorType::CapsLock);
+    let mut usb = UsbTransport::new(
+        usb::Driver::new(p.PA11, p.PA12, PRIO_USB),
+        rmk_config.device_config,
+    )
+    .with_host_service(&host_service);
+    let caps = KeyboardIndicatorProcessor::new(
+        power::CapsPin::new(caps_led),
+        true,
+        LedIndicatorType::CapsLock,
+    );
     let boot = bootloader::Bootloader::new();
-    let store = OwnFrame(lighting::Store::load(lighting_flash, ram2.lighting_record.zeroed())).await;
+    let store = OwnFrame(lighting::Store::load(
+        lighting_flash,
+        ram2.lighting_record.zeroed(),
+    ))
+    .await;
     // The factory LED test: Left Ctrl held at power-up, without Esc
     // (hs_factory_scan; Esc held is boot-guard's, before this).
     let led_test = scan.is_down(LCTRL.0, LCTRL.1) && !scan.is_down(ESC.0, ESC.1);
@@ -550,7 +612,11 @@ async fn main(spawner: Spawner) {
     board.vendor.usb_active = false;
     let flags = store.record().map_or(0, |r| r.flags());
     lighting::set_flags(flags, store.record().map_or(0, |r| r.flags2()));
-    power::set_setting(store.record().map_or(akko_lighting::record::SLEEP_DEFAULT, |r| r.sleep()));
+    power::set_setting(
+        store
+            .record()
+            .map_or(akko_lighting::record::SLEEP_DEFAULT, |r| r.sleep()),
+    );
     radio::set_saved_flags(flags);
     let lights = lighting::Lighting::new(
         board,
@@ -569,7 +635,10 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "mac")]
     rmk::keymap::set_qmk_default_layer(true);
     let power = power::Power::new();
-    let radio = radio::Radio::new(Uart3::new(p.PC10, p.PC11, radio::BAUD, PRIO_UART), usb_power);
+    let radio = radio::Radio::new(
+        Uart3::new(p.PC10, p.PC11, radio::BAUD, PRIO_UART),
+        usb_power,
+    );
     // Vial's "bootloader" button: DFU, as QK_BOOT (src/bootloader.rs).
     rmk::boot::set_bootloader_hook(akko_boot_guard::request_bootloader);
 

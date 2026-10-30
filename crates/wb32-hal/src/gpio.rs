@@ -79,19 +79,39 @@ pub struct Mode {
 
 impl Mode {
     pub const fn input(pull: Pull) -> Self {
-        Mode { moder: 0, open_drain: false, speed: 0, pull: pull as u8, af: 0, current: 0 }
+        Mode {
+            moder: 0,
+            open_drain: false,
+            speed: 0,
+            pull: pull as u8,
+            af: 0,
+            current: 0,
+        }
     }
     pub const fn output() -> Self {
-        Mode { moder: 1, ..Mode::input(Pull::None) }
+        Mode {
+            moder: 1,
+            ..Mode::input(Pull::None)
+        }
     }
     pub const fn output_open_drain() -> Self {
-        Mode { open_drain: true, ..Mode::output() }
+        Mode {
+            open_drain: true,
+            ..Mode::output()
+        }
     }
     pub const fn alternate(af: u8) -> Self {
-        Mode { moder: 2, af, ..Mode::input(Pull::None) }
+        Mode {
+            moder: 2,
+            af,
+            ..Mode::input(Pull::None)
+        }
     }
     pub const fn analog() -> Self {
-        Mode { moder: 3, ..Mode::input(Pull::None) }
+        Mode {
+            moder: 3,
+            ..Mode::input(Pull::None)
+        }
     }
 }
 
@@ -158,11 +178,16 @@ pub fn set_mode(port: Port, mask: u32, mode: Mode) {
     };
     critical_section::with(|_| {
         r.cfgmsk().write_value(gpio::regs::Cfgmsk(!mask & 0xFFFF));
-        r.moder().write_value(gpio::regs::Moder(all(mode.moder & 3, 2)));
-        r.otyper().write_value(gpio::regs::Otyper(all(mode.open_drain as u8, 1)));
-        r.ospeedr().write_value(gpio::regs::Ospeedr(all(mode.speed & 3, 2)));
-        r.pupdr().write_value(gpio::regs::Pupdr(all(mode.pull & 3, 2)));
-        r.current().write_value(gpio::regs::Current(all(mode.current & 3, 2)));
+        r.moder()
+            .write_value(gpio::regs::Moder(all(mode.moder & 3, 2)));
+        r.otyper()
+            .write_value(gpio::regs::Otyper(all(mode.open_drain as u8, 1)));
+        r.ospeedr()
+            .write_value(gpio::regs::Ospeedr(all(mode.speed & 3, 2)));
+        r.pupdr()
+            .write_value(gpio::regs::Pupdr(all(mode.pull & 3, 2)));
+        r.current()
+            .write_value(gpio::regs::Current(all(mode.current & 3, 2)));
         let afr = all(mode.af & 0xF, 4);
         r.afrl().write_value(gpio::regs::Afrl(afr));
         r.afrh().write_value(gpio::regs::Afrh(afr));

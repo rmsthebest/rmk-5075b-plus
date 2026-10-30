@@ -38,8 +38,8 @@ use crate::color::{Hsv, Rgb, hsv_to_rgb};
 use crate::effects::effect;
 use crate::engine::{Config, Engine, Hooks, Leds, MAX_BRIGHTNESS, VAL_STEP};
 use crate::layout::{LED_COUNT, MATRIX_CO, MATRIX_COLS, MATRIX_ROWS, NO_LED};
-use crate::rgblight::{self, Rgblight};
 use crate::record::Record;
+use crate::rgblight::{self, Rgblight};
 
 /// Keys in the matrix: one recorded colour each.
 pub const KEYS: usize = MATRIX_ROWS * MATRIX_COLS;
@@ -85,7 +85,11 @@ const FLASH_EVERY: u32 = 5000;
 const FLASH_ON: u32 = 20;
 const FLASH_OFF: u32 = 170;
 const FLASH_END: u32 = 190;
-const RED: Rgb = Rgb { r: 0xFF, g: 0, b: 0 };
+const RED: Rgb = Rgb {
+    r: 0xFF,
+    g: 0,
+    b: 0,
+};
 
 /// QMK's DEVS_*.
 pub const DEVS_USB: u8 = 0;
@@ -102,9 +106,17 @@ pub const MD_STATE_DISCONNECTED: u8 = 3;
 /// A positional `{r, g, b}` initialiser of QMK's RGB, which on this board
 /// is a WS2812 G, R, B struct: the first value lands in green.
 const fn grb(first: u8, second: u8, third: u8) -> Rgb {
-    Rgb { r: second, g: first, b: third }
+    Rgb {
+        r: second,
+        g: first,
+        b: third,
+    }
 }
-const WHITE: Rgb = Rgb { r: 0xFF, g: 0xFF, b: 0xFF };
+const WHITE: Rgb = Rgb {
+    r: 0xFF,
+    g: 0xFF,
+    b: 0xFF,
+};
 
 /// wireless_devs_change_kb's table, by DEVS_*: the device's key, its
 /// re-pairing blink colour (HS_LBACK_COLOR_*) and its reconnecting one
@@ -356,7 +368,8 @@ impl Board {
             slot.as_mut_ptr().write_bytes(0, 1);
             slot.assume_init_mut()
         };
-        b.engine.init_zeroed(saved.map_or_else(Config::default, Record::config));
+        b.engine
+            .init_zeroed(saved.map_or_else(Config::default, Record::config));
         let v = &mut b.vendor;
         v.rgblight.init_zeroed();
         v.conf = ConfInfo::default();
@@ -880,10 +893,38 @@ impl Vendor {
         }
         // HS_PAIR_COLOR_*, passed as r, g, b: the colours config.h names.
         let (index, c) = match self.devs {
-            DEVS_BT1 => (41, Rgb { r: 0xFF, g: 0, b: 0 }),
-            DEVS_BT2 => (40, Rgb { r: 0, g: 0, b: 0xFF }),
-            DEVS_BT3 => (39, Rgb { r: 0xFF, g: 0xFF, b: 0 }),
-            DEVS_2G4 => (38, Rgb { r: 0, g: 0xFF, b: 0 }),
+            DEVS_BT1 => (
+                41,
+                Rgb {
+                    r: 0xFF,
+                    g: 0,
+                    b: 0,
+                },
+            ),
+            DEVS_BT2 => (
+                40,
+                Rgb {
+                    r: 0,
+                    g: 0,
+                    b: 0xFF,
+                },
+            ),
+            DEVS_BT3 => (
+                39,
+                Rgb {
+                    r: 0xFF,
+                    g: 0xFF,
+                    b: 0,
+                },
+            ),
+            DEVS_2G4 => (
+                38,
+                Rgb {
+                    r: 0,
+                    g: 0xFF,
+                    b: 0,
+                },
+            ),
             _ => (LED_USB, WHITE),
         };
         leds.set(index, c);
@@ -949,7 +990,11 @@ impl Vendor {
                 }
             }
         }
-        let c = if self.wls.times % 2 == 1 { self.wls.rgb } else { Rgb::OFF };
+        let c = if self.wls.times % 2 == 1 {
+            self.wls.rgb
+        } else {
+            Rgb::OFF
+        };
         leds.set(self.wls.index as usize, c);
     }
 
@@ -1038,7 +1083,8 @@ impl Vendor {
             if self.bat_stop_timer == 0 {
                 self.bat_stop_timer = self.now;
             }
-            if self.bat_stop_timer != 0 && self.now.wrapping_sub(self.bat_stop_timer) > BAT_STOP_MS {
+            if self.bat_stop_timer != 0 && self.now.wrapping_sub(self.bat_stop_timer) > BAT_STOP_MS
+            {
                 self.bat_stop_timer = 0;
                 self.shutdown_requested = true;
             }
@@ -1055,9 +1101,21 @@ impl Vendor {
             leds.set(i, Rgb::OFF);
         }
         let c = match self.bat {
-            50.. => Rgb { r: 0, g: BAT_VAL, b: 0 },
-            30.. => Rgb { r: BAT_VAL, g: BAT_VAL, b: 0 },
-            _ => Rgb { r: BAT_VAL, g: 0, b: 0 },
+            50.. => Rgb {
+                r: 0,
+                g: BAT_VAL,
+                b: 0,
+            },
+            30.. => Rgb {
+                r: BAT_VAL,
+                g: BAT_VAL,
+                b: 0,
+            },
+            _ => Rgb {
+                r: BAT_VAL,
+                g: 0,
+                b: 0,
+            },
         };
         for (i, &led) in BAT_BAR.iter().enumerate() {
             let lit = i < (self.bat / 10) as usize || i < 1;
@@ -1294,7 +1352,12 @@ mod tests {
             .map(|t| {
                 b.task_sparse(t);
                 let leds = &b.engine.leds.rgb;
-                (t, b.led_power(), leds[LED_BAT] != Rgb::OFF, leds[1..].iter().any(|&c| c != Rgb::OFF))
+                (
+                    t,
+                    b.led_power(),
+                    leds[LED_BAT] != Rgb::OFF,
+                    leds[1..].iter().any(|&c| c != Rgb::OFF),
+                )
             })
             .collect()
     }
@@ -1310,7 +1373,10 @@ mod tests {
         assert!(lit.iter().all(|x| x.1 && !x.3));
         assert!((16..=22).contains(&lit.len()), "{} lit frames", lit.len());
         let powered = f.iter().filter(|x| x.1).count();
-        assert!(powered > lit.len() && powered <= 2 * 13, "{powered} powered frames");
+        assert!(
+            powered > lit.len() && powered <= 2 * 13,
+            "{powered} powered frames"
+        );
         for w in f.windows(2) {
             // LED 0 lights only with the chain already on, and goes dark
             // before the chain goes off.
@@ -1353,7 +1419,11 @@ mod tests {
         let f = frames(&mut b, 1100, 1400);
         assert!(f.last().unwrap().3);
         let leds = &b.engine.leds.rgb;
-        let yellow = Rgb { r: BAT_VAL, g: BAT_VAL, b: 0 };
+        let yellow = Rgb {
+            r: BAT_VAL,
+            g: BAT_VAL,
+            b: 0,
+        };
         assert_eq!(&leds[16..19], &[yellow; 3]);
         assert_eq!(leds[19], Rgb::OFF);
         b.key(Key::BatQ, 5, 6, false, false, 1400);

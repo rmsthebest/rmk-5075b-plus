@@ -16,9 +16,26 @@ fn main() {
     lzma_rs::xz_compress(&mut &min[..], &mut xz).unwrap();
     let mut f = fs::File::create(out.join("vial_generated.rs")).unwrap();
     writeln!(f, "/// Identifies this board to Vial (random, fixed).").unwrap();
-    writeln!(f, "pub const VIAL_KEYBOARD_ID: [u8; 8] = {:?};", VIAL_KEYBOARD_ID).unwrap();
-    writeln!(f, "/// vial.json, minified and xz compressed ({} -> {} bytes).", min.len(), xz.len()).unwrap();
-    writeln!(f, "pub const VIAL_KEYBOARD_DEF: [u8; {}] = {:?};", xz.len(), xz).unwrap();
+    writeln!(
+        f,
+        "pub const VIAL_KEYBOARD_ID: [u8; 8] = {:?};",
+        VIAL_KEYBOARD_ID
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "/// vial.json, minified and xz compressed ({} -> {} bytes).",
+        min.len(),
+        xz.len()
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "pub const VIAL_KEYBOARD_DEF: [u8; {}] = {:?};",
+        xz.len(),
+        xz
+    )
+    .unwrap();
 }
 
 const VIAL_KEYBOARD_ID: [u8; 8] = [0x8a, 0x5c, 0x3e, 0x91, 0x07, 0xd2, 0x6b, 0xf4];

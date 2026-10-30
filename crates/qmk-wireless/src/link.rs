@@ -79,7 +79,11 @@ struct Queue {
 
 impl Queue {
     const fn new() -> Self {
-        Queue { msgs: [Msg::RfTestStop; QUEUE_LEN], head: 0, len: 0 }
+        Queue {
+            msgs: [Msg::RfTestStop; QUEUE_LEN],
+            head: 0,
+            len: 0,
+        }
     }
 
     fn push(&mut self, msg: Msg) -> bool {
@@ -330,7 +334,10 @@ impl Link {
     /// The link is down and a report wanted out: ask the module to
     /// reconnect, at most every [`RESELECT_MS`].
     fn reselect(&mut self, now: u32) {
-        if self.last_reselect.is_some_and(|t| now.wrapping_sub(t) < RESELECT_MS) {
+        if self
+            .last_reselect
+            .is_some_and(|t| now.wrapping_sub(t) < RESELECT_MS)
+        {
             return;
         }
         self.last_reselect = Some(now);

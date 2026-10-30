@@ -47,14 +47,14 @@
 use core::convert::Infallible;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
+use akko_lighting::board::{MD_STATE_DISCONNECTED, MD_STATE_PAIRING};
+use akko_lighting::record;
 use embassy_futures::select::select;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Instant, Timer};
-use wb32_hal::uart;
-use akko_lighting::board::{MD_STATE_DISCONNECTED, MD_STATE_PAIRING};
-use akko_lighting::record;
 use wb32_hal::gpio::{AnyPin, Input, Output, Port, Pull};
+use wb32_hal::uart;
 
 use crate::radio;
 use crate::stop;
@@ -129,7 +129,11 @@ pub fn stop_diag() -> Option<u8> {
 /// (stops, those ended by a key, the knob or the cable, tries that didn't
 /// stop).
 pub fn stop_counts() -> (u32, u32, u32) {
-    (STOPS.load(Ordering::Relaxed), STOP_WAKES.load(Ordering::Relaxed), STOP_ABORTS.load(Ordering::Relaxed))
+    (
+        STOPS.load(Ordering::Relaxed),
+        STOP_WAKES.load(Ordering::Relaxed),
+        STOP_ABORTS.load(Ordering::Relaxed),
+    )
 }
 
 /// The sleep timeout, `record::SLEEP_*`.
@@ -227,7 +231,15 @@ impl Power {
         let now = now_ms();
         LAST_INPUT.store(now, Ordering::Relaxed);
         let cable_was = cable.is_high();
-        Power { cable, state: 0, state_since: now, cable_was, asleep: None, asleep_at: now, stopped_at: now }
+        Power {
+            cable,
+            state: 0,
+            state_since: now,
+            cable_was,
+            asleep: None,
+            asleep_at: now,
+            stopped_at: now,
+        }
     }
 
     /// Whether to sleep now, and why.
@@ -263,7 +275,8 @@ impl Power {
             MD_STATE_PAIRING => PAIR_TIMEOUT_MS,
             _ => return None,
         };
-        (now.wrapping_sub(self.state_since) >= link && !crate::lighting::recording()).then_some(Why::Link)
+        (now.wrapping_sub(self.state_since) >= link && !crate::lighting::recording())
+            .then_some(Why::Link)
     }
 
     /// Awake: ms until the idle timeout (`AWAKE_TICK_MS` if none).
@@ -352,7 +365,11 @@ impl Power {
 impl rmk::core_traits::Runnable for Power {
     async fn run(&mut self) -> ! {
         loop {
-            let wait = if self.asleep.is_some() { TICK_MS } else { self.idle_left(now_ms()).min(AWAKE_TICK_MS) };
+            let wait = if self.asleep.is_some() {
+                TICK_MS
+            } else {
+                self.idle_left(now_ms()).min(AWAKE_TICK_MS)
+            };
             select(POKE.wait(), Timer::after_millis(wait as u64)).await;
             let now = now_ms();
             if self.asleep.is_none() {

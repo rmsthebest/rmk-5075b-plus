@@ -20,7 +20,7 @@ pub mod rgblight;
 pub mod vialrgb;
 
 pub use board::{Board, Key, Outcome, Saved};
-pub use record::Record;
 pub use color::{Hsv, Rgb, hsv_to_rgb};
 pub use effects::effect;
 pub use engine::{Config, Engine, Hooks, Leds, NoHooks};
+pub use record::Record;

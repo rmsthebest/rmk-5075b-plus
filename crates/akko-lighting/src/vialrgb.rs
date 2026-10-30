@@ -73,7 +73,10 @@ const EFFECTS: [Option<u8>; 45] = {
 
 /// The VialRGB id of our effect `mode` (Off for one Vial lacks).
 pub fn to_vial(mode: u8) -> u16 {
-    EFFECTS.iter().position(|&e| e == Some(mode)).map_or(OFF, |i| i as u16)
+    EFFECTS
+        .iter()
+        .position(|&e| e == Some(mode))
+        .map_or(OFF, |i| i as u16)
 }
 
 /// Our effect for VialRGB id `id`, if we have it.
@@ -161,7 +164,11 @@ mod tests {
         loop {
             supported_after(all.last().copied().unwrap_or(0), &mut out);
             let n = all.len();
-            all.extend(out.chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]])).take_while(|&i| i != 0xFFFF));
+            all.extend(
+                out.chunks(2)
+                    .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                    .take_while(|&i| i != 0xFFFF),
+            );
             if all.len() == n {
                 break;
             }

@@ -6,8 +6,8 @@
 
 use akko_boot_guard as _;
 // Device interrupt vectors (all DefaultHandler -> DFU).
-use wb32_pac as _;
 use cortex_m_rt::entry;
+use wb32_pac as _;
 
 const GPIOC: u32 = 0x4000_0800;
 const MODER: u32 = 0x00;

@@ -55,7 +55,8 @@ pub fn reinit(pll_polls: u32) {
 /// [`reinit`]: a PLL left on through a stop gets a fresh start).
 pub fn clocks_off() {
     anctl_unlock();
-    RCC.mainclksrc().write_value(rcc::regs::Mainclksrc(MAINCLKSRC_MHSI));
+    RCC.mainclksrc()
+        .write_value(rcc::regs::Mainclksrc(MAINCLKSRC_MHSI));
     RCC.mainclkuen().write_value(rcc::regs::Mainclkuen(1));
     ANCTL.pllenr().write(|w| w.set_pllon(false));
     for _ in 0..10_000 {
@@ -115,12 +116,17 @@ fn setup(pll_polls: Option<u32>) {
         if let Some(max) = pll_polls {
             polls += 1;
             if polls >= max {
-                panic!("stop: PLL didn't lock, PLLSR {:#x} HSESR {:#x}", ANCTL.pllsr().read().0, ANCTL.hsesr().read().0);
+                panic!(
+                    "stop: PLL didn't lock, PLLSR {:#x} HSESR {:#x}",
+                    ANCTL.pllsr().read().0,
+                    ANCTL.hsesr().read().0
+                );
             }
         }
     }
 
-    RCC.mainclksrc().write_value(rcc::regs::Mainclksrc(MAINCLKSRC_PLL));
+    RCC.mainclksrc()
+        .write_value(rcc::regs::Mainclksrc(MAINCLKSRC_PLL));
     RCC.mainclkuen().write_value(rcc::regs::Mainclkuen(1));
 
     anctl_lock();

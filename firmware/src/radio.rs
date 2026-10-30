@@ -42,13 +42,16 @@
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
+use akko_lighting::record;
 use embassy_futures::select::{Either3, select, select3};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_time::{Instant, Timer};
-use akko_lighting::record;
+use qmk_wireless::frame::{RAW_LEN, devctrl, utf16z};
+use qmk_wireless::rx::FRAME_TIMEOUT_MS;
+use qmk_wireless::{Device, DeviceStrings, Event, Link};
 use rmk::event::{ActionEvent, EventSubscriber};
 use rmk::hid::Report;
 use rmk::macros::processor;
@@ -57,14 +60,10 @@ use rmk::types::action::Action;
 use rmk::types::led_indicator::LedIndicator;
 use wb32_hal::gpio::{AnyPin, Input, Output, Port, Pull};
 use wb32_hal::uart::Uart3;
-use qmk_wireless::frame::{RAW_LEN, devctrl, utf16z};
-use qmk_wireless::rx::FRAME_TIMEOUT_MS;
-use qmk_wireless::{Device, DeviceStrings, Event, Link};
 
 use crate::keymap::user;
 
 pub const BAUD: u32 = 115_200;
-
 
 /// WLS_KEYCODE_PAIR_TIME.
 const PAIR_HOLD_MS: u32 = 3000;
@@ -88,14 +87,21 @@ static PRODUCT: [u8; 34] = utf16z("Akko 2.4G VIA KB");
 /// config.h's MD_BT*_NAME and MD_DONGLE_PRODUCT; BT4/5 (no keys) and the
 /// manufacturer are module.c's defaults from keyboard.json.
 static STRINGS: DeviceStrings = DeviceStrings {
-    bt_names: [b"Akko 5075-1", b"Akko 5075-2", b"Akko 5075-3", b"AKKO Keyboard BT4", b"AKKO Keyboard BT5"],
+    bt_names: [
+        b"Akko 5075-1",
+        b"Akko 5075-2",
+        b"Akko 5075-3",
+        b"AKKO Keyboard BT4",
+        b"AKKO Keyboard BT5",
+    ],
     dongle_manufacturer: &MANUFACTURER,
     dongle_product: &PRODUCT,
     vid: 0x342D,
     pid: 0xE4F6,
 };
 
-static LINK: Mutex<CriticalSectionRawMutex, RefCell<Link>> = Mutex::new(RefCell::new(Link::new(&STRINGS)));
+static LINK: Mutex<CriticalSectionRawMutex, RefCell<Link>> =
+    Mutex::new(RefCell::new(Link::new(&STRINGS)));
 /// Reports go to the module, not USB.
 static WIRELESS: AtomicBool = AtomicBool::new(false);
 /// hs_pairing_flag: a pairing key's hold started pairing; a pairing key's
@@ -242,7 +248,8 @@ pub fn battery() -> (u8, bool, bool) {
 /// The device bits of the lighting record's flags.
 pub fn saved_flags() -> u8 {
     (DEVS.load(Ordering::Relaxed) << record::FLAG_DEVS_SHIFT) & record::FLAG_DEVS_MASK
-        | (LAST_BT.load(Ordering::Relaxed) << record::FLAG_LAST_BT_SHIFT) & record::FLAG_LAST_BT_MASK
+        | (LAST_BT.load(Ordering::Relaxed) << record::FLAG_LAST_BT_SHIFT)
+            & record::FLAG_LAST_BT_MASK
 }
 
 /// The saved device from the lighting record's flags, at start-up.
@@ -274,7 +281,10 @@ fn report_hook(report: &Report) -> bool {
             Report::MediaKeyboardReport(m) => l.send_consumer(m.usage_id, now),
             Report::SystemControlReport(s) => l.send_system(s.usage_id as u16, now),
             // buttons, x, y, horizontal, vertical (wireless_send_mouse).
-            Report::MouseReport(m) => l.send_mouse([m.buttons, m.x as u8, m.y as u8, m.pan as u8, m.wheel as u8], now),
+            Report::MouseReport(m) => l.send_mouse(
+                [m.buttons, m.x as u8, m.y as u8, m.pan as u8, m.wheel as u8],
+                now,
+            ),
         }
     });
     POKE.signal(());
@@ -303,8 +313,14 @@ pub fn fill_diag(buf: &mut [u8]) {
 /// module's raw frames. Runs for good; requests only come while a
 /// wireless device is selected.
 pub async fn vial(service: &rmk::host::HostService<'_>) -> ! {
-    let mut rx = VialRx { buf: [0; RAW_LEN], at: RAW_LEN };
-    let mut tx = VialTx { buf: [0; RAW_LEN], len: 0 };
+    let mut rx = VialRx {
+        buf: [0; RAW_LEN],
+        at: RAW_LEN,
+    };
+    let mut tx = VialTx {
+        buf: [0; RAW_LEN],
+        len: 0,
+    };
     loop {
         // Only returns on an error, and ours never fail.
         service.run_session(&mut rx, &mut tx).await;
@@ -512,7 +528,10 @@ impl Radio {
         UART_ERRORS.store(self.uart.rx_errors(), Ordering::Relaxed);
         MODULE_STATE.store(LINK.lock(|l| l.borrow().state()) as u8, Ordering::Relaxed);
 
-        if self.post_init_at.is_some_and(|t| now.wrapping_sub(t) as i32 >= 0) {
+        if self
+            .post_init_at
+            .is_some_and(|t| now.wrapping_sub(t) as i32 >= 0)
+        {
             self.post_init_at = None;
             LINK.lock(|l| {
                 let mut l = l.borrow_mut();
@@ -592,10 +611,19 @@ impl rmk::core_traits::Runnable for Radio {
                 (false, false) => IDLE_POLL_MS as u64,
             };
             let housekeeping = self.post_init_at.is_none().then(|| {
-                let charge = self.charge_sent.map(|(_, at)| at.wrapping_add(CHARGE_REFRESH_MS + 1));
-                [Some(self.battery_asked.wrapping_add(BATTERY_POLL_MS + 1)), charge]
+                let charge = self
+                    .charge_sent
+                    .map(|(_, at)| at.wrapping_add(CHARGE_REFRESH_MS + 1));
+                [
+                    Some(self.battery_asked.wrapping_add(BATTERY_POLL_MS + 1)),
+                    charge,
+                ]
             });
-            for t in [self.post_init_at, self.hold.map(|(_, t)| t)].into_iter().chain(housekeeping.into_iter().flatten()).flatten() {
+            for t in [self.post_init_at, self.hold.map(|(_, t)| t)]
+                .into_iter()
+                .chain(housekeeping.into_iter().flatten())
+                .flatten()
+            {
                 wait = wait.min(until(t));
             }
             let event = match select3(

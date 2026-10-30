@@ -8,8 +8,8 @@
 //! - wire_board.txt (dump_board.c): the md_devs_change part with this
 //!   board's strings and ARM's 2-byte wchar_t.
 
-use qmk_wireless::frame::{self, DeviceStrings, MAX_FRAME, Msg, utf16z};
 use qmk_wireless::Device;
+use qmk_wireless::frame::{self, DeviceStrings, MAX_FRAME, Msg, utf16z};
 
 fn hex(msg: &Msg) -> Option<String> {
     let mut buf = [0; MAX_FRAME];
@@ -31,7 +31,12 @@ fn check(msgs: &[Msg], expected: &str) {
     let got: Vec<String> = msgs.iter().filter_map(hex).collect();
     let want: Vec<&str> = expected.lines().collect();
     for (i, (g, w)) in got.iter().zip(&want).enumerate() {
-        assert_eq!(g, w, "packet {i} ({:?})", msgs.iter().filter(|m| hex(m).is_some()).nth(i));
+        assert_eq!(
+            g,
+            w,
+            "packet {i} ({:?})",
+            msgs.iter().filter(|m| hex(m).is_some()).nth(i)
+        );
     }
     assert_eq!(got.len(), want.len());
 }
@@ -54,15 +59,28 @@ fn every_message_matches_module_c() {
         Msg::Fn(d[0]),
         Msg::Mouse(d[..5].try_into().unwrap()),
         Msg::DevCtrl(0x53),
-        Msg::RfTest { channel: 0x13, power: 5, mode: 1 },
+        Msg::RfTest {
+            channel: 0x13,
+            power: 5,
+            mode: 1,
+        },
         Msg::RfTestStop,
         Msg::Manufacturer(leak(10)),
         Msg::Product(leak(46)),
-        Msg::Vpid { vid: 0x342D, pid: 0xE4F6 },
+        Msg::Vpid {
+            vid: 0x342D,
+            pid: 0xE4F6,
+        },
         Msg::Raw(d[..32].try_into().unwrap()),
     ];
     let strings = DeviceStrings {
-        bt_names: [b"Test BT1", b"Test BT2", b"Test BT3", b"Test BT4", b"Test BT5"],
+        bt_names: [
+            b"Test BT1",
+            b"Test BT2",
+            b"Test BT3",
+            b"Test BT4",
+            b"Test BT5",
+        ],
         dongle_manufacturer: utf32z("Test"),
         dongle_product: utf32z("Test Dongle"),
         vid: 0x342D,
@@ -78,7 +96,13 @@ static PRODUCT: [u8; 34] = utf16z("Akko 2.4G VIA KB");
 #[test]
 fn board_device_select_matches_module_c() {
     let strings = DeviceStrings {
-        bt_names: [b"Akko 5075-1", b"Akko 5075-2", b"Akko 5075-3", b"AKKO Keyboard BT4", b"AKKO Keyboard BT5"],
+        bt_names: [
+            b"Akko 5075-1",
+            b"Akko 5075-2",
+            b"Akko 5075-3",
+            b"AKKO Keyboard BT4",
+            b"AKKO Keyboard BT5",
+        ],
         dongle_manufacturer: &MANUFACTURER,
         dongle_product: &PRODUCT,
         vid: 0x342D,

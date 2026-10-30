@@ -289,7 +289,11 @@ fn crash_count_ptr() -> *mut [u32; 3] {
 /// don't check out).
 pub fn crash_count() -> u32 {
     let w = unsafe { crash_count_ptr().read_volatile() };
-    if w[0] == CRASH_MAGIC && w[2] == !w[1] { w[1] } else { 0 }
+    if w[0] == CRASH_MAGIC && w[2] == !w[1] {
+        w[1]
+    } else {
+        0
+    }
 }
 
 fn set_crash_count(n: u32) {

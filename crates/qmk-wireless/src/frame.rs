@@ -69,9 +69,16 @@ pub enum Msg {
     /// Dongle strings: UTF-16LE with the terminating NUL, at most [`STRING_MAX`] bytes.
     Manufacturer(&'static [u8]),
     Product(&'static [u8]),
-    Vpid { vid: u16, pid: u16 },
+    Vpid {
+        vid: u16,
+        pid: u16,
+    },
     Raw([u8; RAW_LEN]),
-    RfTest { channel: u8, power: u8, mode: u8 },
+    RfTest {
+        channel: u8,
+        power: u8,
+        mode: u8,
+    },
     RfTestStop,
 }
 
@@ -115,7 +122,11 @@ impl Msg {
                 out[3 + RAW_LEN] = sum(&out[..3 + RAW_LEN]);
                 RAW_LEN + 4
             }
-            Msg::RfTest { channel, power, mode } => {
+            Msg::RfTest {
+                channel,
+                power,
+                mode,
+            } => {
                 // The stock firmware's checksum, not a sum.
                 *out.first_chunk_mut().unwrap() = [
                     cmd::RF_TEST,
@@ -197,8 +208,11 @@ impl Device {
 
     /// 0-4 for BT1-BT5.
     fn bt_index(self) -> Option<usize> {
-        matches!(self, Device::Bt1 | Device::Bt2 | Device::Bt3 | Device::Bt4 | Device::Bt5)
-            .then(|| self as usize - 1)
+        matches!(
+            self,
+            Device::Bt1 | Device::Bt2 | Device::Bt3 | Device::Bt4 | Device::Bt5
+        )
+        .then(|| self as usize - 1)
     }
 }
 
@@ -223,7 +237,10 @@ pub fn select(dev: Device, reset: bool, strings: &DeviceStrings, mut push: impl 
             if reset {
                 push(Msg::Manufacturer(strings.dongle_manufacturer));
                 push(Msg::Product(strings.dongle_product));
-                push(Msg::Vpid { vid: strings.vid, pid: strings.pid });
+                push(Msg::Vpid {
+                    vid: strings.vid,
+                    pid: strings.pid,
+                });
                 push(Msg::DevCtrl(devctrl::CLEAN));
                 push(Msg::DevCtrl(devctrl::PAIR));
             }

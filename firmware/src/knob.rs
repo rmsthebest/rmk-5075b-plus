@@ -52,7 +52,15 @@ pub struct Knob {
 impl Knob {
     pub fn new(a: ExtiInput, b: ExtiInput, id: u8) -> Self {
         let state = (a.is_high() as u8) | ((b.is_high() as u8) << 1);
-        Knob { a, b, id, state, pulses: 0, queued: 0, held: None }
+        Knob {
+            a,
+            b,
+            id,
+            state,
+            pulses: 0,
+            queued: 0,
+            held: None,
+        }
     }
 
     /// Follows the pins since the last call, queueing whole steps.
@@ -81,7 +89,11 @@ impl Knob {
                     return KeyboardEvent::rotary_encoder(self.id, dir, false);
                 }
                 None if self.queued != 0 && crate::radio::link_ready() => {
-                    let dir = if self.queued > 0 { Direction::CounterClockwise } else { Direction::Clockwise };
+                    let dir = if self.queued > 0 {
+                        Direction::CounterClockwise
+                    } else {
+                        Direction::Clockwise
+                    };
                     self.queued -= self.queued.signum();
                     self.held = Some((dir, now + TAP));
                     crate::power::input();
@@ -93,8 +105,20 @@ impl Knob {
             let (a_high, b_high) = (self.state & 1 != 0, self.state & 2 != 0);
             let (a, b) = (&mut self.a, &mut self.b);
             let moved = select(
-                async move { if a_high { a.wait_for_low().await } else { a.wait_for_high().await } },
-                async move { if b_high { b.wait_for_low().await } else { b.wait_for_high().await } },
+                async move {
+                    if a_high {
+                        a.wait_for_low().await
+                    } else {
+                        a.wait_for_high().await
+                    }
+                },
+                async move {
+                    if b_high {
+                        b.wait_for_low().await
+                    } else {
+                        b.wait_for_high().await
+                    }
+                },
             );
             let wake = match self.held {
                 Some((_, until)) => Some(until),

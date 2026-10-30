@@ -13,9 +13,9 @@
 //! Partitions share the chip: each operation holds it, so one task's erase
 //! can't interleave with another's read.
 
+use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
-use embassy_futures::yield_now;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_storage::nor_flash::{ErrorType, NorFlashError, NorFlashErrorKind};
 use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
@@ -112,7 +112,12 @@ impl Drop for Selected<'_> {
 impl SpiNor {
     /// `cs` must start high (deselected).
     pub fn new(spi: Qspi, cs: Output) -> Self {
-        let mut f = SpiNor { spi, cs, jedec_id: [0; 3], last_yield: Instant::from_ticks(0) };
+        let mut f = SpiNor {
+            spi,
+            cs,
+            jedec_id: [0; 3],
+            last_yield: Instant::from_ticks(0),
+        };
         let mut id = [0; 3];
         // A stalled bus leaves the id zero: no capacity, so no storage.
         if f.command(&[RDID], &mut id).is_ok() {
@@ -138,7 +143,13 @@ impl SpiNor {
     /// One command: chip select low, send `tx`, then read `rx.len()` bytes.
     fn command(&mut self, tx: &[u8], rx: &mut [u8]) -> Result<(), Error> {
         self.cs.set_level(Level::Low);
-        let r = self.spi.write(tx).and_then(|()| if rx.is_empty() { Ok(()) } else { self.spi.read(rx) });
+        let r = self.spi.write(tx).and_then(|()| {
+            if rx.is_empty() {
+                Ok(())
+            } else {
+                self.spi.read(rx)
+            }
+        });
         self.cs.set_level(Level::High);
         Ok(r?)
     }
@@ -176,7 +187,8 @@ impl SpiNor {
 
     async fn read_at(&mut self, addr: u32, buf: &mut [u8]) -> Result<(), Error> {
         pause(&mut self.last_yield).await;
-        self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT).await?;
+        self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT)
+            .await?;
         let _selected = Selected::new(&mut self.cs);
         let mut r = self.spi.write(&Self::header(READ, addr));
         for chunk in buf.chunks_mut(READ_CHUNK) {
@@ -196,13 +208,18 @@ impl SpiNor {
             // A page program wraps inside its page: stop at the boundary.
             let room = (PAGE_SIZE - addr % PAGE_SIZE) as usize;
             let (now, rest) = data.split_at(room.min(data.len()));
-            self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT).await?;
+            self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT)
+                .await?;
             self.write_enable()?;
             self.cs.set_level(Level::Low);
-            let r = self.spi.write(&Self::header(PP, addr)).and_then(|()| self.spi.write(now));
+            let r = self
+                .spi
+                .write(&Self::header(PP, addr))
+                .and_then(|()| self.spi.write(now));
             self.cs.set_level(Level::High);
             r?;
-            self.wait_idle(Duration::from_micros(100), PROGRAM_TIMEOUT).await?;
+            self.wait_idle(Duration::from_micros(100), PROGRAM_TIMEOUT)
+                .await?;
             addr += now.len() as u32;
             data = rest;
         }
@@ -210,10 +227,12 @@ impl SpiNor {
     }
 
     async fn erase_sector_at(&mut self, addr: u32) -> Result<(), Error> {
-        self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT).await?;
+        self.wait_idle(Duration::from_micros(100), ERASE_TIMEOUT)
+            .await?;
         self.write_enable()?;
         self.command(&Self::header(SE, addr), &mut [])?;
-        self.wait_idle(Duration::from_millis(1), ERASE_TIMEOUT).await
+        self.wait_idle(Duration::from_millis(1), ERASE_TIMEOUT)
+            .await
     }
 }
 
@@ -226,7 +245,11 @@ pub struct SharedNor {
 
 impl SharedNor {
     pub fn new(nor: SpiNor) -> Self {
-        SharedNor { jedec_id: nor.jedec_id(), capacity: nor.capacity(), nor: Mutex::new(nor) }
+        SharedNor {
+            jedec_id: nor.jedec_id(),
+            capacity: nor.capacity(),
+            nor: Mutex::new(nor),
+        }
     }
 
     pub fn jedec_id(&self) -> [u8; 3] {
@@ -241,7 +264,11 @@ impl SharedNor {
         if start % SECTOR_SIZE != 0 || len % SECTOR_SIZE != 0 || len == 0 || end > self.capacity? {
             return None;
         }
-        Some(Partition { nor: &self.nor, start, len })
+        Some(Partition {
+            nor: &self.nor,
+            start,
+            len,
+        })
     }
 }
 
@@ -280,7 +307,11 @@ impl ReadNorFlash for Partition<'_> {
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         self.check(offset, bytes.len(), 1)?;
-        self.nor.lock().await.read_at(self.start + offset, bytes).await
+        self.nor
+            .lock()
+            .await
+            .read_at(self.start + offset, bytes)
+            .await
     }
 
     fn capacity(&self) -> usize {
@@ -308,6 +339,10 @@ impl NorFlash for Partition<'_> {
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         self.check(offset, bytes.len(), 1)?;
-        self.nor.lock().await.program_at(self.start + offset, bytes).await
+        self.nor
+            .lock()
+            .await
+            .program_at(self.start + offset, bytes)
+            .await
     }
 }

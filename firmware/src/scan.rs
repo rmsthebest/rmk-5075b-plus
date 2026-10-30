@@ -59,7 +59,7 @@
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use embassy_futures::select::{select3, select_array};
+use embassy_futures::select::{select_array, select3};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
@@ -170,8 +170,13 @@ fn diag_pass(raw: &[u16; ROW]) {
         d.flips = d.flips.wrapping_add(flips);
         d.raw = *raw;
         // Never panics, even if time ran backwards.
-        if let Some(gap) = d.last_pass.and_then(|last| now.checked_duration_since(last)) {
-            d.max_gap_us = d.max_gap_us.max(gap.as_micros().min(u32::MAX as u64) as u32);
+        if let Some(gap) = d
+            .last_pass
+            .and_then(|last| now.checked_duration_since(last))
+        {
+            d.max_gap_us = d
+                .max_gap_us
+                .max(gap.as_micros().min(u32::MAX as u64) as u32);
         }
         d.last_pass = Some(now);
     });
@@ -210,7 +215,13 @@ pub struct Scan {
 
 impl Scan {
     /// `prio`: the rows' and the switch's EXTI interrupts.
-    pub fn new(rows: [AnyPin; ROW], cols: [AnyPin; COL], win: AnyPin, mac: AnyPin, prio: u8) -> Self {
+    pub fn new(
+        rows: [AnyPin; ROW],
+        cols: [AnyPin; COL],
+        win: AnyPin,
+        mac: AnyPin,
+        prio: u8,
+    ) -> Self {
         for c in &cols {
             c.set_level(Level::Low);
             c.set_mode(RELEASED);
@@ -290,13 +301,20 @@ impl Scan {
     /// over.
     fn take_reading(&mut self, raw: [u16; ROW], now_ms: u64) {
         // The first pass counts as one tick.
-        let dt = self.last_pass.map_or(1, |t| now_ms.saturating_sub(t)).min(u8::MAX as u64) as u8;
+        let dt = self
+            .last_pass
+            .map_or(1, |t| now_ms.saturating_sub(t))
+            .min(u8::MAX as u64) as u8;
         self.last_pass = Some(now_ms);
         self.raw = raw;
         for r in 0..ROW {
             let diff = raw[r] ^ self.state[r];
             for c in 0..COL {
-                self.count[r][c] = if diff & (1 << c) != 0 { self.count[r][c].saturating_add(dt) } else { 0 };
+                self.count[r][c] = if diff & (1 << c) != 0 {
+                    self.count[r][c].saturating_add(dt)
+                } else {
+                    0
+                };
             }
         }
     }
@@ -366,7 +384,11 @@ impl Scan {
             }
         };
         let moved = async move {
-            if mac_low { mac.wait_for_high().await } else { mac.wait_for_low().await }
+            if mac_low {
+                mac.wait_for_high().await
+            } else {
+                mac.wait_for_low().await
+            }
         };
         select3(row_low, moved, POKE.wait()).await;
         crate::watchdog::scan_parked(false);

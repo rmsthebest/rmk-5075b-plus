@@ -49,7 +49,10 @@ impl ExtiInput {
         let pin = Input::new(pin, pull);
         let line = pin.pin().pin();
         // Port D has only pins 0-2 on EXTI (RM2905025 §10.4, Table 10-1).
-        assert!(pin.pin().port() != Port::D || line <= 2, "no EXTI line for this port D pin");
+        assert!(
+            pin.pin().port() != Port::D || line <= 2,
+            "no EXTI line for this port D pin"
+        );
         let mask = 1u16 << line;
         let prev = USED.fetch_or(mask, Ordering::AcqRel);
         assert!(prev & mask == 0, "EXTI line already in use");

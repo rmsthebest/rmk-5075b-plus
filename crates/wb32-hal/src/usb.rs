@@ -80,14 +80,23 @@ fn init_block() {
 /// `wb32_usb_disconnect`: PA11/PA12 inputs, then D+ driven low.
 fn disconnect() {
     gpio::set_mode(Port::A, DM_DP, Mode::input(Pull::None));
-    GPIOA.bsrr().write_value(wb32_pac::gpio::regs::Bsrr(DP << 16));
+    GPIOA
+        .bsrr()
+        .write_value(wb32_pac::gpio::regs::Bsrr(DP << 16));
     gpio::set_mode(Port::A, DP, Mode::output_open_drain());
 }
 
 /// `wb32_usb_connect`: PA11/PA12 to the USB function at full drive, then
 /// suspend detection and the bus interrupts.
 fn connect() {
-    gpio::set_mode(Port::A, DM_DP, Mode { current: 3, ..Mode::alternate(AF_USB) });
+    gpio::set_mode(
+        Port::A,
+        DM_DP,
+        Mode {
+            current: 3,
+            ..Mode::alternate(AF_USB)
+        },
+    );
     USB.power().write(|w| w.set_susen(true));
     USB.intrusbe().write(|w| {
         w.set_rstie(true);
@@ -109,7 +118,8 @@ impl<'d> driver::Driver<'d> for Driver<'d> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.inner.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
+        self.inner
+            .alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
@@ -119,7 +129,8 @@ impl<'d> driver::Driver<'d> for Driver<'d> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.inner.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
+        self.inner
+            .alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -178,4 +189,3 @@ impl<'d> driver::Bus for Bus<'d> {
 fn USB() {
     unsafe { musb::on_interrupt::<UsbInstance>() }
 }
-

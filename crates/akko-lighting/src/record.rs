@@ -47,7 +47,11 @@ const SLEEP_MINUTES: [u32; 8] = [0, 1, 3, 5, 10, 20, 30, 2];
 
 /// Sleep timeout `index` in ms (0: never); out of range is the default.
 pub fn sleep_ms(index: u8) -> u32 {
-    SLEEP_MINUTES.get(index as usize).copied().unwrap_or(SLEEP_MINUTES[SLEEP_DEFAULT as usize]) * 60_000
+    SLEEP_MINUTES
+        .get(index as usize)
+        .copied()
+        .unwrap_or(SLEEP_MINUTES[SLEEP_DEFAULT as usize])
+        * 60_000
 }
 
 /// GU_TOGG: the GUI keys are off (in Windows mode).
@@ -76,9 +80,18 @@ impl Record {
     /// `bytes` if it's a good record.
     pub fn check(bytes: &[u8; LEN]) -> Option<&Record> {
         let crc_ok = match bytes[3] {
-            1 => crc32(&bytes[..V1_CRC_AT]) == u32::from_le_bytes(bytes[V1_CRC_AT..][..4].try_into().unwrap()),
-            2 => crc32(&bytes[..V2_CRC_AT]) == u32::from_le_bytes(bytes[V2_CRC_AT..][..4].try_into().unwrap()),
-            3 => crc32(&bytes[..V3_CRC_AT]) == u32::from_le_bytes(bytes[V3_CRC_AT..][..4].try_into().unwrap()),
+            1 => {
+                crc32(&bytes[..V1_CRC_AT])
+                    == u32::from_le_bytes(bytes[V1_CRC_AT..][..4].try_into().unwrap())
+            }
+            2 => {
+                crc32(&bytes[..V2_CRC_AT])
+                    == u32::from_le_bytes(bytes[V2_CRC_AT..][..4].try_into().unwrap())
+            }
+            3 => {
+                crc32(&bytes[..V3_CRC_AT])
+                    == u32::from_le_bytes(bytes[V3_CRC_AT..][..4].try_into().unwrap())
+            }
             VERSION => crc32(&bytes[..CRC_AT]) == stored_crc(bytes),
             _ => false,
         };
@@ -103,7 +116,11 @@ impl Record {
         Config {
             enable: b[8] != 0,
             mode: b[9],
-            hsv: Hsv { h: b[10], s: b[11], v: b[12] },
+            hsv: Hsv {
+                h: b[10],
+                s: b[11],
+                v: b[12],
+            },
             speed: b[13],
             flags: b[14],
         }
@@ -114,14 +131,22 @@ impl Record {
         rgblight::Config {
             enable: b[15] != 0,
             mode: b[16],
-            hsv: Hsv { h: b[17], s: b[18], v: b[19] },
+            hsv: Hsv {
+                h: b[17],
+                s: b[18],
+                v: b[19],
+            },
             speed: b[20],
         }
     }
 
     pub fn conf(&self) -> ConfInfo {
         let b = &self.0;
-        ConfInfo { record_channel: b[21], record_last_mode: b[22], rgb_enable: b[23] != 0 }
+        ConfInfo {
+            record_channel: b[21],
+            record_last_mode: b[22],
+            rgb_enable: b[23] != 0,
+        }
     }
 
     pub fn colours(&self) -> [u8; MODES.len()] {
@@ -139,7 +164,11 @@ impl Record {
 
     /// The sleep timeout, SLEEP_* (an index for `sleep_ms`).
     pub fn sleep(&self) -> u8 {
-        if self.0[3] < 3 { SLEEP_DEFAULT } else { self.0[SLEEP_AT] }
+        if self.0[3] < 3 {
+            SLEEP_DEFAULT
+        } else {
+            self.0[SLEEP_AT]
+        }
     }
 
     /// Recorded colour `key` of `channel`.
@@ -158,9 +187,21 @@ pub fn encode(board: &Board, flags: u8, flags2: u8, sleep: u8, seq: u32, out: &m
     out[..3].copy_from_slice(&MAGIC);
     out[3] = VERSION;
     out[4..8].copy_from_slice(&seq.to_le_bytes());
-    out[8..15].copy_from_slice(&[m.enable as u8, m.mode, m.hsv.h, m.hsv.s, m.hsv.v, m.speed, m.flags]);
+    out[8..15].copy_from_slice(&[
+        m.enable as u8,
+        m.mode,
+        m.hsv.h,
+        m.hsv.s,
+        m.hsv.v,
+        m.speed,
+        m.flags,
+    ]);
     out[15..21].copy_from_slice(&[l.enable as u8, l.mode, l.hsv.h, l.hsv.s, l.hsv.v, l.speed]);
-    out[21..24].copy_from_slice(&[v.conf.record_channel, v.conf.record_last_mode, v.conf.rgb_enable as u8]);
+    out[21..24].copy_from_slice(&[
+        v.conf.record_channel,
+        v.conf.record_last_mode,
+        v.conf.rgb_enable as u8,
+    ]);
     out[24..40].copy_from_slice(&v.colours);
     for (i, c) in v.channels.iter().flatten().enumerate() {
         out[CHANNELS_AT + i * 2..][..2].copy_from_slice(&c.to_le_bytes());
@@ -181,7 +222,11 @@ pub fn stored_crc(buf: &[u8; LEN]) -> u32 {
 /// The newer of two records, by `seq` (wrapping).
 pub fn newer<'a>(a: Option<&'a Record>, b: Option<&'a Record>) -> Option<&'a Record> {
     match (a, b) {
-        (Some(a), Some(b)) => Some(if b.seq().wrapping_sub(a.seq()) as i32 > 0 { b } else { a }),
+        (Some(a), Some(b)) => Some(if b.seq().wrapping_sub(a.seq()) as i32 > 0 {
+            b
+        } else {
+            a
+        }),
         (a, b) => a.or(b),
     }
 }
@@ -257,7 +302,10 @@ mod tests {
         let r = Record::check(&buf).unwrap();
         assert_eq!(r.flags(), 0);
         assert_eq!(r.sleep(), SLEEP_DEFAULT);
-        assert_eq!(Board::new(Some(r), &DEFAULTS, false, 0).engine.config, b.engine.config);
+        assert_eq!(
+            Board::new(Some(r), &DEFAULTS, false, 0).engine.config,
+            b.engine.config
+        );
     }
 
     #[test]
