@@ -9,8 +9,13 @@
 # is all the tests read: a cargo build during a run can't swap an image under
 # them. AKKO_SIM_IMAGES= points the tests at another snapshot. The ROM
 # suites also read the ROM dump from $ROM_WORK/dump (../rom/README.md).
+# One run at a time: a second would swap the snapshot under the first's
+# tests. The akko-rmk snapshot's sha256 is printed for the bench to check.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+mkdir -p sim-rs/target
+exec 9>sim-rs/target/run.lock
+flock -n 9 || { echo "another sim-rs/run.sh is running" >&2; exit 1; }
 
 build=target/sim-rs
 # m1a needs boot-guard's always-dfu feature, so it's built on its own.
@@ -44,6 +49,7 @@ rm "$images.new/qmk.bin"
 [ "$sha" = "$qmk_sha" ] || { echo "$qmk isn't the known-good QMK build ($sha)" >&2; exit 1; }
 cp "$qmk" "$images.new/qmk-via"
 rm -rf "$images" && mv "$images.new" "$images"
+echo "snapshot akko-rmk $(sha256sum "$images/akko-rmk" | cut -d' ' -f1)"
 
 cd sim-rs
 cargo test --release --no-fail-fast "$@"

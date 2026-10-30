@@ -17,9 +17,17 @@ Safety rules, as tools/flash.sh and the sim-first workflow:
     tests loaded (sim-rs/target/images/akko-rmk), ELF + bin copied to
     target/bench/, with a stamp holding its sha256. "Flash RMK" flashes that
     frozen copy and only after precheck.py passes on it again and its hash
-    matches the stamp.
-  - "Flash QMK" flashes ../akko_5075b_plus_fixes.bin and only if its hash is
-    the known-good one below.
+    matches the stamp. A flash copies its image into a directory of its own
+    first and checks, prechecks and flashes that copy, so nothing that
+    changes target/bench during the wait for DFU reaches the keyboard.
+  - "Flash QMK" flashes ../akko_5075b_plus_fixes.bin (a copy, as above) and
+    only if its hash is the known-good one below.
+  - A flash that fails or is cut off leaves a marker (target/bench/
+    flash-incomplete) until a flash succeeds: "Leave DFU" is refused
+    meanwhile, as the half-written image could boot erased vectors.
+  - The tests run without AKKO_SIM_IMAGES, and run.sh prints the sha256 of
+    the akko-rmk it snapshotted; the frozen copy must match it, so an image
+    another run swapped in isn't frozen.
   - DFU: "Enter DFU", and flashing, send a running akko-rmk there over USB
     (VIA's bootloader jump, as Vial's button). Anything else (QMK, or an
     image that doesn't answer) is put there by hand (unplug, hold Esc, plug
@@ -37,6 +45,7 @@ import signal
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
@@ -55,6 +64,8 @@ FROZEN_BIN = BENCH / "akko-rmk.bin"
 STAMP = BENCH / "akko-rmk.json"
 # The image last flashed from here, and the sign-off checklist's results.
 FLASHED = BENCH / "flashed.json"
+# Written before a DFU download, removed once one succeeds.
+FLASH_INCOMPLETE = BENCH / "flash-incomplete"
 CHECKS = Path(__file__).with_name("signoff.json")
 RESULTS_FILE = BENCH / "signoff.json"
 LOGS = BENCH / "logs"
@@ -165,13 +176,13 @@ class Job:
         if self.echo:
             print(line, flush=True)
 
-    def run(self, *cmd, cwd=ROOT):
+    def run(self, *cmd, cwd=ROOT, env=None):
         if self.cancel.is_set():
             raise Cancelled
         self.say("$ " + " ".join(str(c) for c in cmd))
         self.proc = subprocess.Popen(
             [str(c) for c in cmd], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, errors="replace", start_new_session=True)
+            text=True, errors="replace", start_new_session=True, env=env)
         for line in self.proc.stdout:
             self.say(line.rstrip("\n"))
         code = self.proc.wait()
@@ -242,11 +253,24 @@ def wait_for_dfu(job):
     time.sleep(0.5)
 
 
+def private_copy(*paths):
+    """Copies of `paths` in a directory of their own (the caller removes it)."""
+    BENCH.mkdir(parents=True, exist_ok=True)
+    d = Path(tempfile.mkdtemp(prefix="flash-", dir=BENCH))
+    copies = []
+    for p in paths:
+        shutil.copy2(p, d / p.name)
+        copies.append(d / p.name)
+    return d, copies
+
+
 def flash(job, bin_path):
     wait_for_dfu(job)
     job.cancellable = False
     job.say(f"Flashing {bin_path.name} ({bin_path.stat().st_size} bytes), don't unplug.")
+    FLASH_INCOMPLETE.write_text(time.strftime("%Y-%m-%d %H:%M") + f" {bin_path.name}\n")
     job.run(DFU, "-D", bin_path)
+    FLASH_INCOMPLETE.unlink()
     job.run(DFU, "-R")
     job.cancellable = True
     job.say("Waiting for the keyboard to come back...")
@@ -271,15 +295,20 @@ def cargo_totals(lines):
 
 def do_test(job):
     start = len(job.log)
+    env = {k: v for k, v in os.environ.items() if k != "AKKO_SIM_IMAGES"}
     try:
-        job.run("sim-rs/run.sh")
+        job.run("sim-rs/run.sh", env=env)
     finally:
         total = cargo_totals(job.log[start:])
         job.say(f"Sim: {total['passed']} passed, {total['failed']} failed, {total['ignored']} ignored")
     if total["failed"] or total["ignored"] or not total["passed"]:
         raise RuntimeError("not every test passed, image not frozen")
+    tested = [m.group(1) for line in job.log[start:]
+              if (m := re.match(r"snapshot akko-rmk ([0-9a-f]{64})$", line))]
     BENCH.mkdir(parents=True, exist_ok=True)
     shutil.copy2(TESTED_ELF, FROZEN_ELF)
+    if tested != [sha256(FROZEN_ELF)]:
+        raise RuntimeError("the akko-rmk snapshot isn't the one the tests ran (another run.sh?), not frozen")
     job.run("rust-objcopy", "-O", "binary", FROZEN_ELF, FROZEN_BIN)
     job.run(sys.executable, "-I", "tools/precheck.py", FROZEN_ELF, FROZEN_BIN)
     rev = subprocess.run(["git", "describe", "--always", "--dirty"], cwd=ROOT,
@@ -294,8 +323,14 @@ def do_flash_rmk(job):
     st = image_state()["frozen"]
     if not st or not st["ok"]:
         raise RuntimeError("no tested image (or it changed since the tests): run the sim tests first")
-    job.run(sys.executable, "-I", "tools/precheck.py", FROZEN_ELF, FROZEN_BIN)
-    flash(job, FROZEN_BIN)
+    d, (elf, binp) = private_copy(FROZEN_ELF, FROZEN_BIN)
+    try:
+        if sha256(binp) != st["sha256"]:
+            raise RuntimeError("the frozen image changed while it was copied: run the sim tests again")
+        job.run(sys.executable, "-I", "tools/precheck.py", elf, binp)
+        flash(job, binp)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
     FLASHED.write_text(json.dumps({"sha256": st["sha256"], "git": st["git"], "time": time.strftime("%Y-%m-%d %H:%M")}))
 
 
@@ -327,9 +362,13 @@ def record_check(item, result, note):
 
 
 def do_flash_qmk(job):
-    if sha256(QMK_BIN) != QMK_SHA:
-        raise RuntimeError(f"{QMK_BIN} is not the known-good QMK image")
-    flash(job, QMK_BIN)
+    d, (binp,) = private_copy(QMK_BIN)
+    try:
+        if sha256(binp) != QMK_SHA:
+            raise RuntimeError(f"{QMK_BIN} is not the known-good QMK image")
+        flash(job, binp)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def keyboard_nodes():
@@ -584,6 +623,9 @@ def do_enter_dfu(job):
 
 
 def do_reset(job):
+    if FLASH_INCOMPLETE.exists():
+        raise RuntimeError("the last flash didn't finish (" + FLASH_INCOMPLETE.read_text().strip()
+                           + "): flash again; leaving DFU could boot a half-written image")
     job.run(DFU, "-R")
 
 
@@ -625,6 +667,7 @@ class Handler(BaseHTTPRequestHandler):
             since = int(parse_qs(url.query).get("since", ["0"])[0])
             return self.send(200, json.dumps({
                 "keyboard": keyboard_state(), "image": image_state(),
+                "flash_incomplete": FLASH_INCOMPLETE.exists(),
                 "qmk": {"present": QMK_BIN.exists(), "path": str(QMK_BIN)},
                 "signoff": signoff_state(),
                 "job": {"name": JOB.name, "status": JOB.status, "prompt": JOB.prompt,

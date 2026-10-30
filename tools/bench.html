@@ -134,7 +134,7 @@ function render(s) {
     b.disabled = running
       || (a === "flash-rmk" && !(f && f.ok))
       || (a === "flash-qmk" && !s.qmk.present)
-      || (a === "reset" && k.mode !== "dfu")
+      || (a === "reset" && (k.mode !== "dfu" || s.flash_incomplete))
       || (a === "dfu" && k.mode !== "rmk")
       || (a === "capture" && !(k.mode === "rmk" || k.mode === "qmk"));
   });

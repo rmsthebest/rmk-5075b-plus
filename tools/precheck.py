@@ -4,6 +4,8 @@
 The keyboard can only reach DFU through our own reset code (no SWD, no
 BOOT0), so every image is checked before it goes near the keyboard:
 
+  - the BIN is the ELF's image, byte for byte (the checks read the ELF's
+    symbols and the BIN's bytes, and the BIN is what gets flashed)
   - vector table: SP in RAM below the magic word, Reset/HardFault/etc. are
     Thumb addresses in flash, HardFault and DefaultHandler are boot-guard's
   - Reset calls boot-guard's __pre_init first
@@ -22,6 +24,7 @@ import re
 import struct
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 FLASH = (0x0800_0000, 256 * 1024)  # WB32FQ95xC
@@ -39,8 +42,9 @@ GUARD_SYMBOLS = [
     "__boot_guard_pool",
     "__boot_guard_pre_init_pool",
 ]
-# Literal pool of __boot_guard_enter_rom/__boot_guard_reset_to_dfu, in order.
-POOL = [0x1FFF_E000, MAGIC_ADDR, 0xDEAD_BEEF, 0xE000_ED0C, 0x05FA_0004]
+# Literal pool of __boot_guard_enter_rom/__boot_guard_reset_to_dfu, in order:
+# ROM, the crash count's address and magic, the DFU magic word, AIRCR.
+POOL = [0x1FFF_E000, 0x2000_7100, 0x4352_5348, MAGIC_ADDR, 0xDEAD_BEEF, 0xE000_ED0C, 0x05FA_0004]
 # Literal pool of the full __pre_init: magic, PWR, RCC, GPIOC (GPIOA and the
 # small masks are encoded as immediates and covered by the fingerprint).
 PRE_INIT_POOL = [MAGIC_ADDR, 0xDEAD_BEEF, 0x4001_0000, 0x4001_0C00, 0x4000_0800]
@@ -97,6 +101,11 @@ def main():
             errors.append(msg)
 
     data = Path(binp).read_bytes()
+    with tempfile.TemporaryDirectory() as d:
+        from_elf = Path(d) / "image.bin"
+        run("rust-objcopy", "-O", "binary", elf, from_elf)
+        if from_elf.read_bytes() != data:
+            report([f"{binp} is not {elf}'s image (rust-objcopy -O binary differs)"])
     syms = symbols(elf)
     in_flash = lambda a: FLASH[0] <= a < FLASH[0] + len(data)
 
