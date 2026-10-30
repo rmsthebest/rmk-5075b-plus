@@ -185,7 +185,7 @@ async fn init_storage(
     flash: Partition<'static>,
     config: &StorageConfig,
 ) -> &'static mut Storage<Partition<'static>> {
-    slot.write(Storage::new(flash, config).await)
+    Storage::new_in(slot.uninit(), flash, config).await
 }
 
 /// Builds the keymap's data and settings in their .ram2 slots; out of line,
