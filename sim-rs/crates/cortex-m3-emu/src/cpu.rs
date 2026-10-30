@@ -64,12 +64,6 @@ pub struct Cpu {
     /// Times the core went to sleep.
     pub sleeps: u64,
     pub diags: Vec<CoreDiag>,
-    /// Lockstep with another simulator's trace: asynchronous exceptions
-    /// are taken only through `take_exception`, where the other one took
-    /// them, and a sleeping core waits to be woken the same way.
-    pub lockstep: bool,
-    /// In lockstep, the PPB addresses read (the caller empties it).
-    pub ppb_reads: Vec<u32>,
     /// Functions stubbed out: reaching one of these addresses returns at
     /// once (to LR) with r0 set to the value, as Renode's `cpu AddHook
     /// <addr> "self.SetRegisterUlong(0, v); self.PC = self.LR"`. For
@@ -132,8 +126,6 @@ impl Cpu {
             cycles: 0,
             sleeps: 0,
             diags: Vec::new(),
-            lockstep: false,
-            ppb_reads: Vec::new(),
             stubs: HashMap::new(),
             debugger: false,
             debug_halt: false,
@@ -160,7 +152,6 @@ impl Cpu {
             self.cycles,
             self.sleeps,
             std::mem::take(&mut self.diags),
-            self.lockstep,
             std::mem::take(&mut self.stubs),
             self.debugger,
         );
@@ -171,7 +162,6 @@ impl Cpu {
             self.cycles,
             self.sleeps,
             self.diags,
-            self.lockstep,
             self.stubs,
             self.debugger,
         ) = keep;
@@ -190,12 +180,6 @@ impl Cpu {
     /// The address of the last instruction executed.
     pub fn last_pc(&self) -> u32 {
         self.cur_pc
-    }
-
-    /// Enters exception `exc` now, returning to the current PC (lockstep).
-    pub fn take_exception(&mut self, bus: &mut impl Bus, exc: u16) {
-        let ret = self.r[PC];
-        self.enter(bus, exc, ret);
     }
 
     pub fn handler_mode(&self) -> bool {
@@ -367,9 +351,6 @@ impl Cpu {
         if (0xE000_0000..0xE010_0000).contains(&addr) {
             let now = self.now;
             self.ppb.ipsr = self.ipsr;
-            if self.lockstep {
-                self.ppb_reads.push(addr);
-            }
             let v = self.ppb.read(addr, size, now, &mut self.diags);
             return self.ppb_side_effects(v);
         }
@@ -485,7 +466,7 @@ impl Cpu {
         self.sync_clock(bus);
         self.ppb.tick(self.now);
         self.update_irqs(bus);
-        if !self.lockstep && self.take_pending(bus) {
+        if self.take_pending(bus) {
             return;
         }
         if std::mem::take(&mut self.tail_chain) {
@@ -557,8 +538,7 @@ impl Cpu {
             // The return replaces the refill. With an exception pending
             // that preempts what it returned to, it tail-chains.
             let pending = self.ppb.highest_pending();
-            self.tail_chain =
-                !self.lockstep && matches!(pending, Some((_, g)) if g < self.execution_priority());
+            self.tail_chain = matches!(pending, Some((_, g)) if g < self.execution_priority());
             cycles += if self.tail_chain {
                 crate::timing::TAIL_CHAIN
             } else {
