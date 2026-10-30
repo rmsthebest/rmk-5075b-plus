@@ -40,6 +40,8 @@ const HANDLERS: [&str; 12] = [
 // Renode's flat 100 MIPS; hardware-gaps step 3) they're kept here:
 //   step 3: on 6.00 M, 74 sleeps; off 0.22 M, 76; asleep 0.07 M, 18; key held
 //   33.4 M; press 5 steps (all 10), release 43-56 (mean 48.5).
+//   2026-10-30, presses over a whole frame (160): press 5, 12 on a frame
+//   send (mean 5.2); release 57 worst (mean 48.5).
 const MAX_INSNS_LIGHTS_ON: f64 = 6_800_000.0;
 const MAX_WAKES_LIGHTS_ON: f64 = 90.0;
 const MAX_INSNS_LIGHTS_OFF: f64 = 300_000.0;
@@ -50,10 +52,9 @@ const MAX_INSNS_KEY_HELD: f64 = 37_000_000.0;
 // Press (release) to IN endpoint armed, in 100 us steps: worst over the
 // presses in `press_to_report_latency`. Releases wait out the 5 ms debounce.
 // A press is 5 steps (3-4 at Renode's 100 MIPS), unless it lands on a WS2812
-// frame send (about 0.55 ms, lights on): the scan waits for it, about 10
-// steps. Which press lands on one hangs on SysTick's timing: none does at
-// step 3.
-const MAX_PRESS_WORST: u32 = 11;
+// frame send (lights on): the scan waits for it, 12 steps at step 3. The
+// presses sweep a whole frame, so the worst always includes that case.
+const MAX_PRESS_WORST: u32 = 12;
 const MAX_RELEASE_WORST: u32 = 60;
 
 /// From a blank flash, configured, then past the USB key's 2 s of white and
@@ -199,13 +200,15 @@ fn power_with_a_key_held() {
     t.no_errors();
 }
 
-/// Presses and releases at 10 phases of the millisecond, after idling (so
-/// an event-driven scan is parked when they come).
+/// Presses and releases after idling (so an event-driven scan is parked when
+/// they come) for 50 ms plus 0-16 ms in 100 us steps: the lighting frames run
+/// on from the last key, so this lands a press on every phase of a 16 ms frame,
+/// its WS2812 send included.
 #[test]
 fn press_to_report_latency() {
     let mut t = boot();
     let (mut presses, mut releases) = (Vec::new(), Vec::new());
-    for phase in 0..10 {
+    for phase in 0..160 {
         t.b.run_for(0.05 + phase as f64 * 0.0001);
         presses.push(press_latency(&mut t, KEY_A, true));
         t.b.run_for(0.03);
