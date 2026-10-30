@@ -60,6 +60,9 @@ pub struct SysTick {
     pub rvr: u32,
     /// The counter's value at `since`; meaningful while enabled.
     value: u32,
+    /// With `value` 0: the reload it takes on the next clock, RVR as it was
+    /// at that zero (a later RVR write waits for the zero after).
+    loaded: u32,
     since: u64,
     /// When the counter next reaches 0 (ticks).
     next_zero: u64,
@@ -169,6 +172,8 @@ impl Ppb {
     /// The core clock changes at `now`: the counters carry on from where
     /// they are at the new rate.
     pub fn set_hclk(&mut self, hz: u64, now: u64) {
+        // A zero already due happened at the old rate.
+        self.tick(now);
         let value = self.systick_value(now);
         let cyc = self.cyccnt(now);
         self.hclk_hz = hz;
@@ -211,6 +216,7 @@ impl Ppb {
         };
         let st = &mut self.systick;
         st.value = value;
+        st.loaded = rvr;
         st.since = now;
         st.next_zero = next_zero;
     }
@@ -224,11 +230,17 @@ impl Ppb {
         if clocks <= st.value as u64 {
             return st.value - clocks as u32;
         }
+        // Past zero: reload, then count down. The reload at a zero handled
+        // as `since` is `loaded`; any later one is RVR's.
+        let first = if st.value == 0 { st.loaded } else { st.rvr };
+        let k = clocks - st.value as u64 - 1;
+        if k <= first as u64 {
+            return first - k as u32;
+        }
         if st.rvr == 0 {
             return 0;
         }
-        // Past zero: reload, then count down, with a period of RVR + 1.
-        let after = (clocks - st.value as u64 - 1) % (st.rvr as u64 + 1);
+        let after = (k - first as u64 - 1) % (st.rvr as u64 + 1);
         st.rvr - after as u32
     }
 
@@ -245,6 +257,7 @@ impl Ppb {
         // Rebase at the zero just passed, so later reads follow RVR.
         let zero = st.next_zero;
         self.systick.value = 0;
+        self.systick.loaded = st.rvr;
         self.systick.since = zero;
         self.systick.next_zero = if st.rvr == 0 {
             u64::MAX
@@ -341,13 +354,22 @@ impl Ppb {
                 }
                 0x014 => self.systick.rvr,
                 0x018 => self.systick_value(now),
-                // CALIB: no reference clock, no exact 10 ms value.
-                0x01C => 0xC000_0000,
+                // CALIB: the reference clock exists (HCLK/8, RM 7.2.3), so
+                // NOREF is 0; SKEW, with no exact 10 ms value (TENMS 0).
+                0x01C => 0x4000_0000,
                 o @ (0x100 | 0x104) => irq_word(self.enabled, (o - 0x100) / 4),
                 o @ (0x180 | 0x184) => irq_word(self.enabled, (o - 0x180) / 4),
                 o @ (0x200 | 0x204) => irq_word(self.pending, (o - 0x200) / 4),
                 o @ (0x280 | 0x284) => irq_word(self.pending, (o - 0x280) / 4),
                 o @ (0x300 | 0x304) => irq_word(self.active, (o - 0x300) / 4),
+                // The NVIC's registers for interrupts past ICTR's 64 are
+                // RAZ/WI (ARMv7-M B3.4.2).
+                0x108..=0x13C
+                | 0x188..=0x1BC
+                | 0x208..=0x23C
+                | 0x288..=0x2BC
+                | 0x308..=0x33C
+                | 0x440..=0x4EF => 0,
                 o @ 0x400..=0x43F => {
                     let base = (o - 0x400) as usize + 16;
                     u32::from_le_bytes(self.priority[base..base + 4].try_into().unwrap())
@@ -435,6 +457,12 @@ impl Ppb {
                     }
                 }
                 o @ (0x280 | 0x284) => self.pending &= !irq_bits((o - 0x280) / 4),
+                0x108..=0x13C
+                | 0x188..=0x1BC
+                | 0x208..=0x23C
+                | 0x288..=0x2BC
+                | 0x308..=0x33C
+                | 0x440..=0x4EF => {}
                 0xD04 => self.icsr_write(v),
                 0xD08 => self.vtor = v & 0xFFFF_FF80,
                 0xD0C => {

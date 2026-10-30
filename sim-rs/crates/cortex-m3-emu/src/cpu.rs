@@ -1118,6 +1118,14 @@ impl Cpu {
     }
 
     fn enter_sleep(&mut self, bus: &mut impl Bus, kind: Sleep) {
+        // A wake-up already there: the instruction completes without the
+        // core ever sleeping, so the chip sees no (deep) sleep either.
+        self.sleep = kind;
+        let woken = self.should_wake();
+        self.sleep = Sleep::Awake;
+        if woken {
+            return;
+        }
         if bus.sleep(self.ppb.sleepdeep()) {
             self.sleep = kind;
             self.sleeps += 1;

@@ -454,6 +454,21 @@ fn wfe_consumes_a_pending_event_then_sleeps() {
     assert_eq!(cpu.sleeps, 1);
 }
 
+#[test]
+fn wfi_with_a_wake_up_pending_doesnt_sleep() {
+    // ARMv7-M B1.5.19: WFI with an interrupt pending that would preempt
+    // (PRIMASK aside) completes at once. Under PRIMASK, SysTick pends after
+    // the first sleep and every later WFI falls through: no sleep at all,
+    // so no deep sleep for the chip to act on.
+    let (mut cpu, mut bus) = systick_machine();
+    cpu.primask = true;
+    let period = 100 * CLOCK;
+    cpu.run_until(&mut bus, 3 * period + period / 2);
+    assert!(cpu.ppb.pending & (1 << 15) != 0, "SysTick pending");
+    assert_eq!(cpu.sleeps, 1, "only the WFI before it pended slept");
+    assert_eq!(cpu.sleep, cortex_m3_emu::Sleep::Awake);
+}
+
 /// The event input sets the event register (ARM DDI 0403E B1.5.18): it
 /// ends a WFE, not a WFI.
 #[test]
@@ -573,9 +588,56 @@ fn systick_cvr_write_reloads_on_the_next_clock() {
 }
 
 #[test]
+fn nvic_registers_past_the_implemented_lines_are_raz_wi() {
+    // ARMv7-M B3.4.2; the vendor's stop code clears ICPR0-7 (CMSIS loops).
+    let mut s = Syst::new();
+    for bank in [0x100, 0x180, 0x200, 0x280, 0x300] {
+        for word in 2..16 {
+            let a = 0xE000_E000 + bank + word * 4;
+            s.ppb.write(a, Size::Word, u32::MAX, 0, &mut s.diags);
+            assert_eq!(s.ppb.read(a, Size::Word, 0, &mut s.diags), 0);
+        }
+    }
+    assert!(s.diags.is_empty(), "{:?}", s.diags);
+    assert_eq!(s.ppb.pending, 0);
+}
+
+#[test]
+fn an_rvr_write_waits_for_the_next_zero() {
+    // ARMv7-M B3.3: RVR "is loaded into the current value register when the
+    // counter reaches 0"; the period under way keeps the old value.
+    let mut s = Syst::new();
+    s.write(0, SYST_RVR, 999);
+    s.write(0, SYST_CVR, 0);
+    s.write(0, SYST_CSR, 5);
+    assert_eq!(s.cvr(1000), 0, "the first zero");
+    s.write(1100, SYST_RVR, 4999);
+    assert_eq!(s.cvr(1100), 900, "the period under way counts on from 999");
+    assert_eq!(s.cvr(2000), 0, "and ends on time");
+    assert_eq!(s.cvr(2001), 4999, "the new RVR at that zero");
+    assert_eq!(s.cvr(7000), 0);
+}
+
+#[test]
+fn a_zero_due_at_a_clock_change_still_fires() {
+    // The core syncs its clock before ticking SysTick: a zero due by then
+    // was reached at the old rate and must still pend the interrupt.
+    let mut s = Syst::new();
+    s.write(0, SYST_RVR, 999);
+    s.write(0, SYST_CVR, 0);
+    s.write(0, SYST_CSR, 7);
+    s.ppb.set_hclk(8_000_000, 1000 * CLOCK);
+    assert_ne!(s.ppb.pending & 1 << 15, 0, "pended at the zero");
+    let cvr = s.ppb.read(SYST_CVR, Size::Word, 1000 * CLOCK, &mut s.diags);
+    assert_eq!(cvr, 0);
+}
+
+#[test]
 fn systick_external_reference_is_hclk_over_8() {
     // CLKSOURCE 0: the WB32's external reference is HCLK/8 (RM 7.2.3).
     let mut s = Syst::new();
+    let calib = s.ppb.read(0xE000_E01C, Size::Word, 0, &mut s.diags);
+    assert_eq!(calib >> 31, 0, "NOREF clear: there is a reference");
     s.write(0, SYST_RVR, 999);
     s.write(0, SYST_CVR, 0);
     s.write(0, SYST_CSR, 3);
