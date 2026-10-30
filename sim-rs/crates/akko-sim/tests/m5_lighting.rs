@@ -419,7 +419,8 @@ fn a_torn_lighting_save_keeps_the_one_before() {
 }
 
 /// A saved dimmer setting is gone after EE_CLR's reboot: the defaults are
-/// saved in its place (into the other sector).
+/// saved in its place (into the other sector). The release comes while
+/// that save's sector erase (60 ms) still runs, and must still reboot.
 #[test]
 fn ee_clr_resets_the_saved_lighting() {
     let mut t = boot_to_lighting();

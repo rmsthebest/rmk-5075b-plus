@@ -32,6 +32,10 @@ pub enum Diag {
         addr: u32,
         write: Option<u32>,
     },
+    /// A fetch or read from the flash macro (main flash, or the ROM in its
+    /// system memory) while the FMC was erasing or programming it. The
+    /// sim gave the old contents; the chip can't (RM 26.1).
+    FlashBusy { addr: u32 },
 }
 
 impl fmt::Display for Diag {
@@ -60,6 +64,9 @@ impl fmt::Display for Diag {
                     f,
                     "LOCKED write dropped: {block}+0x{off:03x} = 0x{value:08x}"
                 )
+            }
+            Diag::FlashBusy { addr } => {
+                write!(f, "flash read at 0x{addr:08x} while the FMC was busy")
             }
             Diag::ClockNotReady { src } => {
                 let name = ["MHSI", "FHSI", "PLL", "HSE"][src as usize & 3];

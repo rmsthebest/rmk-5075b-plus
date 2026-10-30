@@ -4,8 +4,10 @@
 //!
 //! FMC:
 //!   0x00 CON   an op is <op bits 4:0, written with 0x7F5F0D40> then, after
-//!              both keys, CON = 0x800080 (start); bit 7 reads as busy, which
-//!              this model never is. 0x5F0000 clears the op and locks again.
+//!              both keys, CON = 0x800080 (start); bit 7 reads as busy for
+//!              the op's time (`op_ticks`, the datasheet's tPROG 2.1 ms,
+//!              tERASE 6.4 ms, tME 25.6 ms; clearing the latch takes none).
+//!              0x5F0000 clears the op and locks again.
 //!   0x08 STAT  bit 2: the last op failed (locked, or an address no op may
 //!              touch)
 //!   0x0C KEY   0x5188DA08 then 0x12586590 unlocks one op
@@ -24,11 +26,24 @@
 //!   0x34 BTSR   2: booted from user flash (the ROM is entered by a jump)
 
 use crate::chip::{FLASH_BASE, FLASH_SIZE};
+use cortex_m3_emu::TICK_HZ;
 
 const KEY1: u32 = 0x5188_DA08;
 const KEY2: u32 = 0x1258_6590;
 const INFO_LO: u32 = 0x1FFF_F400;
 const INFO_HI: u32 = 0x1FFF_F800;
+const US: u64 = TICK_HZ / 1_000_000;
+
+/// How long an op keeps the flash busy (DS1905020 table "Flash memory
+/// characteristics": tPROG, tERASE, tME).
+pub fn op_ticks(op: u8) -> u64 {
+    match op {
+        0x0C => 2_100 * US,
+        0x08 => 6_400 * US,
+        0x1B => 25_600 * US,
+        _ => 0,
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Fmc {
@@ -38,6 +53,10 @@ pub struct Fmc {
     keys: Vec<u32>,
     op: u32,
     latch: [u32; 64],
+    /// When the op under way ends.
+    pub busy_until: u64,
+    /// CON reads that found it busy.
+    pub busy_reads: u32,
     /// What ran: (op, page address).
     pub ops: Vec<(u8, u32)>,
     /// What was refused, as fmc.py's "FMC ERROR" lines.
@@ -53,6 +72,8 @@ impl Default for Fmc {
             keys: Vec::new(),
             op: 0,
             latch: [0; 64],
+            busy_until: 0,
+            busy_reads: 0,
             ops: Vec::new(),
             errors: Vec::new(),
         }
@@ -70,8 +91,16 @@ fn page_ok(a: u32) -> bool {
 }
 
 impl Fmc {
-    pub fn read(&self, off: u32) -> u32 {
+    pub fn busy(&self, now: u64) -> bool {
+        now < self.busy_until
+    }
+
+    pub fn read(&mut self, off: u32, now: u64) -> u32 {
         match off {
+            0x00 if self.busy(now) => {
+                self.busy_reads += 1;
+                self.con | 0x80
+            }
             0x00 => self.con & !0x80,
             0x08 => self.stat,
             0x10 => self.addr,
@@ -80,12 +109,15 @@ impl Fmc {
         }
     }
 
-    pub fn write(&mut self, off: u32, v: u32) -> Option<Fill> {
+    pub fn write(&mut self, off: u32, v: u32, now: u64) -> Option<Fill> {
         let mut fill = None;
         match off {
             0x00 => {
                 if v & 0x80_0000 != 0 && v & 0x80 != 0 {
                     fill = self.run(self.op as u8);
+                    if fill.is_some() {
+                        self.busy_until = now + op_ticks(self.op as u8);
+                    }
                 } else if v == 0x5F_0000 {
                     self.op = 0;
                 } else {

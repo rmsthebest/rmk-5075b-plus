@@ -5,6 +5,7 @@
 
 use akko_sim::usb_host::{UsbEvent, cmd, hex};
 use akko_sim::{Board, Rom};
+use wb32_sim::{Diag, fmc};
 
 const BULK_EP: u32 = 1;
 const APP: u32 = 0x0800_0000;
@@ -120,8 +121,15 @@ fn an_unknown_command_is_invalid(rom: Rom) {
 fn a_page_is_erased_written_and_read_back(rom: Rom) {
     let mut t = T::start(rom);
     t.wait_for_enumeration();
+    t.b.chip.take_diags();
+    let start = t.b.cpu.now;
     t.command(0x5E, APP, 1, &[]);
     t.reply_should_be("5e 00");
+    // The reply waits for the erase (tERASE), polled from SRAM.
+    let erased = t.b.cpu.now;
+    assert!(erased - start >= fmc::op_ticks(0x08), "{}", erased - start);
+    let polls = t.b.chip.fmc.busy_reads;
+    assert!(polls > 0);
     assert!(
         t.b.chip.fmc.ops.contains(&(0x08, APP)),
         "{:?}",
@@ -129,6 +137,15 @@ fn a_page_is_erased_written_and_read_back(rom: Rom) {
     );
     t.command(0x6A, APP, 16, &TINY_APP);
     t.reply_should_be("6a 00");
+    assert!(
+        t.b.chip.fmc.busy_reads > polls,
+        "the program was waited for"
+    );
+    // Nothing ran from or read the flash macro meanwhile.
+    let busy: Vec<_> = (t.b.chip.take_diags().into_iter())
+        .filter(|d| matches!(d, Diag::FlashBusy { .. }))
+        .collect();
+    assert_eq!(busy, vec![]);
     assert!(
         t.b.chip.fmc.ops.ends_with(&[(0x0C, APP)]),
         "{:?}",

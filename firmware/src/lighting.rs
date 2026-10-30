@@ -13,9 +13,10 @@
 //! Keys reach `Board::key` as ActionEvents. `action_hook`, which RMK's
 //! keyboard calls first (third_party/rmk: set_action_hook), keeps from the
 //! keyboard what the board takes: key presses while recording colours, and
-//! EE_CLR, whose release RMK only sees once its 3 s hold has reset the
-//! settings (RMK then erases its storage, the keymap's, and reboots; QMK
-//! resets in place). As QMK's, the reset keeps the selected device: the
+//! EE_CLR: once its 3 s hold has reset the settings and saved them, its
+//! release has RMK erase its storage, the keymap's, and reboot (QMK resets
+//! in place). The release is handled here, after the save: one that comes
+//! while the save runs waits for it (a sector erase is 60 ms or more). As QMK's, the reset keeps the selected device: the
 //! defaults are saved with it, so the keyboard comes back on it.
 //! Unlike QMK, recording lets key releases through, so a key held when it
 //! starts doesn't stick.
@@ -122,8 +123,6 @@ use crate::keymap::{SWITCH_MAC, SWITCH_WIN};
 
 /// The board is recording colours: key presses are its.
 static RECORDING: AtomicBool = AtomicBool::new(false);
-/// EE_CLR's hold has reset the lighting: its release may go to RMK.
-static EE_CLR_DONE: AtomicBool = AtomicBool::new(false);
 /// A Shift was held at the last action (QMK's RGB keys go backwards with
 /// it). Read as the action's event is handled, a moment later.
 static SHIFTED: AtomicBool = AtomicBool::new(false);
@@ -468,7 +467,7 @@ pub fn action_hook(a: &mut Action, e: &KeyboardEvent, mods: ModifierCombination)
     }
     let key = board_key(a);
     if key == Key::EeClr {
-        return !e.pressed && EE_CLR_DONE.load(Ordering::Relaxed);
+        return false;
     }
     let exempt = matches!(key, Key::RpPlay(_) | Key::RpEnd | Key::RgbMod | Key::Fn);
     !(RECORDING.load(Ordering::Relaxed) && e.pressed && !exempt)
@@ -488,6 +487,8 @@ pub struct Lighting {
     boost: Output,
     /// When HS_CT_A went down, while it's held and hasn't fired.
     ct_a_since: Option<u32>,
+    /// EE_CLR's hold has reset the settings and saved them.
+    ee_clr_done: bool,
     /// When USB was suspended, while it is.
     usb_suspended_at: Option<u32>,
     /// When the last frame ran (ms), for `SUSPENDED_FRAME_MS`.
@@ -522,6 +523,7 @@ impl Lighting {
             cable,
             boost,
             ct_a_since: None,
+            ee_clr_done: false,
             usb_suspended_at: None,
             frame_at: 0,
             usb_configured_at: None,
@@ -617,7 +619,7 @@ impl Lighting {
             power::set_setting(record::SLEEP_DEFAULT);
             radio::reset_saved();
             self.store.save(self.board).await;
-            EE_CLR_DONE.store(true, Ordering::Relaxed);
+            self.ee_clr_done = true;
         }
     }
 
@@ -647,14 +649,18 @@ impl Lighting {
         };
         let key = board_key(&e.action);
         let pressed = e.keyboard_event.pressed;
-        if key == Key::EeClr && pressed {
-            EE_CLR_DONE.store(false, Ordering::Relaxed);
+        let clear = key == Key::EeClr && !pressed && self.ee_clr_done;
+        if key == Key::EeClr {
+            self.ee_clr_done = false;
         }
         let now = now_ms();
         self.board
             .key(key, row, col, pressed, SHIFTED.load(Ordering::Relaxed), now);
         self.store.touch(now);
         self.sync().await;
+        if clear {
+            rmk::storage::reset().await;
+        }
     }
 
     async fn on_connection_status_change_event(&mut self, e: ConnectionStatusChangeEvent) {

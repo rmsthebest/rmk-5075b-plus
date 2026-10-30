@@ -7,7 +7,10 @@
 //! RDID, 05 RDSR, 06 WREN, 04 WRDI, 03 READ, 0B FAST_READ, 02 PP (wraps
 //! inside its 256-byte page), 20 SE (4 KB), D8 BE (64 KB), 60/C7 CE, B9 DP,
 //! AB RDP/RES. PP/SE/BE/CE need WEL (set by WREN, cleared when the command
-//! completes) and set WIP for BUSY_POLLS RDSR reads. Programming ANDs bits
+//! completes) and set WIP for the part's typical time (`busy_ticks`): PP
+//! 1.4 ms, SE 60 ms, BE 0.7 s (the MX25L4006E's, from Macronix's figures as
+//! distributors list them), CE 3.5 s (assumed; no figure found). A command
+//! during WIP but RDSR is refused, a read logged as an error. Programming ANDs bits
 //! in, as NOR does. A command ends at a rising edge of the chip select,
 //! which (as in qspi.py) is noticed at the next byte. Every erase, program
 //! and read goes to `log` ("SE 0x010000", "PP 0x010000 n=256").
@@ -15,13 +18,24 @@
 //! The array survives a system reset (`reset` keeps it), as the chip keeps
 //! its data across a keyboard reset.
 
+use cortex_m3_emu::TICK_HZ;
 use wb32_sim::gpio::{B, C, Gpio, Pin};
 use wb32_sim::ssi::{SsiDevice, SsiLine};
 
 pub const SIZE: usize = 512 * 1024;
 pub const JEDEC_ID: [u8; 3] = [0xC2, 0x20, 0x13];
 pub const CS: Pin = (C, 12);
-const BUSY_POLLS: u8 = 2;
+const MS: u64 = TICK_HZ / 1000;
+
+/// How long WIP stays set after a command (typical times).
+pub fn busy_ticks(cmd: u8) -> u64 {
+    match cmd {
+        0x02 => 14 * MS / 10,
+        0x20 => 60 * MS,
+        0xD8 => 700 * MS,
+        _ => 3500 * MS,
+    }
+}
 
 pub struct Nor {
     pub mem: Vec<u8>,
@@ -30,7 +44,10 @@ pub struct Nor {
     args: Vec<u8>,
     addr: usize,
     wel: bool,
-    busy: u8,
+    /// When the program or erase in progress ends.
+    busy_until: u64,
+    /// When the last byte ended.
+    now: u64,
     deep: bool,
     pp_count: usize,
     pp_addr: usize,
@@ -53,7 +70,8 @@ impl Default for Nor {
             args: Vec::new(),
             addr: 0,
             wel: false,
-            busy: 0,
+            busy_until: 0,
+            now: 0,
             deep: false,
             pp_count: 0,
             pp_addr: 0,
@@ -90,8 +108,12 @@ impl Nor {
         let log = std::mem::take(&mut self.log);
         let errors = std::mem::take(&mut self.errors);
         let warnings = std::mem::take(&mut self.warnings);
+        // An erase or program under way runs on: the chip keeps its power.
+        let (busy_until, now) = (self.busy_until, self.now);
         *self = Nor {
             mem,
+            busy_until,
+            now,
             log,
             errors,
             warnings,
@@ -118,8 +140,12 @@ impl Nor {
         }
     }
 
+    fn busy(&self) -> bool {
+        self.now < self.busy_until
+    }
+
     fn status(&self) -> u8 {
-        (self.busy != 0) as u8 | (self.wel as u8) << 1
+        self.busy() as u8 | (self.wel as u8) << 1
     }
 
     /// The chip select went high: complete the command in progress.
@@ -139,22 +165,22 @@ impl Nor {
             self.log
                 .push(format!("PP 0x{:06x} n={}", self.pp_addr, self.pp_count));
             self.wel = false;
-            self.busy = BUSY_POLLS;
+            self.busy_until = self.now + busy_ticks(0x02);
         }
         self.cmd = None;
         self.args.clear();
         self.pp_count = 0;
     }
 
-    fn erase(&mut self, start: usize, n: usize, what: &str) {
+    fn erase(&mut self, cmd: u8, start: usize, n: usize, what: &str) {
         self.log.push(format!("{what} 0x{start:06x}"));
         self.mem[start..start + n].fill(0xFF);
         self.wel = false;
-        self.busy = BUSY_POLLS;
+        self.busy_until = self.now + busy_ticks(cmd);
     }
 
     fn need_wel(&mut self, what: &str) -> bool {
-        if self.busy != 0 {
+        if self.busy() {
             self.errors
                 .push(format!("{what} while busy (WIP), ignored"));
             false
@@ -175,11 +201,11 @@ impl Nor {
                 return 0xFF;
             }
             match b {
-                0x06 if self.busy == 0 => self.wel = true,
-                0x04 if self.busy == 0 => self.wel = false,
+                0x06 if !self.busy() => self.wel = true,
+                0x04 if !self.busy() => self.wel = false,
                 0x60 | 0xC7 => {
                     if self.need_wel("CE") {
-                        self.erase(0, SIZE, "CE");
+                        self.erase(b, 0, SIZE, "CE");
                     }
                 }
                 0xB9 => self.deep = true,
@@ -193,11 +219,7 @@ impl Nor {
         let n = self.args.len();
         match c {
             0x9F => JEDEC_ID.get(n - 1).copied().unwrap_or(0xFF),
-            0x05 => {
-                let v = self.status();
-                self.busy = self.busy.saturating_sub(1);
-                v
-            }
+            0x05 => self.status(),
             // The electronic ID after 3 dummy bytes.
             0xAB => {
                 if n >= 4 {
@@ -213,9 +235,11 @@ impl Nor {
                         | self.args[2] as usize;
                     self.addr = a % SIZE;
                     match c {
-                        0x20 if self.need_wel("SE") => self.erase(self.addr & !0xFFF, 0x1000, "SE"),
+                        0x20 if self.need_wel("SE") => {
+                            self.erase(c, self.addr & !0xFFF, 0x1000, "SE")
+                        }
                         0xD8 if self.need_wel("BE") => {
-                            self.erase(self.addr & !0xFFFF, 0x10000, "BE")
+                            self.erase(c, self.addr & !0xFFFF, 0x10000, "BE")
                         }
                         0x02 => {
                             if self.need_wel("PP") {
@@ -232,7 +256,7 @@ impl Nor {
             }
             0x0B if n == 4 => 0xFF, // the dummy byte
             0x03 | 0x0B => {
-                if self.busy != 0 {
+                if self.busy() {
                     self.errors.push("READ while busy (WIP)".to_string());
                 }
                 let v = self.mem[self.addr];
@@ -256,7 +280,7 @@ const BUS_PINS: [Pin; 3] = [(B, 3), (B, 4), (B, 5)];
 const AF_SPIM: u8 = 5;
 
 impl SsiDevice for Nor {
-    fn shift(&mut self, b: u8, _line: SsiLine, gpio: &Gpio) -> u8 {
+    fn shift(&mut self, b: u8, line: SsiLine, gpio: &Gpio) -> u8 {
         if !self.pins_checked {
             self.pins_checked = true;
             for p in BUS_PINS {
@@ -273,8 +297,10 @@ impl SsiDevice for Nor {
             .expect("the board watches the flash's chip select");
         if self.cs_edges != Some(cs.rising) {
             self.cs_edges = Some(cs.rising);
+            // At the last byte's end, the nearest to the edge it knows.
             self.finish();
         }
+        self.now = line.end;
         if cs.level {
             self.warnings
                 .push(format!("qspi: byte 0x{b:02x} sent with flash CS high"));
@@ -287,6 +313,47 @@ impl SsiDevice for Nor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Commands, each between chip-select edges, at the times given.
+    fn run(n: &mut Nor, g: &mut Gpio, at: u64, bytes: &[u8]) -> Vec<u8> {
+        let line = SsiLine {
+            cr0: 7,
+            end: at,
+            ..Default::default()
+        };
+        g.driven.insert(CS, false);
+        g.update();
+        let out = bytes.iter().map(|&b| n.shift(b, line, g)).collect();
+        g.driven.insert(CS, true);
+        g.update();
+        out
+    }
+
+    #[test]
+    fn wip_lasts_the_parts_program_and_erase_times() {
+        let mut g = Gpio::default();
+        g.watch(CS);
+        let mut n = Nor {
+            pins_checked: true,
+            ..Nor::default()
+        };
+        n.mem[0x1000] = 0;
+        run(&mut n, &mut g, 0, &[0x06]);
+        run(&mut n, &mut g, 0, &[0x20, 0x00, 0x10, 0x00]);
+        let rdsr = |n: &mut Nor, g: &mut Gpio, t| run(n, g, t, &[0x05, 0])[1];
+        let se = busy_ticks(0x20);
+        assert_eq!(se, 60 * MS);
+        assert_eq!(rdsr(&mut n, &mut g, se - 1) & 1, 1, "WIP");
+        run(&mut n, &mut g, se - 1, &[0x03, 0x00, 0x10, 0x00, 0]);
+        assert_eq!(n.errors, ["READ while busy (WIP)"]);
+        assert_eq!(rdsr(&mut n, &mut g, se), 0, "done, WEL cleared");
+        // A page program: 1.4 ms.
+        run(&mut n, &mut g, se, &[0x06]);
+        run(&mut n, &mut g, se, &[0x02, 0x00, 0x10, 0x00, 0x5A]);
+        assert_eq!(rdsr(&mut n, &mut g, se + 14 * MS / 10 - 1) & 1, 1);
+        assert_eq!(rdsr(&mut n, &mut g, se + 14 * MS / 10) & 1, 0);
+        assert_eq!(n.mem[0x1000], 0x5A);
+    }
 
     #[test]
     fn the_bus_pins_must_be_on_af5() {

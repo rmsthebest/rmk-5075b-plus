@@ -712,6 +712,7 @@ impl Board {
                             | wb32_sim::Diag::Unmapped { .. }
                             | wb32_sim::Diag::ClockOff { .. }
                             | wb32_sim::Diag::ClockNotReady { .. }
+                            | wb32_sim::Diag::FlashBusy { .. }
                     )
                 })
                 .map(|d| d.to_string()),

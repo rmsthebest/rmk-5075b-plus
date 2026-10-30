@@ -72,6 +72,8 @@ pub struct Wb32 {
     /// Shared with the USB host, which drives its bus side.
     pub usb: Rc<RefCell<Musb>>,
     pub fmc: Fmc,
+    /// The FMC op whose busy time a read already broke (`Diag::FlashBusy`).
+    flash_busy_seen: u64,
     /// The time `advance` last brought the chip to.
     now: u64,
     /// The instruction executing (`Bus::executing`).
@@ -249,6 +251,7 @@ impl Wb32 {
             cache: BTreeMap::new(),
             usb: Rc::new(RefCell::new(Musb::new())),
             fmc: Fmc::default(),
+            flash_busy_seen: 0,
             now: 0,
             pc: 0,
             pc_hits: None,
@@ -400,7 +403,7 @@ impl Wb32 {
             Periph::Cache(o) => self.cache.get(&o).copied().unwrap_or(0),
             Periph::Usb(o) => self.usb.borrow_mut().read(o, Size::Word),
             Periph::Sys(o) => fmc::sys_read(o),
-            Periph::Fmc(o) => self.fmc.read(o),
+            Periph::Fmc(o) => self.fmc.read(o, self.now),
         }
     }
 
@@ -459,7 +462,7 @@ impl Wb32 {
             }
             Periph::Sys(_) => {}
             Periph::Fmc(o) => {
-                if let Some(fill) = self.fmc.write(o, value) {
+                if let Some(fill) = self.fmc.write(o, value, self.now) {
                     for (i, w) in fill.words.into_iter().enumerate() {
                         let a = fill.addr + 4 * i as u32;
                         match self.region(a, Size::Word) {
@@ -480,6 +483,18 @@ impl Wb32 {
     }
 
     /// The memory holding the whole access, if one does.
+    /// Flash and the ROM are one macro, unreadable while the FMC works on
+    /// it: reported once an op.
+    fn check_flash_idle(&mut self, addr: u32, region: Option<Region>) {
+        if matches!(region, Some(Region::Flash(_) | Region::Rom(_)))
+            && self.fmc.busy(self.now)
+            && self.flash_busy_seen != self.fmc.busy_until
+        {
+            self.flash_busy_seen = self.fmc.busy_until;
+            self.diags.push(Diag::FlashBusy { addr });
+        }
+    }
+
     pub fn region(&self, addr: u32, size: Size) -> Option<Region> {
         let inside = |m: &Memory, base: u32| {
             let off = addr.wrapping_sub(base);
@@ -533,7 +548,9 @@ impl Wb32 {
 
 impl Bus for Wb32 {
     fn read(&mut self, addr: u32, size: Size) -> u32 {
-        match self.region(addr, size) {
+        let region = self.region(addr, size);
+        self.check_flash_idle(addr, region);
+        match region {
             Some(Region::Flash(o)) => self.flash.read(o, size),
             Some(Region::Rom(o)) => self.rom.read(o, size),
             Some(Region::Sram(o)) => self.sram.read(o, size),
@@ -594,7 +611,9 @@ impl Bus for Wb32 {
     }
 
     fn fetch(&mut self, addr: u32) -> Option<u16> {
-        match self.region(addr, Size::Half)? {
+        let region = self.region(addr, Size::Half);
+        self.check_flash_idle(addr, region);
+        match region? {
             Region::Flash(o) => Some(self.flash.read(o, Size::Half) as u16),
             Region::Rom(o) => Some(self.rom.read(o, Size::Half) as u16),
             Region::Sram(o) => Some(self.sram.read(o, Size::Half) as u16),
