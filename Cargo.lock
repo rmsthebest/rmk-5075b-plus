@@ -731,6 +731,7 @@ dependencies = [
  "qmk-wireless",
  "rmk",
  "serde_json",
+ "static_cell",
  "wb32-hal",
  "wb32-pac",
 ]

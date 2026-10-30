@@ -78,6 +78,7 @@ use rmk::processor::builtin::led_indicator::KeyboardIndicatorProcessor;
 use rmk::storage::Storage;
 use rmk::types::led_indicator::LedIndicatorType;
 use rmk::usb::UsbTransport;
+use static_cell::StaticCell;
 use wb32_hal::exti::ExtiInput;
 use wb32_hal::gpio::{AnyPin, Input, Level, Output, Pins, Pull};
 use wb32_hal::qspi::Qspi;
@@ -451,11 +452,14 @@ fn keep_panic_message(slot: Slot<([u8; akko_boot_guard::PANIC_MSG_MAX], usize)>)
     slot.write((msg, len));
 }
 
-/// A task per runnable of ours (see the end of `main`).
+/// A task per runnable of ours (see the end of `main`). Each takes its
+/// runnable from a `StaticCell`: taken by value, it would be kept twice in
+/// the task (the argument and the local it moves to) and once more in
+/// main's future, all of it RAM the stack shares.
 macro_rules! runnable_tasks {
     ($($task:ident($ty:ty);)*) => {$(
         #[embassy_executor::task]
-        async fn $task(mut r: $ty) -> ! {
+        async fn $task(r: &'static mut $ty) -> ! {
             use rmk::core_traits::Runnable as _;
             r.run().await
         }
@@ -478,6 +482,14 @@ async fn main(spawner: Spawner) {
     rcc::init();
     time_driver::init(PRIO_TIME);
     let p = Pins::take().unwrap();
+    // Our runnables, out of main's future (see `runnable_tasks`).
+    static SCAN: StaticCell<scan::Scan> = StaticCell::new();
+    static KNOB: StaticCell<knob::Knob> = StaticCell::new();
+    static CAPS: StaticCell<KeyboardIndicatorProcessor<power::CapsPin>> = StaticCell::new();
+    static BOOT: StaticCell<bootloader::Bootloader> = StaticCell::new();
+    static LIGHTS: StaticCell<lighting::Lighting> = StaticCell::new();
+    static RADIO: StaticCell<radio::Radio> = StaticCell::new();
+    static POWER: StaticCell<power::Power> = StaticCell::new();
     let ram2 = Ram2::take().unwrap();
     keep_panic_message(ram2.panic_msg);
 
@@ -492,7 +504,7 @@ async fn main(spawner: Spawner) {
     let cable = Input::new(p.PA7, Pull::None);
     let caps_led = Output::new(p.PC5, Level::High);
 
-    let mut scan = scan::Scan::new(
+    let scan = SCAN.init(scan::Scan::new(
         [
             p.PA0.into(),
             p.PA1.into(),
@@ -521,13 +533,13 @@ async fn main(spawner: Spawner) {
         p.PC15.into(),
         p.PC14.into(),
         PRIO_EXTI,
-    );
+    ));
     let win_lock_led = Output::new(p.PB0, Level::High); // off (active low)
-    let knob = knob::Knob::new(
+    let knob = KNOB.init(knob::Knob::new(
         ExtiInput::new(p.PB7, Pull::Up, PRIO_EXTI),
         ExtiInput::new(p.PB6, Pull::Up, PRIO_EXTI),
         0,
-    );
+    ));
 
     let nor = SpiNor::new(
         Qspi::new(p.PB3, p.PB4, p.PB5, SPI_DIVISOR),
@@ -590,12 +602,12 @@ async fn main(spawner: Spawner) {
         rmk_config.device_config,
     )
     .with_host_service(&host_service);
-    let caps = KeyboardIndicatorProcessor::new(
+    let caps = CAPS.init(KeyboardIndicatorProcessor::new(
         power::CapsPin::new(caps_led),
         true,
         LedIndicatorType::CapsLock,
-    );
-    let boot = bootloader::Bootloader::new();
+    ));
+    let boot = BOOT.init(bootloader::Bootloader::new());
     let store = OwnFrame(lighting::Store::load(
         lighting_flash,
         ram2.lighting_record.zeroed(),
@@ -623,7 +635,7 @@ async fn main(spawner: Spawner) {
             .map_or(akko_lighting::record::SLEEP_DEFAULT, |r| r.sleep()),
     );
     radio::set_saved_flags(flags);
-    let lights = lighting::Lighting::new(
+    let lights = LIGHTS.init(lighting::Lighting::new(
         board,
         store,
         Ws2812::new(p.PB15, frame, PRIO_LEDS),
@@ -632,18 +644,18 @@ async fn main(spawner: Spawner) {
         aux_led,
         cable,
         led_boost,
-    );
+    ));
     rmk::keyboard::set_action_hook(lighting::action_hook);
     // The vendor's Mac mode (feature `mac`): the Mac layer's transparent
     // keys (F5, F6) fall through to the Windows layer, and the Win/Mac
     // switch drops a held Fn layer, as QMK's layers do.
     #[cfg(feature = "mac")]
     rmk::keymap::set_qmk_default_layer(true);
-    let power = power::Power::new();
-    let radio = radio::Radio::new(
+    let power = POWER.init(power::Power::new());
+    let radio = RADIO.init(radio::Radio::new(
         Uart3::new(p.PC10, p.PC11, radio::BAUD, PRIO_UART),
         usb_power,
-    );
+    ));
     // Vial's "bootloader" button: DFU, as QK_BOOT (src/bootloader.rs).
     rmk::boot::set_bootloader_hook(akko_boot_guard::request_bootloader);
 
