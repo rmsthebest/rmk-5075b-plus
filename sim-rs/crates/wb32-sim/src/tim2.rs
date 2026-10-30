@@ -2,9 +2,14 @@
 //! wb32fq95xx.h TIM_TypeDef and TIM_* bits) on IRQ 21, clocked from PCLK1
 //! while RCC gives TIM2 its clock (`set_clock`; 96 MHz with our clock
 //! set-up, and stopped from reset). Written fresh rather than after Renode's
-//! STM32_Timer, which differs from the chip (BOARD_FACTS.md):
-//! - it's 16-bit: CNT, ARR and CCRx keep their low 16 bits;
-//! - compare flags are set only when the counter wraps, with the update.
+//! STM32_Timer (BOARD_FACTS.md):
+//! - it's 20-bit (RM 16.1, 16.5.10-16.5.16; on the board ARR reads back
+//!   0xFFFFF after 0xFFFF_FFFF): CNT, ARR and CCRx keep their low 20 bits,
+//!   PSC its low 16. ARR resets to 0 (RM 16.5.12), and while it's 0 the
+//!   counter doesn't count (STM32's rule; the RM doesn't say);
+//! - the compare channels never set their flags. On the board their
+//!   interrupts never came at the match; whether they come at all is
+//!   unknown, so the model gives the firmware nothing to rely on.
 //!
 //! Up-counting only. PSC is preloaded (it takes effect at the next update
 //! event or UG); ARR takes effect at once. UG resets the counter and, unless
@@ -24,8 +29,8 @@ const CEN: u32 = 1 << 0;
 const URS: u32 = 1 << 2;
 const OPM: u32 = 1 << 3;
 const UIF: u32 = 1 << 0;
-/// UIF, CC1IF-CC4IF.
-const WRAP_FLAGS: u32 = 0x1F;
+/// The counter's bits.
+const MAX: u32 = 0xF_FFFF;
 /// The flags DIER can turn into an interrupt: UIE, CC1IE-CC4IE, COMIE, TIE.
 const IRQ_FLAGS: u32 = 0x7F;
 pub const IRQ: u32 = 21;
@@ -45,15 +50,13 @@ pub struct Tim2 {
 
 impl Default for Tim2 {
     fn default() -> Self {
-        let mut t = Tim2 {
+        Tim2 {
             regs: [0; 18],
             cnt: 0,
             psc: 0,
             since: 0,
             hz: 0,
-        };
-        t.regs[(ARR / 4) as usize] = 0xFFFF;
-        t
+        }
     }
 }
 
@@ -66,9 +69,9 @@ impl Tim2 {
         &mut self.regs[(off / 4) as usize]
     }
 
-    /// Counting: enabled (CEN) and clocked.
+    /// Counting: enabled (CEN), clocked, and ARR not 0.
     fn running(&self) -> bool {
-        self.r(CR1) & CEN != 0 && self.hz != 0
+        self.r(CR1) & CEN != 0 && self.hz != 0 && self.r(ARR) != 0
     }
 
     /// Core ticks per count. A PCLK1 that doesn't divide TICK_HZ rounds to
@@ -90,13 +93,13 @@ impl Tim2 {
     }
 
     /// Timer clocks from `cnt` to the next wrap, and whether that wrap is
-    /// an update (at ARR) or the 16-bit roll-over past it.
+    /// an update (at ARR) or the 20-bit roll-over past it.
     fn to_wrap(&self) -> (u64, bool) {
         let arr = self.r(ARR);
         if self.cnt <= arr {
             ((arr - self.cnt) as u64 + 1, true)
         } else {
-            (0x1_0000 - self.cnt as u64, false)
+            (MAX as u64 + 1 - self.cnt as u64, false)
         }
     }
 
@@ -129,7 +132,7 @@ impl Tim2 {
     }
 
     fn update_event(&mut self) {
-        *self.r_mut(SR) |= WRAP_FLAGS;
+        *self.r_mut(SR) |= UIF;
         self.psc = self.regs[(PSC / 4) as usize];
     }
 
@@ -170,14 +173,15 @@ impl Tim2 {
                     }
                 }
             }
-            CNT => self.cnt = v & 0xFFFF,
+            CNT => self.cnt = v & MAX,
             CR1 => {
                 if self.r(CR1) & CEN == 0 {
                     self.since = now;
                 }
                 *self.r_mut(CR1) = v;
             }
-            PSC | ARR | 0x34..=0x40 => *self.r_mut(off) = v & 0xFFFF,
+            PSC => *self.r_mut(off) = v & 0xFFFF,
+            ARR | 0x34..=0x40 => *self.r_mut(off) = v & MAX,
             o if o % 4 == 0 && (o as usize) < self.regs.len() * 4 => *self.r_mut(o) = v,
             _ => {}
         }
@@ -229,26 +233,37 @@ mod tests {
     }
 
     #[test]
-    fn sixteen_bits_and_compare_at_wrap_only() {
+    fn twenty_bits_and_no_compare_flags() {
         let mut t = tim();
-        t.write(ARR, 0x1_2345, 0);
-        assert_eq!(t.read(ARR, 0), 0x2345);
-        t.write(ARR, 0xFFFF, 0);
-        t.write(0x34, 1000, 0); // CCR1
-        t.write(DIER, 1 << 1, 0); // CC1IE
+        assert_eq!(t.read(ARR, 0), 0, "RM 16.5.12");
+        t.write(ARR, 0xFFFF_FFFF, 0);
+        assert_eq!(t.read(ARR, 0), 0xF_FFFF, "as the board reads it back");
+        t.write(PSC, 0xFFFF_FFFF, 0);
+        assert_eq!(t.read(PSC, 0), 0xFFFF);
+        t.write(PSC, 0, 0);
+        t.write(0x34, 0x8000_0000 | 1000, 0); // CCR1
+        assert_eq!(t.read(0x34, 0), 1000);
+        t.write(DIER, 0x1E, 0); // CC1IE-CC4IE
         t.write(CR1, CEN, 0);
         t.sync(2000 * CLOCK);
-        assert!(
-            !t.irq(),
-            "CNT passed CCR1, but the chip only flags at the wrap"
-        );
-        t.sync(0x1_0000 * CLOCK);
-        assert!(t.irq());
+        assert_eq!(t.read(CNT, 2000 * CLOCK), 2000);
+        t.sync(0x10_0001 * CLOCK);
+        assert!(!t.irq(), "no compare flag, at the match or the update");
+        assert_eq!(t.read(SR, 0x10_0001 * CLOCK), UIF);
+    }
+
+    #[test]
+    fn arr_0_doesnt_count() {
+        let mut t = tim();
+        t.write(CR1, CEN, 0);
+        assert_eq!(t.read(CNT, MS), 0);
+        assert_eq!(t.next_event(), u64::MAX);
     }
 
     #[test]
     fn psc_waits_for_an_update() {
         let mut t = tim();
+        t.write(ARR, 0xFFFF, 0);
         t.write(CR1, CEN, 0);
         t.write(PSC, 1, 0);
         assert_eq!(t.read(CNT, 10 * CLOCK), 10);
@@ -259,6 +274,7 @@ mod tests {
     #[test]
     fn it_counts_pclk1_and_stops_without_its_clock() {
         let mut t = Tim2::default();
+        t.write(ARR, 0xFFFF, 0);
         t.write(CR1, CEN, 0);
         assert_eq!(t.read(CNT, MS), 0, "no clock from reset");
         assert_eq!(t.next_event(), u64::MAX);
@@ -267,7 +283,7 @@ mod tests {
         assert_eq!(t.read(CNT, MS + MS / 1000), 48);
         // Gated at 2 ms: the count holds, then carries on at 96 MHz.
         t.set_clock(0, 2 * MS);
-        assert_eq!(t.read(CNT, 3 * MS), 48_000 % 0x1_0000);
+        assert_eq!(t.read(CNT, 3 * MS), 48_000);
         t.set_clock(96_000_000, 3 * MS);
         assert_eq!(t.read(CNT, 3 * MS + 10 * CLOCK), 48_000 + 10);
     }

@@ -962,6 +962,7 @@ mod tests {
         chip.write(TIM2_BASE, Size::Word, 1);
         assert_eq!(chip.tim2.hz(), 0);
         apb1_on(&mut chip, 1 << 2);
+        chip.write(TIM2_BASE + 0x2C, Size::Word, 0xFFFF);
         chip.write(TIM2_BASE, Size::Word, 1);
         // PCLK1 = MHSI 8 MHz: 8 counts a microsecond.
         assert_eq!(chip.tim2.hz(), 8_000_000);

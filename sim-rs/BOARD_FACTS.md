@@ -8,8 +8,8 @@ the test is ported).
 
 | Fact | Source | Test |
 |---|---|---|
-| TIM2 compare alarms fire only at the 16-bit wrap: a 1 ms alarm took 65.5 ms. Renode's `STM32_Timer` matches compares, which the chip doesn't. | Board, 2026-10-27: scan diagnostics over Vial 0xD1 (commit 9eef49c) | `tim2::tests::sixteen_bits_and_compare_at_wrap_only` |
-| TIM2 is 16-bit: CNT, ARR and CCRx keep their low 16 bits. | ChibiOS `WB32_TIM2_IS_32BITS FALSE`; sim/akko.resc | `tim2::tests::sixteen_bits_and_compare_at_wrap_only` |
+| TIM2's compare interrupts didn't come at their match: with ARR 0xFFFF and a 1 MHz count, a 1 ms alarm took up to 65.5 ms, the update's period. Whether a compare flag sets at all (at the wrap, or never) wasn't isolated, so the model never sets one and firmware can't rely on them. Renode's `STM32_Timer` matches compares. | Board, 2026-10-27: scan diagnostics over Vial 0xD1 (commit 9eef49c); the driver then used CC1/CC2 with the update | `tim2::tests::twenty_bits_and_no_compare_flags` |
+| TIM2 is 20-bit: CNT, ARR and CCRx keep their low 20 bits, PSC its low 16; ARR resets to 0, and with ARR 0 the counter doesn't count (STM32's rule, assumed). | RM2905025 16.1, 16.5.10-16.5.16; board, 2026-10-26: ARR reads back 0xFFFFF after 0xFFFF_FFFF, CCR1 0 after 0x8000_0000 (old time_driver.rs header) | `tim2::tests::twenty_bits_and_no_compare_flags`, `tim2::tests::arr_0_doesnt_count` |
 | Blank flash reads 0x00, not 0xFF. A DFU download leaves stale bytes past the end of a shorter image. | Board, 2026-10-26 (DFU readback) | - |
 | The chip is a WB32FQ95xC: 256 KB flash, 36 KB SRAM, SYS_ID 0x3A50E980. | Board: wb32-dfu-updater_cli on download | `chip::tests` (sizes only) |
 | Out of stop mode every clock is back at its reset value, USBPRE, USBCLKENR and the USB FIFO clock included: RCC (but its reset bits), MHSI and FHSI on again, HSE and the PLL off, MAINCLK on MHSI. PWR SR1 then has SPF and CKF set; CR1's CSPF/CCKF clear them. | RM2905025 5.3.4, 5.4.2, 5.4.5 | `chip.rs` `a_stop_freezes_the_clocks_until_an_exti_line_and_wakes_on_mhsi`; m6's stop tests (a seeded HAL that doesn't restore APB2ENR fails 7 of 8) |
