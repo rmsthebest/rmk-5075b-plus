@@ -98,11 +98,17 @@ fn other_keys_do_not_enter_dfu() {
 #[test]
 fn caps_lock_led_blinks() {
     // At the reset clock (MHSI, 8 MHz) each asm::delay(4_000_000) is 4 M
-    // rounds of subs/bne: 1 s here at a cycle an instruction, 1.5 s on the
-    // board (3 cycles a round, BOARD_FACTS.md).
+    // rounds of subs/bne at 3 cycles a round (TRM Table 18-1; the board's
+    // rate, BOARD_FACTS.md): 1.5 s, as on the board.
     let mut b = boot_recording(Image::M1bStub);
-    b.run_for(3.5);
-    // BSRR on C5: reset half (LED on, active low), then set half (off)
+    let led = (2, 5); // C5, active low
+    let secs = |b: &Board| b.cpu.now as f64 / cortex_m3_emu::TICK_HZ as f64;
+    assert!(b.run_until(3.5, |b| !b.chip.gpio.pin_level(led)), "LED on");
+    let on = secs(&b);
+    assert!(b.run_until(3.5, |b| b.chip.gpio.pin_level(led)), "LED off");
+    let lit = secs(&b) - on;
+    assert!((lit - 1.5).abs() < 0.015, "lit for {lit:.3} s");
+    // BSRR on C5: reset half (LED on), then set half (off)
     let w = writes(&b);
     let on = w
         .iter()
@@ -116,12 +122,12 @@ fn caps_lock_led_blinks() {
 
 #[test]
 fn m1b_returns_to_dfu_on_its_own() {
-    // 30 blinks of two delays each (see caps_lock_led_blinks): a minute
-    // here, 90 s on the board.
+    // 30 blinks of two delays each (see caps_lock_led_blinks): 90 s, as on
+    // the board.
     let mut b = boot(Image::M1bStub);
-    b.run_for(55.0);
+    b.run_for(85.0);
     assert!(b.in_flash(), "PC 0x{:08x}", b.pc());
-    assert!(b.run_until(40.0, |b| b.in_rom()), "PC 0x{:08x}", b.pc());
+    assert!(b.run_until(10.0, |b| b.in_rom()), "PC 0x{:08x}", b.pc());
     let s = b.cpu.now as f64 / cortex_m3_emu::TICK_HZ as f64;
     println!("m1b back in DFU at {s:.1} s");
 }

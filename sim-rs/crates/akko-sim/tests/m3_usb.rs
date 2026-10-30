@@ -29,11 +29,13 @@ impl T {
 
     fn boot_and_enumerate() -> T {
         let mut t = T::boot();
-        t.b.run_for(0.3);
+        // Attached at ~158 ms (attaches_50_ms_after_start), configured
+        // ~145 ms later.
+        t.b.run_for(0.4);
         assert_eq!(
             t.b.host.state(),
             CONFIGURED,
-            "not configured after 0.3 s: {:?}",
+            "not configured after 0.4 s: {:?}",
             t.b.host_errors()
         );
         t
@@ -132,12 +134,14 @@ fn enumerates_as_a_cdc_acm_and_hid_composite_device() {
 
 #[test]
 fn attaches_50_ms_after_start() {
-    // The bus is held disconnected for at least 50 ms first (a busy-wait:
-    // ~96 ms at the sim's 100 MIPS, ~75 ms on the chip).
+    // The bus is held disconnected for at least 50 ms first: a busy-wait,
+    // asm::delay(50 ms of cycles), whose rounds take 3 cycles (TRM Table
+    // 18-1, and the board's rate, BOARD_FACTS.md), so 150 ms, attaching at
+    // ~158 ms with the start-up.
     let mut t = T::boot();
-    t.b.run_for(0.049);
+    t.b.run_for(0.149);
     assert_eq!(t.b.host.state(), DETACHED);
-    t.b.run_for(0.1);
+    t.b.run_for(0.02);
     assert_eq!(t.b.host.state(), ENUMERATING);
 }
 
@@ -302,7 +306,7 @@ fn a_panic_resets_into_the_firmware_a_second_one_enters_dfu() {
     t.send_line("panic");
     t.b.run_for(0.01);
     assert!(t.b.in_flash(), "PC 0x{:08x}", t.b.pc());
-    t.b.run_for(0.3);
+    t.b.run_for(0.4);
     assert_eq!(t.b.host.state(), CONFIGURED);
     t.host(cmd::OPEN_CDC);
     t.cdc_should_show(previous);
@@ -311,14 +315,14 @@ fn a_panic_resets_into_the_firmware_a_second_one_enters_dfu() {
     assert!(t.b.in_rom(), "PC 0x{:08x}", t.b.pc());
     // What wb32-dfu-updater_cli -R does: a system reset, RAM kept.
     t.b.system_reset();
-    t.b.run_for(0.3);
+    t.b.run_for(0.4);
     assert_eq!(t.b.host.state(), CONFIGURED);
     t.host(cmd::OPEN_CDC);
     t.cdc_should_show(previous);
     // Reported once only: the boot after that finds no record. And DFU
     // cleared the count: the next panic resets into the firmware again.
     t.b.system_reset();
-    t.b.run_for(0.3);
+    t.b.run_for(0.4);
     t.host(cmd::OPEN_CDC);
     t.b.run_for(0.02);
     t.cdc_should_show(r"\[\s+0\] no panic record from the previous run");
@@ -331,7 +335,7 @@ fn a_panic_resets_into_the_firmware_a_second_one_enters_dfu() {
 fn without_a_host_it_returns_to_dfu_after_30_s() {
     // The 30 s count from when the firmware starts them: after the clocks
     // are up (HSE and the PLL, ~2.2 ms) and USB's enable has blocked for
-    // its 50 ms of D+ low (asm::delay cycles: ~100 ms at the core's rate).
+    // its 50 ms of D+ low (asm::delay cycles: 150 ms, 3 cycles a round).
     let mut t = T::boot();
     t.host(cmd::UNPLUG);
     t.b.run_for(29.9);

@@ -477,9 +477,10 @@ fn cyccnt_counts_at_96_mhz() {
         (0x6842, "ldr r2, [r0, #0x4]"),
     ]);
     steps(&mut cpu, &mut bus, 4 + 1 + 200 + 1);
-    // Time advances as an instruction starts, so the read sees 202 after
-    // the enable (movs, the loop's 200, the ldr itself), a cycle each.
-    assert_eq!(cpu.r[2], 202);
+    // The ldr reads in its first cycle: after the enable, the movs (1),
+    // 99 rounds of subs + taken bne (1 + 1 + P 1, TRM Table 18-1: the
+    // board's 3 cycles a round), the last round's bne falling through (2).
+    assert_eq!(cpu.r[2], 1 + 99 * 3 + 2 + 1);
 }
 
 // SysTick against ARM DDI 0403E B3.3, where Renode's model differs
@@ -720,4 +721,128 @@ fn run_until_break_stops_before_a_breakpoint_but_resumes_from_one() {
     assert_eq!((cpu.pc(), cpu.r[0], cpu.r[1]), (0x42, 2, 1));
     let none = std::collections::HashSet::new();
     assert!(!cpu.run_until_break(&mut bus, 1_000, &none), "the deadline");
+}
+
+// Cycle costs against the Cortex-M3 TRM r2p0 (ARM DDI 0337G) Table 18-1
+// and section 18.3, zero wait states (timing.rs).
+
+/// Each step's core clocks.
+fn cycles(cpu: &mut Cpu, bus: &mut TestBus, n: usize) -> Vec<u64> {
+    (0..n)
+        .map(|_| {
+            let t0 = cpu.now;
+            steps(cpu, bus, 1);
+            (cpu.now - t0) / CLOCK
+        })
+        .collect()
+}
+
+#[test]
+fn loads_and_stores_take_the_trms_cycles() {
+    let (mut cpu, mut bus) = machine(&[
+        (0x6808, "ldr r0, [r1]"),
+        (0x681A, "ldr r2, [r3]"),
+        (0x6814, "ldr r4, [r2]"),
+        (0x604C, "str r4, [r1, #0x4]"),
+        (0x514C, "str r4, [r1, r5]"),
+        (0x6808, "ldr r0, [r1]"),
+        (0x514C, "str r4, [r1, r5]"),
+        (0xB510, "push {r4, lr}"),
+        (0xBC10, "pop {r4}"),
+        (0x6830, "ldr r0, [r6]"),
+        (0x8830, "ldrh r0, [r6]"),
+        (0xE9D1_0100, "ldrd r0, r1, [r1]"),
+    ]);
+    (cpu.r[1], cpu.r[3], cpu.r[5]) = (0x2000_0000, 0x2000_0010, 0);
+    cpu.r[6] = 0x2000_0001;
+    bus.ram.write(0x10, Size::Word, 0x2000_0020);
+    let c = cycles(&mut cpu, &mut bus, 12);
+    assert_eq!(
+        c,
+        [
+            2, // a load
+            1, // pipelined after one: r0 isn't in its address
+            2, // r2 is: not pipelined
+            1, // a store with an immediate offset is always one
+            2, // a register offset, after a store
+            2, //
+            1, // pipelined after the load
+            3, // 1 + N
+            2, //
+            4, // a byte-aligned word: two more
+            2, // pipelined, and a byte-aligned halfword: one more
+            3, // LDRD: two words, never pipelined
+        ]
+    );
+}
+
+#[test]
+fn branches_add_the_pipeline_refill() {
+    let (mut cpu, mut bus) = machine(&[
+        (0xE000, "b 0x44"),
+        (0xBF00, "nop"),
+        (0x4700, "bx r0"),
+        (0xBF00, "nop"),
+        (0xBD00, "pop {pc}"),
+        (0xBF00, "nop"),
+        (0xBF00, "nop"),
+        (0xF240_0001, "movw r0, #0x1"),
+        (0x2800, "cmp r0, #0x0"),
+        (0xD0FE, "beq 0x54"),
+        (0xE8DF_F001, "tbb [pc, r1]"),
+        (0x0101, ""),
+        (0xBF00, "nop"),
+    ]);
+    cpu.r[0] = 0x49;
+    cpu.r[1] = 0;
+    bus.ram.write(0x800 - 4, Size::Word, 0x4F);
+    cpu.r[13] = STACK - 4;
+    let c = cycles(&mut cpu, &mut bus, 8);
+    assert_eq!(
+        c,
+        [
+            2, // B: 1 + P 1
+            3, // BX: 1 + P 2
+            6, // POP {pc}: 1 + N + P 3, one more to a 32-bit insn at 0x4e
+            1, // movw
+            1, // cmp
+            1, // a branch not taken
+            6, // TBB: 2 + 1 + P 3
+            1, // nop
+        ]
+    );
+    assert_eq!(cpu.pc(), 0x5E);
+}
+
+#[test]
+fn multiply_and_divide_terminate_early() {
+    let (mut cpu, mut bus) = machine(&[
+        (0xFBB0_F2F1, "udiv r2, r0, r1"),
+        (0xFB90_F3F1, "sdiv r3, r0, r1"),
+        (0xFBA0_4501, "umull r4, r5, r0, r1"),
+        (0xFB80_6701, "smull r6, r7, r0, r1"),
+        (0xFBB0_F2F8, "udiv r2, r0, r8"),
+        (0xFB00_2301, "mla r3, r0, r1, r2"),
+    ]);
+    (cpu.r[0], cpu.r[1]) = ((-7i32) as u32, 2);
+    let c = cycles(&mut cpu, &mut bus, 6);
+    // UDIV 0xfffffff9 / 2: a 31-bit quotient, near the 12 worst case;
+    // SDIV -7 / 2: one bit. UMULL with a big operand 4, SMULL with two
+    // small ones 3, divide by zero 2, MLA 2.
+    assert_eq!(c, [11, 3, 4, 3, 2, 2]);
+}
+
+#[test]
+fn exception_entry_tail_chain_and_return() {
+    let (mut cpu, mut bus) = machine(&[(0xBF00, "nop"), (0xBF00, "nop")]);
+    put(&mut bus, 0x80, &[(0x4770, "bx lr")]);
+    bus.flash.write(14 * 4, Size::Word, 0x81);
+    bus.flash.write(15 * 4, Size::Word, 0x81);
+    cpu.ppb.pend(14);
+    cpu.ppb.pend(15);
+    let c = cycles(&mut cpu, &mut bus, 5);
+    // PendSV's entry; its return tail-chains to SysTick, whose entry the
+    // tail-chain already paid for; SysTick's return to Thread mode; nop.
+    assert_eq!(c, [12, 1 + 6, 0, 1 + 10, 1]);
+    assert_eq!((cpu.ipsr, cpu.pc()), (0, 0x42));
 }

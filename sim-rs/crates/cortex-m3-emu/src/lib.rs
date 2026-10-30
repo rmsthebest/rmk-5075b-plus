@@ -7,7 +7,8 @@
 //!
 //! Time is counted in core ticks of 1/[`TICK_HZ`] s, a rate the chip's
 //! clocks divide (96 MHz is 25 ticks a cycle, 8 MHz 300). The core runs at
-//! the bus's HCLK ([`Bus::hclk_hz`]): an instruction takes its cycles, and
+//! the bus's HCLK ([`Bus::hclk_hz`]): an instruction takes its cycles from
+//! the TRM's table (`timing.rs`), and
 //! SysTick and DWT CYCCNT count HCLK (SysTick's external reference is
 //! HCLK / 8).
 
@@ -17,6 +18,7 @@ pub mod decode;
 pub mod disasm;
 pub mod exception;
 pub mod ppb;
+mod timing;
 
 pub use bus::{Bus, IrqLines, Memory, Size};
 pub use cpu::{Cpu, Sleep};

@@ -172,6 +172,11 @@ impl Cpu {
 
     /// Exception entry: stack the frame, then run the handler.
     pub(crate) fn enter(&mut self, bus: &mut impl Bus, exc: u16, ret: u32) {
+        // A tail-chain's cost went with the return (cpu.rs).
+        if !std::mem::take(&mut self.tail_chain) {
+            self.spend(crate::timing::ENTRY);
+        }
+        self.last_load = None;
         let sp = self.r[SP];
         let realign = self.ppb.stkalign() && sp & 4 != 0;
         let frame = sp.wrapping_sub(0x20) & !(if self.ppb.stkalign() { 4 } else { 0 });
@@ -260,6 +265,7 @@ impl Cpu {
         self.set_stack_selection(ipsr, self.control);
         self.monitor = None;
         self.event = true;
+        self.returned = true;
         if to_thread && self.ppb.sleeponexit() {
             self.sleep = Sleep::Wfi;
             self.sleeps += 1;

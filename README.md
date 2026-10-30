@@ -25,16 +25,16 @@ build aren't published, so they don't count here. Both images ran in the same si
 
 | | Vendor QMK | This firmware |
 |---|---|---|
-| Key press to report ready | 5 ms or more | 0.4 ms |
-| Key release to report ready | 5 ms or more | 4.6 ms on average |
-| CPU awake, idle, lights on | 100% | 7.7% |
-| CPU awake, idle, lights off | 100% | 0.3% |
-| CPU awake, a key held | 100% | 44% |
+| Key press to report ready | 5 ms or more | 0.7 ms |
+| Key release to report ready | 5 ms or more | 4.9 ms on average |
+| CPU awake, idle, lights on | 100% | 9.1% |
+| CPU awake, idle, lights off | 100% | 0.4% |
+| CPU awake, a key held | 100% | 52% |
 | CPU awake, host asleep | not measured | 0.1% |
 | Wake-ups per second, idle | never sleeps (SysTick 100,000/s) | about 75 |
-| Est. CPU current, idle, lights on | 13.4 mA | 1.0 mA |
-| Est. CPU current, idle, lights off | 13.4 mA | 0.04 mA |
-| Est. CPU current, a key held | 13.4 mA | 5.8 mA |
+| Est. CPU current, idle, lights on | 13.4 mA | 1.2 mA |
+| Est. CPU current, idle, lights off | 13.4 mA | 0.05 mA |
+| Est. CPU current, a key held | 13.4 mA | 7.0 mA |
 
 - **Latency.** The vendor build uses QMK's default debounce, `sym_defer_g` at 5 ms: a change is
   reported only after the whole matrix has been quiet for 5 ms. Here a press goes out at once, and
@@ -43,9 +43,9 @@ build aren't published, so they don't count here. Both images ran in the same si
   from its source: in the simulation, its reports go to the radio module.
 - **CPU time.** QMK's main loop polls the matrix without pause, and its CPU never sleeps. Here
   every task waits for an interrupt or a deadline: the scan parks, SysTick is tickless, and the
-  knob, radio and power tasks don't poll. "CPU awake" is the simulator's instructions per
-  emulated second, at an assumed 1.25 cycles per instruction (the datasheet promises zero-wait
-  flash through the cache), against 96 MHz.
+  knob, radio and power tasks don't poll. "CPU awake" is the simulator's core clocks awake per
+  emulated second, against 96 MHz. Each instruction takes its cycles from the Cortex-M3 manual's
+  table, with no flash wait states, which matches a delay loop timed on the board.
 - **Current.** This is an estimate of the CPU's share only: the time awake × the datasheet's
   ~140 µA/MHz at 3.3 V ([WB32FQ95xC datasheet](https://www.westberrytech.com/uploads/file/WB32FQ95xx/EN_DS1905020_WB32FQ95xC_V01.pdf)),
   about 13.4 mA at 96 MHz. The datasheet gives no sleep-mode current, so the clocks and peripherals

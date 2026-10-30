@@ -58,6 +58,9 @@ pub struct Cpu {
     pub now: u64,
     /// Instructions executed (each counts once, taken or skipped by IT).
     pub instructions: u64,
+    /// Core clocks spent awake: executing, and entering and leaving
+    /// exceptions.
+    pub cycles: u64,
     /// Times the core went to sleep.
     pub sleeps: u64,
     pub diags: Vec<CoreDiag>,
@@ -87,6 +90,14 @@ pub struct Cpu {
     pub(crate) pending_sync: Option<(u16, u32)>,
     /// Set when an instruction wrote the PC.
     branched: bool,
+    /// Set when it returned from an exception.
+    pub(crate) returned: bool,
+    /// The register the last instruction loaded, if it was a load the next
+    /// load or store can pipeline with (timing.rs).
+    pub(crate) last_load: Option<u8>,
+    /// An exception return found the next exception pending: entering it
+    /// costs a tail-chain, not a full entry.
+    pub(crate) tail_chain: bool,
     /// The core clock the bus last gave, and the part of a tick spent
     /// at it that hasn't made a whole one yet (in units of 1/hclk_hz).
     hclk_hz: u64,
@@ -118,6 +129,7 @@ impl Cpu {
             ppb: Ppb::new(config),
             now: 0,
             instructions: 0,
+            cycles: 0,
             sleeps: 0,
             diags: Vec::new(),
             lockstep: false,
@@ -129,6 +141,9 @@ impl Cpu {
             cur_it: ItState::default(),
             pending_sync: None,
             branched: false,
+            returned: false,
+            last_load: None,
+            tail_chain: false,
             hclk_hz: crate::DEFAULT_HCLK_HZ,
             tick_frac: 0,
             insn_t0: (0, 0),
@@ -142,6 +157,7 @@ impl Cpu {
         let keep = (
             self.now,
             self.instructions,
+            self.cycles,
             self.sleeps,
             std::mem::take(&mut self.diags),
             self.lockstep,
@@ -152,6 +168,7 @@ impl Cpu {
         (
             self.now,
             self.instructions,
+            self.cycles,
             self.sleeps,
             self.diags,
             self.lockstep,
@@ -294,7 +311,7 @@ impl Cpu {
     }
 
     /// A register as an operand: PC reads as the instruction's address + 4.
-    fn reg(&self, r: u8) -> u32 {
+    pub(crate) fn reg(&self, r: u8) -> u32 {
         if r == 15 {
             self.cur_pc.wrapping_add(4)
         } else {
@@ -454,7 +471,8 @@ impl Cpu {
     }
 
     /// Time passes for `cycles` core clocks.
-    fn spend(&mut self, cycles: u64) {
+    pub(crate) fn spend(&mut self, cycles: u64) {
+        self.cycles += cycles;
         let n = cycles as u128 * crate::TICK_HZ as u128 + self.tick_frac as u128;
         let hz = self.hclk_hz as u128;
         self.now += (n / hz) as u64;
@@ -468,6 +486,10 @@ impl Cpu {
         self.update_irqs(bus);
         if !self.lockstep && self.take_pending(bus) {
             return;
+        }
+        if std::mem::take(&mut self.tail_chain) {
+            // What it tail-chained to went away: a plain return after all.
+            self.spend(crate::timing::EXIT - crate::timing::TAIL_CHAIN);
         }
         if !self.stubs.is_empty() {
             if let Some(&v) = self.stubs.get(&self.r[PC]) {
@@ -522,8 +544,33 @@ impl Cpu {
         };
         self.cur_it = self.it;
         self.it.advance();
-        if run {
-            self.execute(bus, insn);
+        if !run {
+            self.last_load = None;
+            return;
+        }
+        let cost = self.cost(&insn);
+        self.returned = false;
+        self.execute(bus, insn);
+        let mut cycles = cost.cycles;
+        if self.returned {
+            // The return replaces the refill. With an exception pending
+            // that preempts what it returned to, it tail-chains.
+            let pending = self.ppb.highest_pending();
+            self.tail_chain =
+                !self.lockstep && matches!(pending, Some((_, g)) if g < self.execution_priority());
+            cycles += if self.tail_chain {
+                crate::timing::TAIL_CHAIN
+            } else {
+                crate::timing::EXIT
+            };
+        } else if self.branched {
+            cycles += self.refill(bus, &insn);
+        }
+        self.last_load = cost.load;
+        // The first cycle went before it ran; a BKPT a debugger takes
+        // costs nothing.
+        if !self.debug_halt {
+            self.spend(cycles - 1);
         }
     }
 
@@ -936,6 +983,7 @@ impl Cpu {
                 self.r[PC] = self.cur_pc;
                 self.it = self.cur_it;
                 self.instructions -= 1;
+                self.cycles -= 1;
                 (self.now, self.tick_frac) = self.insn_t0;
                 self.debug_halt = true;
             }
@@ -990,7 +1038,7 @@ impl Cpu {
     }
 
     /// The address an access uses, and the write-back it asks for.
-    fn address(&self, addr: Addr) -> (u32, Option<(u8, u32)>) {
+    pub(crate) fn address(&self, addr: Addr) -> (u32, Option<(u8, u32)>) {
         match addr {
             Addr::Imm {
                 rn,

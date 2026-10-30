@@ -42,6 +42,10 @@ const HANDLERS: [&str; 12] = [
 //   33.4 M; press 5 steps (all 10), release 43-56 (mean 48.5).
 //   2026-10-30, presses over a whole frame (160): press 5, 12 on a frame
 //   send (mean 5.2); release 57 worst (mean 48.5).
+//   step 4 (TRM cycle costs, CPI ~1.6 awake): instructions about the same
+//   (on 5.90 M, off 0.21 M, asleep 0.07 M, key held 32.7 M) but the time
+//   awake grew with them; press 6-7 steps, 17 on a frame send (mean 6.7);
+//   release 63 worst (mean 48.7).
 const MAX_INSNS_LIGHTS_ON: f64 = 6_800_000.0;
 const MAX_WAKES_LIGHTS_ON: f64 = 90.0;
 const MAX_INSNS_LIGHTS_OFF: f64 = 300_000.0;
@@ -51,11 +55,12 @@ const MAX_WAKES_ASLEEP: f64 = 25.0;
 const MAX_INSNS_KEY_HELD: f64 = 37_000_000.0;
 // Press (release) to IN endpoint armed, in 100 us steps: worst over the
 // presses in `press_to_report_latency`. Releases wait out the 5 ms debounce.
-// A press is 5 steps (3-4 at Renode's 100 MIPS), unless it lands on a WS2812
-// frame send (lights on): the scan waits for it, 12 steps at step 3. The
-// presses sweep a whole frame, so the worst always includes that case.
-const MAX_PRESS_WORST: u32 = 12;
-const MAX_RELEASE_WORST: u32 = 60;
+// A press is 6-7 steps (3-4 at Renode's 100 MIPS, 5 at one cycle an
+// instruction), unless it lands on a WS2812 frame send (lights on): the
+// scan waits for it, 17 steps with the TRM's cycles. The presses sweep a
+// whole frame, so the worst always includes that case.
+const MAX_PRESS_WORST: u32 = 18;
+const MAX_RELEASE_WORST: u32 = 66;
 
 /// From a blank flash, configured, then past the USB key's 2 s of white and
 /// the first settings save.
@@ -83,6 +88,8 @@ fn count_hooks(t: &mut T) {
 
 struct Counts {
     insns: f64,
+    /// Core clocks awake.
+    cycles: f64,
     sleeps: f64,
     handlers: BTreeMap<&'static str, f64>,
 }
@@ -95,10 +102,11 @@ fn measure(t: &mut T, label: &str, secs: f64) -> Counts {
         .collect();
     let hits = t.b.chip.pc_hits.as_mut().expect("count_hooks first");
     hits.values_mut().for_each(|n| *n = 0);
-    let (insns, sleeps) = (t.b.cpu.instructions, t.b.cpu.sleeps);
+    let (insns, cycles, sleeps) = (t.b.cpu.instructions, t.b.cpu.cycles, t.b.cpu.sleeps);
     t.b.run_for(secs);
     let c = Counts {
         insns: (t.b.cpu.instructions - insns) as f64 / secs,
+        cycles: (t.b.cpu.cycles - cycles) as f64 / secs,
         sleeps: (t.b.cpu.sleeps - sleeps) as f64 / secs,
         handlers: t
             .b
@@ -117,8 +125,9 @@ fn measure(t: &mut T, label: &str, secs: f64) -> Counts {
         .map(|(k, v)| format!("{k} {v:.0}"))
         .collect();
     println!(
-        "POWER {label}: {:.2} M insns/s, {:.0} sleeps/s; {}",
+        "POWER {label}: {:.2} M insns/s, {:.2} M cycles/s, {:.0} sleeps/s; {}",
         c.insns / 1e6,
+        c.cycles / 1e6,
         c.sleeps,
         handlers.join(", ")
     );
