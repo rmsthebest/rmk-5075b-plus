@@ -5,4 +5,4 @@
 [submodule "third_party/musb"]
 	path = third_party/musb
 	url = https://github.com/rmsthebest/musb.git
-	branch = akko
+	branch = akko-next
