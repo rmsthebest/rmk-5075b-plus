@@ -219,15 +219,14 @@ pub fn stored_crc(buf: &[u8; LEN]) -> u32 {
     u32::from_le_bytes(buf[CRC_AT..].try_into().unwrap())
 }
 
-/// The newer of two records, by `seq` (wrapping).
-pub fn newer<'a>(a: Option<&'a Record>, b: Option<&'a Record>) -> Option<&'a Record> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(if b.seq().wrapping_sub(a.seq()) as i32 > 0 {
-            b
-        } else {
-            a
-        }),
-        (a, b) => a.or(b),
+/// Which of two sectors' records is newer (0 or 1), by their `seq`s
+/// (wrapping; a tie is 0's), or `None` if neither has one.
+pub fn newer(seqs: [Option<u32>; 2]) -> Option<u32> {
+    match seqs {
+        [Some(a), Some(b)] => Some(if b.wrapping_sub(a) as i32 > 0 { 1 } else { 0 }),
+        [Some(_), None] => Some(0),
+        [None, Some(_)] => Some(1),
+        [None, None] => None,
     }
 }
 
@@ -351,15 +350,12 @@ mod tests {
 
     #[test]
     fn newer_wraps() {
-        static DEFAULTS: [[u16; KEYS]; CHANNELS] = [[0; KEYS]; CHANNELS];
-        let defaults = &DEFAULTS;
-        let b = Board::new(None, defaults, false, 0);
-        let (mut x, mut y) = ([0; LEN], [0; LEN]);
-        encode(&b, 0, 0, 0, u32::MAX, &mut x);
-        encode(&b, 0, 0, 0, 0, &mut y);
-        let (x, y) = (Record::check(&x), Record::check(&y));
-        assert_eq!(newer(x, y).unwrap().seq(), 0);
-        assert_eq!(newer(y, x).unwrap().seq(), 0);
-        assert_eq!(newer(None, x).unwrap().seq(), u32::MAX);
+        assert_eq!(newer([Some(u32::MAX), Some(0)]), Some(1));
+        assert_eq!(newer([Some(0), Some(u32::MAX)]), Some(0));
+        assert_eq!(newer([Some(1), Some(2)]), Some(1));
+        assert_eq!(newer([Some(5), Some(5)]), Some(0));
+        assert_eq!(newer([None, Some(7)]), Some(1));
+        assert_eq!(newer([Some(7), None]), Some(0));
+        assert_eq!(newer([None, None]), None);
     }
 }

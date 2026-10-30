@@ -13,10 +13,12 @@
 //! In lower sleep (the flat battery) only the cable and the UART wake it.
 //!
 //! With `diag`, the Caps and Win-lock LEDs (both active low) show how far
-//! the last stop got, for a stop that never comes back: Caps alone, it
-//! never woke; both, it woke but the clocks didn't come back; Win-lock
-//! alone, it got out of the stop (until the firmware sets them again).
-//! `diag`'s variant bits (`VARIANT_*`) try what the vendor does otherwise.
+//! the last stop got: Caps alone, it's stopped or never woke; Win-lock
+//! alone, it got out with its clocks back (until the firmware sets them
+//! again). A wake whose PLL doesn't lock panics in `rcc::reinit`, with the
+//! reason kept for Vial 0xD2. (LEDs written between the wake and the
+//! clocks would go nowhere: GPIO has no clock then.) `diag`'s variant bits
+//! (`VARIANT_*`) try what the vendor does otherwise.
 //!
 //! The EXTI setup is put back as it was after; a knob or row edge that woke
 //! it is left pending for the knob's or the parked scan's `ExtiInput` (if
@@ -25,7 +27,6 @@
 //! line 7 is A7's); the next one is read.
 
 use wb32_hal::gpio::{AnyPin, Mode, Port, Pull};
-use wb32_hal::stop::Mark;
 use wb32_pac::{AFIO, EXTI, GPIOA, GPIOB, GPIOC, Interrupt};
 
 pub const ROW_LINES: u32 = 0x1F | 1 << 13;
@@ -80,9 +81,7 @@ pub const VARIANT_NO_KNOB: u8 = 1 << 2;
 pub const VARIANT_EVENTS: u8 = 1 << 3;
 /// Not the vendor's: 100 times POST_LP's delay.
 pub const VARIANT_SLOW_SETTLE: u8 = 1 << 4;
-/// Not the vendor's: the PLL turned off before the clocks are set up again.
-pub const VARIANT_RESTART_CLOCKS: u8 = 1 << 5;
-pub const VARIANTS: u8 = (1 << 6) - 1;
+pub const VARIANTS: u8 = (1 << 5) - 1;
 
 const CAPS_LED: u32 = 1 << 5;
 const WIN_LOCK_LED: u32 = 1 << 0;
@@ -121,7 +120,6 @@ pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
         clear_pending: v & VARIANT_CLEAR_PENDING != 0,
         settle: wb32_hal::stop::Opts::VENDOR.settle
             * if v & VARIANT_SLOW_SETTLE != 0 { 100 } else { 1 },
-        restart_clocks: v & VARIANT_RESTART_CLOCKS != 0,
     };
     let emr_was = EXTI.emr().read().0;
     // SAFETY: C11 is UART3's RX; it's an input only while stopped.
@@ -165,11 +163,10 @@ pub fn stop(lower: bool, diag: Option<u8>) -> Option<u32> {
         if diag.is_some() {
             diag_leds(true, false);
         }
-        let woke = wb32_hal::stop::enter(cs, opts, |m| {
-            if diag.is_some() {
-                diag_leds(m == Mark::Woke, true);
-            }
-        });
+        let woke = wb32_hal::stop::enter(cs, opts);
+        if diag.is_some() {
+            diag_leds(false, true);
+        }
         EXTI.emr().write_value(wb32_pac::exti::regs::Emr(emr_was));
 
         rx.set_mode(Mode::alternate(7));

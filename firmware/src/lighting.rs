@@ -165,12 +165,7 @@ impl Store {
                 *seq = Record::check(buf).map(Record::seq);
             }
         }
-        let current = match seqs {
-            [Some(a), Some(b)] => Some(if b.wrapping_sub(a) as i32 > 0 { 1 } else { 0 }),
-            [Some(_), None] => Some(0),
-            [None, Some(_)] => Some(1),
-            [None, None] => None,
-        };
+        let current = record::newer(seqs);
         let mut s = Store {
             flash,
             buf,

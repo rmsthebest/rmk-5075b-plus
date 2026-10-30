@@ -9,7 +9,8 @@
 //!   other key in those 3 s cancels it.
 //! - While a wireless device is selected, RMK's reports go to the module
 //!   (`rmk::channel::set_report_hook`) and the USB D+ pull-up is off (B1
-//!   high, USB_POWER_EN_PIN), as QMK stops USB; USB gets an all-up report
+//!   high, USB_POWER_EN_PIN). QMK also stops the USB block and its
+//!   clocks; we only cut the pull-up. USB gets an all-up report
 //!   first, and the module one when switching back.
 //! - 100 ms after start-up: ask the module's version, enable its 30 min
 //!   sleep in both modes, then select the saved device.
@@ -229,8 +230,6 @@ fn now_ms() -> u32 {
     Instant::now().as_millis() as u32
 }
 
-/// The battery for the lighting: the module's level (%), the cable is in,
-/// the battery is full.
 /// The module has reported the battery level (until then `battery()`'s
 /// level is the link's 100).
 static BATTERY_KNOWN: AtomicBool = AtomicBool::new(false);
@@ -239,6 +238,8 @@ pub fn battery_known() -> bool {
     BATTERY_KNOWN.load(Ordering::Relaxed)
 }
 
+/// The battery for the lighting: the module's level (%), the cable is in,
+/// the battery is full.
 pub fn battery() -> (u8, bool, bool) {
     let c = wb32_pac::GPIOA.idr().read().0;
     let level = LINK.lock(|l| l.borrow().battery());

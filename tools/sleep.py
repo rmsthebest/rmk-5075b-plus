@@ -19,14 +19,13 @@ replug.
                      battery); on: whenever asleep, as the vendor's;
                      off: never. Not saved: a reset goes back to link.
   stop diag [N]      stop mode on, with the Caps and Win-lock LEDs showing
-                     how far the last stop got: Caps alone, it never
-                     woke; both, it woke but its clocks didn't come back;
-                     Win-lock alone, it got out of the stop. N (0-63, 0 by
+                     how far the last stop got: Caps alone, stopped or
+                     never woke; Win-lock alone, it got out of the stop
+                     with its clocks back. N (0-31, 0 by
                      default) adds variants, summed: 1 rows and UART wake
                      on both edges, 2 pending interrupts cleared and it
                      stops anyway, 4 the knob doesn't wake it, 8 the lines
-                     are EXTI events too, 16 100x the delay after waking,
-                     32 the PLL turned off before the clocks restart
+                     are EXTI events too, 16 100x the delay after waking
   panic              print why the previous run ended, if it panicked (a
                      stop that can't get its clocks back panics and
                      restarts the keyboard; channel 0xD2)

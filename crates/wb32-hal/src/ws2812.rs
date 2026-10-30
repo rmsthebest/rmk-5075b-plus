@@ -185,8 +185,8 @@ impl Ws2812 {
         if let Either::Second(()) = select(done, Timer::after(WRITE_TIMEOUT)).await {
             critical_section::with(|cs| {
                 SPIM2.ier().write_value(spi::regs::Ier(0));
-                // Disabling empties both FIFOs. Otherwise bytes left in RX
-                // count towards the next frame, which then ends early.
+                // Disabling empties the FIFOs, so the next frame doesn't
+                // start behind this one's leftover TX bytes.
                 SPIM2.spienr().write_value(spi::regs::Spienr(0));
                 SPIM2.spienr().write_value(spi::regs::Spienr(1));
                 XFER.borrow(cs).set(IDLE);
@@ -228,6 +228,10 @@ fn on_interrupt() {
             .borrow(cs)
             .get()
             .saturating_sub(r.txflr().read().0 as usize);
+        if x.tx_left == 0 {
+            // A frame abandoned by `finished` with the interrupt pending.
+            return;
+        }
         let n = x.tx_left.min(room);
         // SAFETY: the driver's 'static colours, which `write` leaves alone
         // until the frame is out (or abandoned, with XFER idle).

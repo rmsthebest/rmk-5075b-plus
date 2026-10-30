@@ -14,6 +14,9 @@ pub const ACK_TIMEOUT_MS: u32 = 10;
 /// Tries after the first before a frame is dropped: 41 sends, about 0.45 s.
 pub const RETRIES: u8 = 40;
 /// While the link is down, how often reports may re-select the device.
+/// The vendor sends a select with every report. The limit came from a
+/// hunch, never confirmed, that a flood of selects while typing through a
+/// dropout restarts the module's reconnect each time.
 pub const RESELECT_MS: u32 = 500;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

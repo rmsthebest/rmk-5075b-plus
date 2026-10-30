@@ -9,8 +9,9 @@
 //! ACK, retrying for a bounded time.
 //!
 //! The vendor bugs the fixed tree removed stay out:
-//! 1. Key releases made while the link is down are not lost: the latest
-//!    keyboard report is kept and sent once the module reconnects.
+//! 1. Keyboard key releases made while the link is down are not lost: the
+//!    latest keyboard report is kept and sent once the module reconnects.
+//!    Consumer, system and mouse reports aren't kept, as the vendor's.
 //! 2. A frame is retried 40 times, then dropped and counted; a dropped
 //!    keyboard report is followed by the latest one.
 //! 3. The receive parser resyncs after a lost byte (20 ms gap) and bounds

@@ -239,7 +239,8 @@ def wait_for_dfu(job):
     if keyboard_state()["mode"] == "dfu":
         time.sleep(0.5)
         return
-    job.prompt = "Unplug the keyboard, hold Esc, plug it back in (keep Esc held for a second)."
+    job.prompt = ("Unplug the keyboard and set the back switch to USB (on battery, plugging in "
+                  "doesn't restart it), hold Esc, plug it back in (keep Esc held for a second).")
     job.say("Waiting for the DFU bootloader...")
     deadline = time.monotonic() + DFU_WAIT_S
     while keyboard_state()["mode"] != "dfu":

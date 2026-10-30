@@ -1,11 +1,11 @@
-//! Sleep (M7b): "light sleep", as the vendor's lowpower.c decides when,
-//! but without stop mode (M7c): the clocks and SysTick run on, and the
-//! executor waits in WFE as always. What saves power is what stops:
+//! Sleep (M7b): "light sleep", as the vendor's lowpower.c decides when.
+//! What saves power is what stops:
 //! - the lighting: the LED chain's supply (A8) and the boost (A9) off, and
 //!   the aux, Win-lock and Caps Lock LEDs off (src/lighting.rs, `CapsPin`);
-//! - the scan: every column driven low and the rows read every 10 ms, for
-//!   any key to wake on (src/scan.rs); no 1 kHz scan;
-//! - the knob's 5 ms poll: it waits for an edge (src/knob.rs).
+//! - the scan: parked on the rows' EXTI lines with every column driven low,
+//!   for a change of any row to wake on (src/scan.rs); no 1 kHz scan;
+//! - the knob: it waits for an edge, as always (src/knob.rs);
+//! - after a while on the battery, the clocks: stop mode (below).
 //!
 //! When: only while a wireless device is selected (QMK never sleeps the MCU
 //! on USB; there the lighting goes off 7 s after the host suspends, see

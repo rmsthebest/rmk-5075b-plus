@@ -792,23 +792,12 @@ fn in_stop_mode_a_key_wakes_it_and_is_typed() {
     t.no_errors();
 }
 
-/// The stop diag's "woke" marks (wb32_hal::stop::Mark::Woke) set the LEDs
-/// before the clocks are back, so GPIOB and GPIOC have no clock (RM 5.3.4)
-/// and the writes go nowhere: on the chip, both LEDs on can't show.
-/// A known firmware issue (retro review, 2026-10-30), pinned here until the
-/// diag is fixed or dropped.
-const DIAG_WOKE_UNCLOCKED: [&str; 2] = [
-    "write to GPIOC at 0x40000818 = 0x200000 with its clock off: dropped",
-    "write to GPIOB at 0x40000418 = 0x10000 with its clock off: dropped",
-];
-
 /// 0xD9 'D': stop mode with the LEDs marking how far a stop got
 /// (src/stop.rs). Stopped: Caps on (C5 low), Win-lock off (B0 high); a key
 /// still wakes it, and the device is selected again.
 #[test]
 fn with_stop_diag_on_caps_shows_a_stop_in_progress() {
     let mut t = boot();
-    t.allow_errors();
     stop_mode(&mut t, 0x44);
     t.hid_should_show(3, "08 d9 44 01", 1.0);
     on_the_dongle(&mut t);
@@ -823,16 +812,14 @@ fn with_stop_diag_on_caps_shows_a_stop_in_progress() {
     key(&mut t, KEY_A, false);
     t.b.run_for(0.3);
     should_be_stopped(&mut t, false);
-    assert_eq!(t.b.errors(), DIAG_WOKE_UNCLOCKED);
 }
 
-/// 0xD9 'D' 63: both edges, pending cleared, no knob, EXTI events, the long
-/// settle, the PLL restarted (src/stop.rs VARIANT_*). Byte 16 of the answer
-/// echoes the bits.
+/// 0xD9 'D' 31: both edges, pending cleared, no knob, EXTI events, the long
+/// settle (src/stop.rs VARIANT_*). Byte 16 of the answer echoes the bits;
+/// bit 5 (once "PLL restarted") is ignored.
 #[test]
 fn every_stop_diag_variant_at_once_still_stops_and_wakes_on_a_key() {
     let mut t = boot();
-    t.allow_errors();
     t.raw_hid_send_and_run(&[0x08, 0xD9, 0x44, 63]);
     t.hid_should_show(3, "08 d9 44 01", 1.0);
     on_the_dongle(&mut t);
@@ -849,9 +836,8 @@ fn every_stop_diag_variant_at_once_still_stops_and_wakes_on_a_key() {
     vial_via_dongle(
         &mut t,
         &[0x08, 0xD9, 0x00],
-        "08 d9 00 01 01 00 00 00 01 00 00 00 00 00 00 00 3f",
+        "08 d9 00 01 01 00 00 00 01 00 00 00 00 00 00 00 1f",
     );
-    assert_eq!(t.b.errors(), DIAG_WOKE_UNCLOCKED);
 }
 
 /// A frame from the module ends the stop: its start bit is the falling

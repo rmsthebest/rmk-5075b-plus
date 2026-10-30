@@ -303,9 +303,9 @@ pub fn request_bootloader() -> ! {
 
 /// Where the panic handler leaves the panic message for the next boot: just
 /// above the 28K the images link (and QMK uses), so neither RAM init nor the
-/// stack touches it. What the ROM bootloader does to this RAM is unknown, so
-/// the record carries a check word and [`take_panic_message`] ignores a
-/// damaged one.
+/// stack touches it. The ROM bootloader uses only 0x2000_0000-0x2000_044F
+/// (rom/notes.md), so the record survives DFU; it still carries a check
+/// word, and [`take_panic_message`] ignores a damaged one.
 pub const PANIC_RECORD_ADDR: u32 = 0x2000_7000;
 pub const PANIC_MSG_MAX: usize = 120;
 const PANIC_MAGIC: u32 = 0x504E_4943; // "PNIC"

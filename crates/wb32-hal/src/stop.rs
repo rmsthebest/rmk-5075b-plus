@@ -59,7 +59,7 @@ fn post_lp(settle: u32) {
 }
 
 /// How [`enter`] stops: [`Opts::VENDOR`] is the vendor's, but for pending
-/// interrupts; the rest are diagnostics, for a stop that doesn't come back.
+/// interrupts; the rest are diagnostics (firmware src/stop.rs).
 #[derive(Clone, Copy)]
 pub struct Opts {
     /// Clear pending interrupts and stop anyway, as the vendor does, rather
@@ -67,16 +67,12 @@ pub struct Opts {
     pub clear_pending: bool,
     /// POST_LP's delay loop count (the vendor's 35).
     pub settle: u32,
-    /// Not the vendor's: back on the internal clock with the PLL off before
-    /// the clocks are set up again (`rcc::clocks_off`).
-    pub restart_clocks: bool,
 }
 
 impl Opts {
     pub const VENDOR: Opts = Opts {
         clear_pending: false,
         settle: 35,
-        restart_clocks: false,
     };
 }
 
@@ -140,26 +136,12 @@ fn pending() -> bool {
     nvic_pending || SCB::is_pendst_pending() || EXTI.pr().read().0 & EXTI.imr().read().0 != 0
 }
 
-/// How far a stop got, for [`enter`]'s `mark` (a diagnostic).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Mark {
-    /// Out of the WFI, before the clocks are back.
-    Woke,
-    /// The clocks and SysTick back.
-    Clocked,
-}
-
 /// Stops the chip until one of the EXTI lines the caller unmasked fires, and
 /// returns the pending lines (EXTI PR) on waking; `None`, without stopping,
 /// if an interrupt was already pending. Interrupts stay off throughout
 /// (the critical section): the wake doesn't run a handler, the caller
-/// clears the lines it set up. `mark` is called as the wake gets past each
-/// [`Mark`].
-pub fn enter(
-    _cs: critical_section::CriticalSection<'_>,
-    opts: Opts,
-    mark: impl Fn(Mark),
-) -> Option<u32> {
+/// clears the lines it set up.
+pub fn enter(_cs: critical_section::CriticalSection<'_>, opts: Opts) -> Option<u32> {
     // SAFETY: the caller has interrupts off; SysTick, SCB and these
     // registers are only touched here meanwhile.
     let syst = unsafe { &*SYST::PTR };
@@ -190,13 +172,9 @@ pub fn enter(
     unsafe { scb.scr.modify(|v| v | SLEEPDEEP) };
     cortex_m::asm::dsb();
     cortex_m::asm::wfi();
-    mark(Mark::Woke);
     post_lp(opts.settle);
     unsafe { scb.scr.modify(|v| v & !SLEEPDEEP) };
 
-    if opts.restart_clocks {
-        rcc::clocks_off();
-    }
     rcc::reinit(PLL_POLLS);
     RCC.apb1enr().write_value(apb1);
     RCC.apb2enr().write_value(apb2);
@@ -208,6 +186,5 @@ pub fn enter(
     // read before this it said no line fired).
     let fired = EXTI.pr().read().0;
     unsafe { syst.csr.modify(|v| v | SYST_ENABLE) };
-    mark(Mark::Clocked);
     Some(fired)
 }

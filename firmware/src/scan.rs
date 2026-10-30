@@ -4,10 +4,10 @@
 //! turn is driven low, the others are released, and a held key pulls its
 //! row (an input with pull-up) low through its diode. As QMK, a selected
 //! column is a push-pull output (its ODR bit stays low) and a released one a
-//! pulled-up input. Open-drain outputs with pull-up typed nothing on the
-//! board, for a reason not found yet, though the sim and the vendor's GPIO
-//! code say they should work. One pass per
-//! millisecond, as QMK's matrix task, while a key is down or settling.
+//! pulled-up input. Open-drain columns were tried once, when no key reached
+//! the host; that turned out to be the USB EP1 bug (fixed in musb), so
+//! open-drain is untested rather than known bad. One pass per millisecond,
+//! as QMK's matrix task, while a key is down or settling.
 //!
 //! Parked: with no key down and none settling, the scan stops (as RMK's
 //! `async_matrix`): every column is driven low, and it waits for any row to
