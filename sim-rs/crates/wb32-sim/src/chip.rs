@@ -28,7 +28,7 @@
 use crate::diag::Diag;
 use crate::fmc::{self, Fmc};
 use crate::gpio::{Gpio, Matrix};
-use crate::ssi::{QSPI_IRQ, SPIM2_IRQ, Ssi};
+use crate::ssi::{QSPI_FIFO_DEPTH, QSPI_IRQ, SPIM2_FIFO_DEPTH, SPIM2_IRQ, Ssi};
 use crate::sysctl::{self, Gate, Refused, Sysctl};
 use crate::tim2::{self, Tim2};
 use crate::uart::{UART3_IRQ, Uart};
@@ -243,8 +243,8 @@ impl Wb32 {
             gpio: Gpio::default(),
             sysctl: Sysctl::default(),
             tim2: Tim2::default(),
-            qspi: Ssi::new("QSPI", QSPI_IRQ),
-            spim2: Ssi::new("SPIM2", SPIM2_IRQ),
+            qspi: Ssi::new("QSPI", QSPI_IRQ, QSPI_FIFO_DEPTH),
+            spim2: Ssi::new("SPIM2", SPIM2_IRQ, SPIM2_FIFO_DEPTH),
             uart3: Uart::new("UART3", UART3_IRQ),
             cache: BTreeMap::new(),
             usb: Rc::new(RefCell::new(Musb::new())),
@@ -277,7 +277,7 @@ impl Wb32 {
         self.cache.clear();
         *self.usb.borrow_mut() = Musb::new();
         self.fmc = Fmc::default();
-        self.clock_tim2();
+        self.clock_timers();
     }
 
     /// Whether `p` answers now; reports it if not.
@@ -291,15 +291,24 @@ impl Wb32 {
         }
     }
 
-    /// TIM2 counts PCLK1 while its clock is on.
-    fn clock_tim2(&mut self) {
-        let hz = if self.sysctl.clock_on(Gate::Apb1(2)) {
-            self.sysctl.clocks().pclk1
-        } else {
-            0
-        };
-        if hz != self.tim2.hz() {
-            self.tim2.set_clock(hz, self.now);
+    /// The models that keep time get their bus clock while RCC gives it
+    /// to them: TIM2 and QSPI PCLK1, SPIM2 PCLK2.
+    fn clock_timers(&mut self) {
+        let c = self.sysctl.clocks();
+        let hz = |g| if self.sysctl.clock_on(g) { 1 } else { 0 };
+        let (tim2, qspi, spim2) = (
+            hz(Gate::Apb1(2)) * c.pclk1,
+            hz(Gate::Apb1(12)) * c.pclk1,
+            hz(Gate::Apb2(4)) * c.pclk2,
+        );
+        if tim2 != self.tim2.hz() {
+            self.tim2.set_clock(tim2, self.now);
+        }
+        if qspi != self.qspi.hz() {
+            self.qspi.set_clock(qspi, self.now);
+        }
+        if spim2 != self.spim2.hz() {
+            self.spim2.set_clock(spim2, self.now);
         }
     }
 
@@ -408,8 +417,8 @@ impl Wb32 {
                 });
                 self.tim2.write(o, value, self.now)
             }
-            Periph::Qspi(o) => self.qspi.write(o, value, &self.gpio, &mut log),
-            Periph::Spim2(o) => self.spim2.write(o, value, &self.gpio, &mut log),
+            Periph::Qspi(o) => self.qspi.write(o, value, self.now, &self.gpio, &mut log),
+            Periph::Spim2(o) => self.spim2.write(o, value, self.now, &self.gpio, &mut log),
             Periph::Uart3(o) => self.uart3.write(o, value, self.now, &self.gpio, &mut log),
             Periph::Sysctl(o) => {
                 match self.sysctl.write(o, value, self.now, &mut log) {
@@ -423,7 +432,7 @@ impl Wb32 {
                 if matches!(o, sysctl::AHBRSTR1 | sysctl::APB1RSTR | sysctl::APB2RSTR) {
                     self.rcc_resets();
                 }
-                self.clock_tim2();
+                self.clock_timers();
             }
             Periph::Cache(o) => {
                 log(Write {
@@ -594,10 +603,20 @@ impl Bus for Wb32 {
             self.tim2.sync(now);
         }
         self.uart3.advance(now);
+        if self.qspi.next_event() <= now {
+            self.qspi.advance(now, &self.gpio);
+        }
+        if self.spim2.next_event() <= now {
+            self.spim2.advance(now, &self.gpio);
+        }
     }
 
     fn next_event(&self) -> u64 {
-        self.tim2.next_event().min(self.uart3.next_event())
+        self.tim2
+            .next_event()
+            .min(self.uart3.next_event())
+            .min(self.qspi.next_event())
+            .min(self.spim2.next_event())
     }
 
     /// The clock tree's AHB clock (sysctl.rs).

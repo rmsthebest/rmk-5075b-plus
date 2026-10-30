@@ -46,8 +46,17 @@ const HANDLERS: [&str; 12] = [
 //   (on 5.90 M, off 0.21 M, asleep 0.07 M, key held 32.7 M) but the time
 //   awake grew with them; press 6-7 steps, 17 on a frame send (mean 6.7);
 //   release 63 worst (mean 48.7).
+//   step 5a (SSI timing, SPIM2's 4-deep FIFO): the LED feed's interrupt came
+//   about every byte and held the CPU for most of each 3.7 ms frame (lights
+//   on 24.7 M cycles/s, press 40 steps worst, a knob step lost). With the
+//   HAL's transmit-only feed (an interrupt per 3 bytes): lights on 6.35 M
+//   insns, 10.2 M cycles, 29,000 wakes/s (SPIM2's, between which the core
+//   now sleeps); off 0.21 M / 0.39 M; asleep 0.07 M / 0.11 M; key held
+//   33.4 M / 52.3 M; press 6-7 steps, 9 worst (mean 6.9); release 56 worst
+//   (mean 49.5).
 const MAX_INSNS_LIGHTS_ON: f64 = 6_800_000.0;
-const MAX_WAKES_LIGHTS_ON: f64 = 90.0;
+// The LED feed's interrupts wake it during each frame (step 5a).
+const MAX_WAKES_LIGHTS_ON: f64 = 31_000.0;
 const MAX_INSNS_LIGHTS_OFF: f64 = 300_000.0;
 const MAX_WAKES_LIGHTS_OFF: f64 = 90.0;
 const MAX_INSNS_ASLEEP: f64 = 100_000.0;
@@ -56,11 +65,11 @@ const MAX_INSNS_KEY_HELD: f64 = 37_000_000.0;
 // Press (release) to IN endpoint armed, in 100 us steps: worst over the
 // presses in `press_to_report_latency`. Releases wait out the 5 ms debounce.
 // A press is 6-7 steps (3-4 at Renode's 100 MIPS, 5 at one cycle an
-// instruction), unless it lands on a WS2812 frame send (lights on): the
-// scan waits for it, 17 steps with the TRM's cycles. The presses sweep a
-// whole frame, so the worst always includes that case.
-const MAX_PRESS_WORST: u32 = 18;
-const MAX_RELEASE_WORST: u32 = 66;
+// instruction), a little more when it lands on a WS2812 frame send (lights
+// on), whose interrupts share the CPU: 9 steps since step 5a. The presses
+// sweep a whole frame, so the worst always includes that case.
+const MAX_PRESS_WORST: u32 = 10;
+const MAX_RELEASE_WORST: u32 = 60;
 
 /// From a blank flash, configured, then past the USB key's 2 s of white and
 /// the first settings save.

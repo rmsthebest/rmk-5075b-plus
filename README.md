@@ -26,15 +26,16 @@ build aren't published, so they don't count here. Both images ran in the same si
 | | Vendor QMK | This firmware |
 |---|---|---|
 | Key press to report ready | 5 ms or more | 0.7 ms |
-| Key release to report ready | 5 ms or more | 4.9 ms on average |
-| CPU awake, idle, lights on | 100% | 9.1% |
+| Key release to report ready | 5 ms or more | 5.0 ms on average |
+| CPU awake, idle, lights on | 100% | 10.6% |
 | CPU awake, idle, lights off | 100% | 0.4% |
-| CPU awake, a key held | 100% | 52% |
+| CPU awake, a key held | 100% | 54% |
 | CPU awake, host asleep | not measured | 0.1% |
-| Wake-ups per second, idle | never sleeps (SysTick 100,000/s) | about 75 |
-| Est. CPU current, idle, lights on | 13.4 mA | 1.2 mA |
+| Wake-ups per second, idle, lights off | never sleeps (SysTick 100,000/s) | about 75 |
+| Wake-ups per second, idle, lights on | never sleeps | about 29,000 (the LED feed's interrupts) |
+| Est. CPU current, idle, lights on | 13.4 mA | 1.4 mA |
 | Est. CPU current, idle, lights off | 13.4 mA | 0.05 mA |
-| Est. CPU current, a key held | 13.4 mA | 7.0 mA |
+| Est. CPU current, a key held | 13.4 mA | 7.3 mA |
 
 - **Latency.** The vendor build uses QMK's default debounce, `sym_defer_g` at 5 ms: a change is
   reported only after the whole matrix has been quiet for 5 ms. Here a press goes out at once, and

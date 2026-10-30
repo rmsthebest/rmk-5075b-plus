@@ -126,15 +126,36 @@ fn a_frame_goes_out_every_16_ms_while_the_colours_change() {
 }
 
 /// The first register writes, through the first frame, against QMK's
-/// (sim/golden/qmk_spim2_init.txt).
+/// (sim/golden/qmk_spim2_init.txt), recorded in Renode with an 8-deep FIFO:
+/// SPIM2's is 4 (RM 22.2), so the depth probe stops earlier
+/// (`at_fifo_depth`). The set-up is QMK's but for CR0's transmit-only mode
+/// (TMOD 01); each frame then sets TXFTLR to a quarter of the FIFO and IER
+/// to TXE alone, where QMK's driver sends and receives with the FIFO half
+/// full (an interrupt about every byte: wb32-hal ws2812.rs).
 #[test]
 fn spim2_is_set_up_and_driven_as_qmk_does() {
-    let golden = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../sim/golden/qmk_spim2_init.txt"
-    ))
-    .unwrap();
+    let golden = golden("qmk_spim2_init.txt");
     let golden: Vec<&str> = golden.trim().lines().collect();
+    let golden = at_fifo_depth(&golden, "SPIM2", 4);
+    // QMK's set-up ends with IER = 0, before the first frame.
+    let setup = golden
+        .iter()
+        .position(|l| l == "SPIM2+0x02c = 0x00000000")
+        .unwrap()
+        + 1;
+    let mut expected: Vec<String> = golden[..setup]
+        .iter()
+        .map(|l| l.replace("SPIM2+0x000 = 0x00000007", "SPIM2+0x000 = 0x00000107"))
+        .collect();
+    expected.extend(
+        [
+            "SPIM2+0x018 = 0x00000001",
+            "SPIM2+0x02c = 0x00000001",
+            "SPIM2+0x008 = 0x00000001",
+            "SPIM2+0x02c = 0x00000000",
+        ]
+        .map(String::from),
+    );
     let mut t = T::boot();
     t.b.chip.writes = Some(Vec::new());
     t.b.run_for(3.5);
@@ -145,9 +166,8 @@ fn spim2_is_set_up_and_driven_as_qmk_does() {
             .flatten()
             .map(|w| w.to_string())
             .filter(|l| l.starts_with("SPIM2"))
-            .take(golden.len())
             .collect();
-    assert_eq!(ours, golden);
+    assert_eq!(ours[..expected.len()], expected);
 }
 
 /// rgb_matrix_hs_devs_indicator: 2 s of white on LED 37.

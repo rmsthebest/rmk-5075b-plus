@@ -122,17 +122,23 @@ fn qmk_spi_flash_bring_up_matches_its_golden_trace() {
     // first READ the stack has grown over spi_master.c's spiStarted. So
     // spi_stop skips raising CS, and the next command's bytes count as the
     // READ's (n=2050). Ours raises CS where Renode's chip select stays low.
+    // Repeats fold on both sides: the RM's reset IER (0x1F) raises the
+    // QSPI interrupt once before ChibiOS clears IER, and its handler
+    // writes IER = 0 next to the driver's own (Renode's IER reset to 0).
     let ours = trace(boot_qmk(), 1.5, r"^(QSPI|FLASH|GPIOC\+0x018)");
     let golden = golden("qmk_qspi_init.txt");
     let (flash, writes): (Vec<&str>, Vec<&str>) =
         golden.trim().lines().partition(|l| l.starts_with("FLASH "));
+    let writes = fold_repeats(&writes);
+    let writes: Vec<&str> = writes.iter().map(String::as_str).collect();
     const CS_LOW: &str = "GPIOC+0x018 = 0x10000000";
     const CS_HIGH: &str = "GPIOC+0x018 = 0x00001000";
-    let ours_writes: Vec<&str> = ours
-        .iter()
-        .map(String::as_str)
-        .filter(|l| !l.starts_with("FLASH "))
-        .collect();
+    let ours_writes = fold_repeats(
+        &ours
+            .iter()
+            .filter(|l| !l.starts_with("FLASH "))
+            .collect::<Vec<_>>(),
+    );
     // Renode's READ: its chip select low, and the next low with no high
     // between.
     let cs: Vec<(usize, &&str)> = writes

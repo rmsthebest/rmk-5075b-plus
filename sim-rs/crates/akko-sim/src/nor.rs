@@ -290,7 +290,11 @@ mod tests {
 
     #[test]
     fn the_bus_pins_must_be_on_af5() {
-        let line = SsiLine { cr0: 7, baudr: 32 };
+        let line = SsiLine {
+            cr0: 7,
+            baudr: 32,
+            ..Default::default()
+        };
         let mut g = Gpio::default();
         g.watch(CS);
         // B3-B5 to AF5 (MODER 2, AFRL nibbles 3-5); then B4 back to AF0.

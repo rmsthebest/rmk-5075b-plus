@@ -3,33 +3,38 @@
 //!
 //! QMK's ws2812_spi encoding: 4 SPI bits per WS2812 bit (0 = 1000, 1 =
 //! 1110), so every byte of a frame is two bits and never 0x00; a 0x00 byte
-//! is the line held low. A frame starts at the first non-zero byte after at
-//! least RESET_BYTES zero bytes (QMK sends 4 before and 112 after; the
-//! WS2812 latch needs 280 us = 105 bytes at 3 MHz) and ends at the next
-//! zero byte. 12 bytes make one LED, in G, R, B order. Errors: a byte with
+//! is the line held low, and so is an idle line (each byte ends low). A
+//! frame starts at the first non-zero byte after the line was low for the
+//! WS2812 latch's 280 us (105 bytes at 3 MHz; QMK sends 4 zero bytes before
+//! and 112 after), timed on the wire, and ends at the next zero byte or
+//! such a gap. 12 bytes make one LED, in G, R, B order. Errors: a byte with
 //! a nibble other than 1000/1110, a frame that isn't a whole number of
 //! LEDs, a frame after too short a reset, or sending in the wrong mode (CR0
-//! not 8-bit Motorola mode 0, or BAUDR not 32 = 3 MHz), or B15 not on
-//! SPIM2_MO (AF5, the datasheet's alternate-function table).
+//! not 8-bit Motorola mode 0 with transmit on, or SCLK not 3 MHz), or B15 not on SPIM2_MO
+//! (AF5, the datasheet's alternate-function table).
 //!
 //! The chain's supply is switched by A8 (high: on), which the board
 //! watches: while it's off the LEDs take nothing, and each time it comes
 //! back they are dark until the next frame (`seen_rises`). Without a watch
 //! on A8 (a bare chain) the supply is always on.
 
+use cortex_m3_emu::TICK_HZ;
 use wb32_sim::gpio::{A, B, Gpio, Pin};
 use wb32_sim::ssi::{SsiDevice, SsiLine};
 
 pub const RESET_BYTES: u32 = 105;
-const BAUDR: u32 = 32;
+/// The latch: the line low this long (WS2812B datasheet, > 280 us).
+const LATCH_US: u64 = 280;
+const SCLK_HZ: u64 = 3_000_000;
 /// The supply switch.
 pub const SUPPLY: Pin = (A, 8);
 const DATA: Pin = (B, 15);
 const AF_SPIM: u8 = 5;
 
 pub struct Ws2812 {
-    /// Zero bytes since the last frame (the line was low since reset).
-    zeros: u32,
+    /// When the line went low after the last frame's data (0: low since
+    /// reset).
+    low_since: u64,
     cur: Option<Vec<u8>>,
     /// The last frame, 0xRRGGBB per LED.
     pub leds: Vec<u32>,
@@ -47,7 +52,7 @@ pub struct Ws2812 {
 impl Default for Ws2812 {
     fn default() -> Self {
         Ws2812 {
-            zeros: RESET_BYTES,
+            low_since: 0,
             cur: None,
             leds: Vec::new(),
             frames: 0,
@@ -127,7 +132,7 @@ impl SsiDevice for Ws2812 {
             if !supply.level {
                 // Unpowered: the data goes nowhere.
                 self.cur = None;
-                self.zeros = RESET_BYTES;
+                self.low_since = 0;
                 return 0;
             }
             if supply.rising != self.seen_rises {
@@ -137,10 +142,11 @@ impl SsiDevice for Ws2812 {
         }
         if !self.mode_checked {
             self.mode_checked = true;
-            if line.cr0 & 0x3FF != 0x07 || line.baudr != BAUDR {
+            // 8-bit Motorola mode 0 (CR0 bits 7:0), sending (TMOD 00 or 01).
+            if line.cr0 & 0xFF != 0x07 || line.cr0 & 0x300 > 0x100 || line.sclk_hz != SCLK_HZ {
                 self.errors.push(format!(
-                    "leds: CR0 0x{:x} BAUDR {}, not 8-bit mode 0 at 3 MHz",
-                    line.cr0, line.baudr
+                    "leds: CR0 0x{:x} SCLK {} Hz, not 8-bit mode 0 at 3 MHz",
+                    line.cr0, line.sclk_hz
                 ));
             }
             if gpio.alternate(DATA) != Some(AF_SPIM) {
@@ -150,23 +156,29 @@ impl SsiDevice for Ws2812 {
                 ));
             }
         }
+        let start = line.end - line.frame;
+        let low = start.saturating_sub(self.low_since);
+        let latched = self.low_since == 0 || low >= LATCH_US * TICK_HZ / 1_000_000;
         if b == 0 {
             if self.cur.is_some() {
                 self.end_frame();
+                self.low_since = start;
             }
-            self.zeros += 1;
         } else {
+            if self.cur.is_some() && latched {
+                self.end_frame();
+            }
             if self.cur.is_none() {
-                if self.zeros < RESET_BYTES {
+                if !latched {
                     self.errors.push(format!(
-                        "leds: frame after only {} zero bytes (latch needs {RESET_BYTES})",
-                        self.zeros
+                        "leds: frame after the line was low {} us (latch needs {LATCH_US})",
+                        low * 1_000_000 / TICK_HZ
                     ));
                 }
                 self.cur = Some(Vec::new());
             }
-            self.zeros = 0;
             self.cur.as_mut().unwrap().push(b);
+            self.low_since = line.end;
         }
         // Nothing drives MISO.
         0
@@ -196,12 +208,35 @@ mod tests {
         out
     }
 
+    /// SPIM2 at 3 MHz: a byte every 8/3 us, back to back from `t`.
+    struct Wire {
+        t: u64,
+    }
+
+    const FRAME: u64 = 8 * TICK_HZ / SCLK_HZ;
+
+    impl Wire {
+        fn new() -> Wire {
+            Wire { t: 1 }
+        }
+        fn line(&mut self) -> SsiLine {
+            self.t += FRAME;
+            SsiLine {
+                cr0: 0x07,
+                baudr: 32,
+                sclk_hz: SCLK_HZ,
+                frame: FRAME,
+                end: self.t,
+            }
+        }
+        fn idle_us(&mut self, us: u64) {
+            self.t += us * TICK_HZ / 1_000_000;
+        }
+    }
+
     #[test]
     fn decodes_frames_and_catches_a_short_latch() {
-        let line = SsiLine {
-            cr0: 0x07,
-            baudr: 32,
-        };
+        let mut wire = Wire::new();
         // B15 on AF5 (MODER 2, AFRH nibble 7).
         let mut gpio = Gpio::default();
         gpio.write(0x400, 2 << 30, &mut |_| {});
@@ -211,7 +246,7 @@ mod tests {
             .into_iter()
             .chain([0; 105])
         {
-            w.shift(b, line, &gpio);
+            w.shift(b, wire.line(), &gpio);
         }
         assert_eq!(w.leds, [0xFF0000, 0x00FF00, 0x123456]);
         assert_eq!((w.frames, w.errors.len()), (1, 0));
@@ -222,22 +257,38 @@ mod tests {
             .chain(encode(&[1]))
             .chain([0])
         {
-            w.shift(b, line, &gpio);
+            w.shift(b, wire.line(), &gpio);
         }
         assert_eq!(
             w.errors,
-            ["leds: frame after only 3 zero bytes (latch needs 105)"]
+            ["leds: frame after the line was low 8 us (latch needs 280)"]
+        );
+        // An idle line latches as well as zero bytes do: no trailing zeros,
+        // 300 us idle, then the next frame.
+        w.errors.clear();
+        wire.idle_us(300);
+        for b in encode(&[0x0000FF]) {
+            w.shift(b, wire.line(), &gpio);
+        }
+        wire.idle_us(300);
+        for b in encode(&[0x00FF00]).into_iter().chain([0]) {
+            w.shift(b, wire.line(), &gpio);
+        }
+        assert_eq!((w.leds.clone(), w.frames), (vec![0x00FF00], 5));
+        assert!(w.errors.is_empty(), "{:?}", w.errors);
+        // 200 us isn't enough.
+        wire.idle_us(200);
+        w.shift(0x88, wire.line(), &gpio);
+        assert_eq!(
+            w.errors,
+            ["leds: frame after the line was low 202 us (latch needs 280)"]
         );
     }
 
     #[test]
     fn b15_must_be_on_af5() {
-        let line = SsiLine {
-            cr0: 0x07,
-            baudr: 32,
-        };
         let mut w = Ws2812::default();
-        w.shift(0, line, &Gpio::default());
+        w.shift(0, Wire::new().line(), &Gpio::default());
         assert_eq!(w.errors, ["leds: B15 on None, not SPIM2_MO (AF5)"]);
     }
 
@@ -245,10 +296,7 @@ mod tests {
     /// start dark (their power-on state) until a frame.
     #[test]
     fn unpowered_the_chain_ignores_data_and_powers_up_dark() {
-        let line = SsiLine {
-            cr0: 0x07,
-            baudr: 32,
-        };
+        let mut wire = Wire::new();
         let mut gpio = Gpio::default();
         gpio.watch(SUPPLY);
         gpio.write(0x400, 2 << 30, &mut |_| {});
@@ -257,9 +305,9 @@ mod tests {
         gpio.write(0x000, 1 << 16, &mut |_| {});
         gpio.write(0x014, 1 << 8, &mut |_| {});
         let mut w = Ws2812::default();
-        let frame = |w: &mut Ws2812, gpio: &Gpio, c: u32| {
+        let mut frame = |w: &mut Ws2812, gpio: &Gpio, c: u32| {
             for b in encode(&[c]).into_iter().chain([0; 105]) {
-                w.shift(b, line, gpio);
+                w.shift(b, wire.line(), gpio);
             }
         };
         frame(&mut w, &gpio, 0x123456);
@@ -268,7 +316,7 @@ mod tests {
         frame(&mut w, &gpio, 0xFF0000);
         assert_eq!(w.frames, 1, "unpowered");
         gpio.write(0x014, 1 << 8, &mut |_| {});
-        w.shift(0, line, &gpio);
+        w.shift(0, Wire::new().line(), &gpio);
         assert_eq!(w.leds, [0]);
         frame(&mut w, &gpio, 0x00FF00);
         assert_eq!((w.leds.clone(), w.frames), (vec![0x00FF00], 2));

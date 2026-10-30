@@ -541,3 +541,40 @@ pub fn golden(name: &str) -> String {
         })
         .collect()
 }
+
+/// A golden trace's lines with `block`'s SSI FIFO `depth` deep instead of
+/// Renode's 8: ChibiOS's probe (and our HAL's copy) writes TXFTLR 1, 2, ...
+/// until one is refused, so up to `depth`, and then sets the thresholds
+/// TXFTLR = depth / 2 and RXFTLR = depth / 2 - 1.
+pub fn at_fifo_depth(golden: &[&str], block: &str, depth: u32) -> Vec<String> {
+    let txftlr = format!("{block}+0x018 = 0x");
+    let rxftlr = format!("{block}+0x01c = 0x");
+    let value = |l: &str, p: &str| {
+        l.strip_prefix(p)
+            .map(|v| u32::from_str_radix(v, 16).unwrap())
+    };
+    let mut out = Vec::new();
+    let mut probing = true;
+    for &l in golden {
+        match (value(l, &txftlr), value(l, &rxftlr)) {
+            (Some(n), _) if probing && n >= 1 => {
+                if n <= depth {
+                    out.push(l.to_string());
+                }
+                probing = n < 8;
+            }
+            (Some(4), _) => out.push(format!("{txftlr}{:08x}", depth / 2)),
+            (_, Some(3)) => out.push(format!("{rxftlr}{:08x}", depth / 2 - 1)),
+            _ => out.push(l.to_string()),
+        }
+    }
+    out
+}
+
+/// Consecutive repeats folded into one: a write the RM's reset values add
+/// next to the same write (an interrupt handler that runs once more).
+pub fn fold_repeats<S: AsRef<str>>(lines: &[S]) -> Vec<String> {
+    let mut out: Vec<String> = lines.iter().map(|l| l.as_ref().to_string()).collect();
+    out.dedup();
+    out
+}
