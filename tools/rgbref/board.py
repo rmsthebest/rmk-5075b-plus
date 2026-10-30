@@ -63,6 +63,9 @@ FIXES = [
     # Fn+Space works on USB too.
     ("5075b_plus.c", "rk_bat_req_flag = (confinfo.devs != DEVS_USB) && record->event.pressed;",
      "rk_bat_req_flag = record->event.pressed;"),
+    # LED 0 stays dark while charging.
+    ("5075b_plus.c", "rgb_matrix_set_color(HS_MATRIX_BLINK_INDEX_BAT, 0xFF, 0x00, 0x00);",
+     "rgb_matrix_set_color(HS_MATRIX_BLINK_INDEX_BAT, 0x00, 0x00, 0x00);"),
     # 30-49% is yellow.
     ("rgb_record/rgb_record.c", "rgb_matrix_set_color(mi_index[i], IM_BAT_REQ_LEVEL2_COLOR);",
      "rgb_matrix_set_color(mi_index[i], RGB_MATRIX_BAT_VAL, RGB_MATRIX_BAT_VAL, 0x00);"),
@@ -432,7 +435,7 @@ def scripts(rng):
 
     s = Script(rng)
     s.run(500)
-    s.cmd("bat 60 1 0")  # charging: LED 0 red
+    s.cmd("bat 60 1 0")  # charging: LED 0 stays dark
     s.run(1000)
     s.tap("KC_ENCW", gap=500)  # hidden
     s.tap("KC_ENCW", gap=500)

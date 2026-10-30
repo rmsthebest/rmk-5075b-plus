@@ -577,11 +577,12 @@ fn the_aux_led_shows_lighting_on_without_a_cable() {
 }
 
 /// LED 0 (no key over it) is dark at a good level; on the battery at 15%
-/// or less it blinks red, 250 ms on and off; with the cable in (A7 high)
-/// the charger pulls A15 low and it's red, and dark again once the battery
-/// is full (A15 high). Fn+G hides it.
+/// or less it blinks red, 250 ms on and off, and Fn+G hides that. With the
+/// cable in (A7 high) the charger pulls A15 low, and LED 0 stays dark while
+/// it charges (the vendor's is red: the user turned that off) and once the
+/// battery is full (A15 high).
 #[test]
-fn led_0_shows_the_battery_blinking_when_low_red_while_charging() {
+fn led_0_blinks_when_the_battery_is_low_and_stays_dark_while_charging() {
     let mut t = boot_to_lighting();
     assert!(led_0_over(&mut t, 0.6).iter().all(|s| s.0 == 0));
     t.b.plug(false);
@@ -590,12 +591,16 @@ fn led_0_shows_the_battery_blinking_when_low_red_while_charging() {
     colours.sort();
     colours.dedup();
     assert_eq!(colours, [0, 0xFF0000]);
-    t.b.plug(true);
-    t.b.run_for(0.1);
-    assert!(led_0_over(&mut t, 0.6).iter().all(|s| s.0 == 0xFF0000));
     t.fn_tap((3, 5), 1);
     assert!(led_0_over(&mut t, 0.6).iter().all(|s| s.0 == 0));
     t.fn_tap((3, 5), 1);
+    t.b.plug(true);
+    t.b.run_for(0.1);
+    assert!(
+        !t.b.chip.gpio.pin_level(akko_sim::parts::CHARGING),
+        "charging"
+    );
+    assert!(led_0_over(&mut t, 0.6).iter().all(|s| s.0 == 0));
     t.b.charger.level = 100.0;
     t.b.run_for(0.1);
     assert!(led_0_over(&mut t, 0.6).iter().all(|s| s.0 == 0));

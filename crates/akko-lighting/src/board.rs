@@ -14,15 +14,16 @@
 //! state (`Vendor::md_state`). The hook's sleep timeouts aren't here (M7b).
 //!
 //! The battery (M7): the firmware sets `Vendor::bat`, `charging` and
-//! `full`. As the vendor's: LED 0 is red while charging; at 15% or less it
-//! blinks; Fn+Space (HS_BATQ) shows the level on LEDs 16-25; at 0% for 60 s
+//! `full`. As the vendor's: at 15% or less LED 0 blinks; Fn+Space (HS_BATQ) shows the level on LEDs 16-25; at 0% for 60 s
 //! `shutdown_requested` asks the firmware to sleep. Changed from the
 //! vendor's, which tools/rgbref/board.py applies to the C it compares with:
 //! - the low-battery blink is red (the vendor's `(RGB){0xFF, 0, 0}` is
 //!   green in this board's g r b struct);
 //! - the indicators also show while recording colours;
 //! - Fn+Space works on USB too;
-//! - 30-49% shows yellow (the vendor's LEVEL2 colour is LEVEL1's green).
+//! - 30-49% shows yellow (the vendor's LEVEL2 colour is LEVEL1's green);
+//! - LED 0 stays dark while charging (the vendor's is red until full):
+//!   Fn+Space and the battery level over Vial show the charge instead.
 //! New: with the lights off (`power` false) a low battery flashes LED 0 red
 //! for 150 ms every 5 s, the chain powered just for it (`led_power`), and
 //! the 0% timer runs whether the lights are on or not.
@@ -1021,9 +1022,7 @@ impl Vendor {
     /// bat_indicators, less its 0% timer (`bat_stop`).
     fn bat_indicators(&mut self, cfg: &Config, leds: &mut Leds) {
         let show = !self.led_status && cfg.hsv.v != 0;
-        if self.charging && !self.full && show {
-            leds.set(LED_BAT, RED);
-        } else if !self.charging && self.bat <= BAT_LOW && show {
+        if !self.charging && self.bat <= BAT_LOW && show {
             self.bat_blink_set(RED, 250, 1);
         } else {
             leds.set(LED_BAT, Rgb::OFF);
