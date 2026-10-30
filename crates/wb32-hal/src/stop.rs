@@ -18,11 +18,11 @@
 //! every pending interrupt first (or the WFI would return at once), [`enter`]
 //! doesn't stop at all while one is pending, so none is lost: try again
 //! later. Time (SysTick) stands still while stopped; TIM2 (the watchdog's
-//! tick, `crate::tick`) stops with APB1's clock, and is paused here as well
-//! (CR1.CEN), which the Renode sim needed (its timer didn't stop).
+//! tick, `crate::tick`) stops with APB1's clock, and starts again once its
+//! enable is restored.
 
 use cortex_m::peripheral::{NVIC, SCB, SYST};
-use wb32_pac::{EXTI, PWR, RCC, TIM2, pwr};
+use wb32_pac::{EXTI, PWR, RCC, pwr};
 
 use crate::rcc;
 
@@ -182,8 +182,6 @@ pub fn enter(
         RCC.ahbenr2().read(),
     );
     let usb = UsbClocks::save();
-    let tim2 = TIM2.cr1().read();
-    TIM2.cr1().modify(|w| w.set_cen(false));
 
     PWR.cr0().modify(|w| w.0 &= 0x09);
     PWR.cr0().modify(|w| w.0 |= 0x3B004);
@@ -209,7 +207,6 @@ pub fn enter(
     // Only now: EXTI's clock is among those a stop resets (on the board,
     // read before this it said no line fired).
     let fired = EXTI.pr().read().0;
-    TIM2.cr1().write_value(tim2);
     unsafe { syst.csr.modify(|v| v | SYST_ENABLE) };
     mark(Mark::Clocked);
     Some(fired)
