@@ -34,6 +34,16 @@ const INFO_LO: u32 = 0x1FFF_F400;
 const INFO_HI: u32 = 0x1FFF_F800;
 const US: u64 = TICK_HZ / 1_000_000;
 
+/// The current an op draws while busy (DS1905020 table 5.2-10: IDDPROG,
+/// IDDERASE, maximums; the mass erase taken as an erase).
+pub fn op_ua(op: u8) -> f64 {
+    match op {
+        0x0C => crate::power::PROGRAM_UA,
+        0x08 | 0x1B => crate::power::ERASE_UA,
+        _ => 0.0,
+    }
+}
+
 /// How long an op keeps the flash busy (DS1905020 table "Flash memory
 /// characteristics": tPROG, tERASE, tME).
 pub fn op_ticks(op: u8) -> u64 {
@@ -53,8 +63,10 @@ pub struct Fmc {
     keys: Vec<u32>,
     op: u32,
     latch: [u32; 64],
-    /// When the op under way ends.
+    /// When the op under way started and ends, and the current it draws.
+    pub busy_from: u64,
     pub busy_until: u64,
+    pub busy_ua: f64,
     /// CON reads that found it busy.
     pub busy_reads: u32,
     /// What ran: (op, page address).
@@ -72,7 +84,9 @@ impl Default for Fmc {
             keys: Vec::new(),
             op: 0,
             latch: [0; 64],
+            busy_from: 0,
             busy_until: 0,
+            busy_ua: 0.0,
             busy_reads: 0,
             ops: Vec::new(),
             errors: Vec::new(),
@@ -116,7 +130,9 @@ impl Fmc {
                 if v & 0x80_0000 != 0 && v & 0x80 != 0 {
                     fill = self.run(self.op as u8);
                     if fill.is_some() {
+                        self.busy_from = now;
                         self.busy_until = now + op_ticks(self.op as u8);
+                        self.busy_ua = op_ua(self.op as u8);
                     }
                 } else if v == 0x5F_0000 {
                     self.op = 0;

@@ -33,9 +33,10 @@ build aren't published, so they don't count here. Both images ran in the same si
 | CPU awake, host asleep | not measured | 0.1% |
 | Wake-ups per second, idle, lights off | never sleeps (SysTick 100,000/s) | about 75 |
 | Wake-ups per second, idle, lights on | never sleeps | about 29,000 (the LED feed's interrupts) |
-| Est. CPU current, idle, lights on | 13.4 mA | 1.4 mA |
-| Est. CPU current, idle, lights off | 13.4 mA | 0.05 mA |
-| Est. CPU current, a key held | 13.4 mA | 7.3 mA |
+| Est. MCU current, idle, lights on | 13.5 mA | 1.5 to 13.5 mA |
+| Est. MCU current, idle, lights off | 13.5 mA | 0.14 to 13.5 mA |
+| Est. MCU current, a key held | 13.5 mA | 7.4 to 13.5 mA |
+| Est. MCU current, host asleep, stop mode on | not measured | 0.035 mA |
 
 - **Latency.** The vendor build uses QMK's default debounce, `sym_defer_g` at 5 ms: a change is
   reported only after the whole matrix has been quiet for 5 ms. Here a press goes out at once, and
@@ -47,11 +48,16 @@ build aren't published, so they don't count here. Both images ran in the same si
   knob, radio and power tasks don't poll. "CPU awake" is the simulator's core clocks awake per
   emulated second, against 96 MHz. Each instruction takes its cycles from the Cortex-M3 manual's
   table, with no flash wait states, which matches a delay loop timed on the board.
-- **Current.** This is an estimate of the CPU's share only: the time awake × the datasheet's
-  ~140 µA/MHz at 3.3 V ([WB32FQ95xC datasheet](https://www.westberrytech.com/uploads/file/WB32FQ95xx/EN_DS1905020_WB32FQ95xC_V01.pdf)),
-  about 13.4 mA at 96 MHz. The datasheet gives no sleep-mode current, so the clocks and peripherals
-  in sleep aren't counted, and neither are the LEDs or the radio module, which cost the same under
-  both. Measure on the board before quoting battery life.
+- **Current.** The simulator's estimate of the MCU's share only (`sim-rs` `wb32-sim` `power.rs`),
+  from the [WB32FQ95xC datasheet](https://www.westberrytech.com/uploads/file/WB32FQ95xx/EN_DS1905020_WB32FQ95xC_V01.pdf)
+  at 3.3 V: ~140 µA/MHz of HCLK while awake (13.4 mA at 96 MHz), ~35 µA stopped, and the
+  internal oscillators' 25 and 55 µA, which both firmwares leave on. The datasheet gives no
+  figure for sleep mode, where only the CPU's clock stops and the bus, flash and peripherals run
+  on at 96 MHz. So this firmware's numbers are a range: from sleep costing nothing to sleep costing
+  as much as running. Where in that range the chip is decides the idle current, so measure it on
+  the board before quoting battery life. Stop mode (opt-in, `tools/sleep.py stop on`) stops every
+  clock and avoids the question. The LEDs, the radio module and the HSE crystal and PLL (no
+  datasheet figures) aren't counted.
 - **Wireless.** The link to the BT/2.4G module (`crates/qmk-wireless`) fixes the vendor's bugs, and
   its tests check it against QMK's C (`tools/wls_host_test`). The UART parser resyncs after a bad
   frame and checks bounds, the retry limit works, re-pairing the dongle can't overflow the send

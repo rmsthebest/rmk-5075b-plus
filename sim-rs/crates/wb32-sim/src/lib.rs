@@ -10,6 +10,7 @@ pub mod diag;
 pub mod fmc;
 pub mod gpio;
 pub mod load;
+pub mod power;
 pub mod ssi;
 pub mod sysctl;
 pub mod tim2;

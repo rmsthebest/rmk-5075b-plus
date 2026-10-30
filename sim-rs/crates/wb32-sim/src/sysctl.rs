@@ -307,6 +307,18 @@ impl Sysctl {
         bus && self.reg(en) & 1 << bit != 0 && self.reg(rst) & 1 << bit == 0
     }
 
+    /// The oscillators enabled now, stable or starting up (power.rs).
+    pub fn oscillators(&self) -> crate::power::Oscillators {
+        let on = |e| self.on.contains_key(&e);
+        crate::power::Oscillators {
+            mhsi: on(MHSIENR),
+            fhsi: on(FHSIENR),
+            lsi: on(LSIENR),
+            hse: on(HSECR0),
+            pll: on(PLLENR),
+        }
+    }
+
     /// The clocks as the registers now set them.
     pub fn clocks(&self) -> Clocks {
         self.clocks

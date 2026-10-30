@@ -4,6 +4,8 @@
 //! Its key reports go to the radio module here (its settings can't be read),
 //! so latency isn't measured: the README takes it from the source. The
 //! image is qmk-via; any QMK build busy-loops the same way.
+//! It never sleeps, so its current estimate (power.rs) is a single figure:
+//! 13.52 mA, run's 13.44 at 96 MHz and MHSI's and FHSI's 80 uA.
 
 mod common;
 
@@ -35,16 +37,20 @@ fn measure(t: &mut T, label: &str, secs: f64) -> f64 {
     let systick = Image::Qmk.exact_symbol("SysTick_Handler").unwrap();
     t.b.chip.pc_hits = Some([(systick, 0)].into());
     let (insns, cycles, sleeps) = (t.b.cpu.instructions, t.b.cpu.cycles, t.b.cpu.sleeps);
+    let meter = t.b.chip.power();
     t.b.run_for(secs);
+    let power = t.b.chip.power().since(&meter).estimate();
     let rate = (t.b.cpu.instructions - insns) as f64 / secs;
     let awake = (t.b.cpu.cycles - cycles) as f64 / secs;
     let ticks = t.b.chip.pc_hits.as_ref().unwrap()[&systick] as f64 / secs;
     println!(
-        "QMKPOWER {label}: {:.2} M insns/s, {:.2} M cycles/s; {:.0} sleeps/s, SysTick {ticks:.0}",
+        "QMKPOWER {label}: {:.2} M insns/s, {:.2} M cycles/s; {:.0} sleeps/s, SysTick {ticks:.0}\nQMKPOWER {label}: {power}",
         rate / 1e6,
         awake / 1e6,
         (t.b.cpu.sleeps - sleeps) as f64 / secs,
     );
+    // Never asleep, so the estimate has no sleep to bracket.
+    assert_eq!(power.floor_ma, power.sleep_as_run_ma, "{power}");
     assert!((ticks - SYSTICK_HZ).abs() <= 1.0 / secs, "{ticks}");
     t.no_errors();
     awake

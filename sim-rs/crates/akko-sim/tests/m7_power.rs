@@ -8,12 +8,19 @@
 //! Latency is the time from a key's press to the device arming the
 //! keyboard's IN endpoint (usb.py's 0xF14), in the host's 100 us steps; the
 //! host's 1 ms polling comes on top.
+//!
+//! The chip's power meter (wb32-sim power.rs) gives the MCU's current over
+//! each window, as a range: the DS has no figure for sleep mode, so from
+//! sleep costing nothing to sleep costing as much as run (hardware-gaps
+//! step 7: lights on 1.5-13.5 mA, off 0.14-13.5, asleep on the dongle
+//! 0.10-13.5, stopped 0.035, a key held 7.4-13.5).
 
 mod common;
 
 use akko_sim::Part;
 use common::*;
 use std::collections::{BTreeMap, HashMap};
+use wb32_sim::power::Estimate;
 
 const KEYBOARD_EP: u8 = 1;
 const RGB_TOG: (u8, u8) = (3, 9);
@@ -62,6 +69,10 @@ const MAX_WAKES_LIGHTS_OFF: f64 = 90.0;
 const MAX_INSNS_ASLEEP: f64 = 100_000.0;
 const MAX_WAKES_ASLEEP: f64 = 25.0;
 const MAX_INSNS_KEY_HELD: f64 = 37_000_000.0;
+// Stopped on the dongle: the share of the time stopped, and the MCU's
+// current with sleep at its worst (it's all stop's 35 uA but the wakes).
+const MIN_STOPPED: f64 = 0.99;
+const MAX_MA_STOPPED: f64 = 0.05;
 // Press (release) to IN endpoint armed, in 100 us steps: worst over the
 // presses in `press_to_report_latency`. Releases wait out the 5 ms debounce.
 // A press is 6-7 steps (3-4 at Renode's 100 MIPS, 5 at one cycle an
@@ -101,6 +112,7 @@ struct Counts {
     cycles: f64,
     sleeps: f64,
     handlers: BTreeMap<&'static str, f64>,
+    power: Estimate,
 }
 
 /// Runs `secs` and returns the counts per second.
@@ -112,8 +124,11 @@ fn measure(t: &mut T, label: &str, secs: f64) -> Counts {
     let hits = t.b.chip.pc_hits.as_mut().expect("count_hooks first");
     hits.values_mut().for_each(|n| *n = 0);
     let (insns, cycles, sleeps) = (t.b.cpu.instructions, t.b.cpu.cycles, t.b.cpu.sleeps);
+    let meter = t.b.chip.power();
     t.b.run_for(secs);
+    let window = t.b.chip.power().since(&meter);
     let c = Counts {
+        power: window.estimate(),
         insns: (t.b.cpu.instructions - insns) as f64 / secs,
         cycles: (t.b.cpu.cycles - cycles) as f64 / secs,
         sleeps: (t.b.cpu.sleeps - sleeps) as f64 / secs,
@@ -134,11 +149,20 @@ fn measure(t: &mut T, label: &str, secs: f64) -> Counts {
         .map(|(k, v)| format!("{k} {v:.0}"))
         .collect();
     println!(
-        "POWER {label}: {:.2} M insns/s, {:.2} M cycles/s, {:.0} sleeps/s; {}",
+        "POWER {label}: {:.2} M insns/s, {:.2} M cycles/s, {:.0} sleeps/s; {}\nPOWER {label}: {}",
         c.insns / 1e6,
         c.cycles / 1e6,
         c.sleeps,
-        handlers.join(", ")
+        handlers.join(", "),
+        c.power,
+    );
+    // The meter's clocks awake are the core's, but for each WFI's own
+    // cycle (the chip hears of the sleep as the WFI starts).
+    let awake = window.awake_cycles / secs;
+    assert!(
+        (awake - c.cycles).abs() <= 2.0 * c.sleeps + 100.0,
+        "{awake} {}",
+        c.cycles
     );
     c
 }
@@ -203,6 +227,23 @@ fn idle_power_asleep_on_the_dongle() {
     let c = measure(&mut t, "asleep on the dongle", 1.0);
     assert!(c.insns <= MAX_INSNS_ASLEEP, "{}", c.insns);
     assert!(c.sleeps <= MAX_WAKES_ASLEEP, "{}", c.sleeps);
+    t.no_errors();
+}
+
+/// As asleep, with stop mode on (Vial 0xD9 'S', off at every reset): the
+/// keyboard stops a second after the suspend, and the chip's stop current
+/// is all it draws.
+#[test]
+fn idle_power_stopped_on_the_dongle() {
+    let mut t = boot();
+    t.raw_hid_send_and_run(&[0x08, 0xD9, 0x53]);
+    t.hid_should_show(3, "08 d9 53 01", 1.0);
+    on_the_dongle_asleep(&mut t);
+    t.b.run_for(1.0);
+    count_hooks(&mut t);
+    let c = measure(&mut t, "stopped on the dongle", 1.0);
+    assert!(c.power.stopped >= MIN_STOPPED, "{}", c.power);
+    assert!(c.power.sleep_as_run_ma <= MAX_MA_STOPPED, "{}", c.power);
     t.no_errors();
 }
 

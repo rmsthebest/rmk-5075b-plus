@@ -37,6 +37,7 @@
 use crate::diag::Diag;
 use crate::fmc::{self, Fmc};
 use crate::gpio::{Gpio, Matrix};
+use crate::power::{self, Core, Meter};
 use crate::ssi::{QSPI_FIFO_DEPTH, QSPI_IRQ, SPIM2_FIFO_DEPTH, SPIM2_IRQ, Ssi};
 use crate::sysctl::{self, Gate, Refused, Sysctl};
 use crate::tim2::{self, Tim2};
@@ -91,6 +92,10 @@ pub struct Wb32 {
     now: u64,
     /// In stop mode.
     stopped: bool,
+    /// In sleep mode (the core's WFI/WFE without a stop).
+    asleep: bool,
+    /// The supply current drawn so far (`power`).
+    meter: Meter,
     /// Stops entered, and stops skipped for a pending EXTI request.
     pub stops: u32,
     pub stops_skipped: u32,
@@ -272,6 +277,8 @@ impl Wb32 {
             flash_busy_seen: 0,
             now: 0,
             stopped: false,
+            asleep: false,
+            meter: Meter::default(),
             stops: 0,
             stops_skipped: 0,
             pc: 0,
@@ -291,6 +298,8 @@ impl Wb32 {
     /// A system reset: the peripherals go back to their reset values;
     /// memory, and what's outside the chip, stays.
     pub fn reset(&mut self) {
+        self.meter();
+        self.asleep = false;
         self.gpio.reset();
         self.sysctl.reset();
         self.tim2 = Tim2::default();
@@ -303,6 +312,36 @@ impl Wb32 {
         self.fmc = Fmc::default();
         self.stopped = false;
         self.clock_timers();
+    }
+
+    /// The charge drawn since power-on (power.rs), up to now.
+    pub fn power(&mut self) -> Meter {
+        self.meter();
+        self.meter
+    }
+
+    /// Charges the meter up to now, before anything it depends on changes:
+    /// sleeping, waking, the clocks, the oscillators, an FMC op, a reset.
+    fn meter(&mut self) {
+        let core = if self.stopped {
+            Core::Stopped
+        } else if self.asleep {
+            Core::Asleep
+        } else {
+            Core::Awake
+        };
+        let fmc = &self.fmc;
+        let state = power::State {
+            core,
+            hclk: self.sysctl.clocks().hclk,
+            osc: self.sysctl.oscillators(),
+            flash: (fmc.busy_until > self.meter.at).then_some((
+                fmc.busy_from,
+                fmc.busy_until,
+                fmc.busy_ua,
+            )),
+        };
+        self.meter.charge(self.now, state);
     }
 
     /// Whether `p` answers now; reports it if not.
@@ -437,6 +476,9 @@ impl Wb32 {
     }
 
     fn periph_write(&mut self, p: Periph, value: u32) {
+        if matches!(p, Periph::Sysctl(_) | Periph::Fmc(_)) {
+            self.meter();
+        }
         let writes = &mut self.writes;
         let mut log = |w: Write| {
             if let Some(ws) = writes {
@@ -687,7 +729,9 @@ impl Bus for Wb32 {
     }
 
     fn sleep(&mut self, deep: bool) -> bool {
+        self.meter();
         if !deep || !self.sysctl.deep_sleep_is_stop() {
+            self.asleep = true;
             return true;
         }
         if self.gpio.exti_pending() != 0 {
@@ -701,6 +745,8 @@ impl Bus for Wb32 {
     }
 
     fn woke(&mut self) -> u64 {
+        self.meter();
+        self.asleep = false;
         if !std::mem::take(&mut self.stopped) {
             return 0;
         }
@@ -932,5 +978,24 @@ mod tests {
         chip.write(pwr, Size::Word, 0x40);
         assert!(chip.sleep(true));
         assert_eq!((chip.hclk_hz(), chip.stops), (8_000_000, 1));
+    }
+
+    #[test]
+    fn the_power_meter_follows_run_sleep_and_stop() {
+        let mut chip = Wb32::new();
+        // MHSI's 8 MHz from reset, MHSI and FHSI on: awake 1/4 s, asleep
+        // 1/4 s, stopped 1/2 s (PDDS 00 from reset, nothing pending).
+        chip.advance(TICK_HZ / 4);
+        assert!(chip.sleep(false));
+        chip.advance(TICK_HZ / 2);
+        chip.woke();
+        assert!(chip.sleep(true));
+        chip.advance(TICK_HZ);
+        chip.woke();
+        let e = chip.power().since(&Meter::default()).estimate();
+        assert_eq!((e.awake, e.asleep, e.stopped), (0.25, 0.25, 0.5));
+        // Run 1.12 mA x 1/4, stop 35 uA x 1/2, MHSI + FHSI 80 uA x 1/2.
+        assert!((e.floor_ma - 0.3375).abs() < 1e-9, "{e}");
+        assert!((e.sleep_as_run_ma - 0.6175).abs() < 1e-9, "{e}");
     }
 }
