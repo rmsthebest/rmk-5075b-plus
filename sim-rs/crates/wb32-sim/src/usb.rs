@@ -172,6 +172,25 @@ impl Musb {
         d
     }
 
+    /// RCC's reset of the controller (AHBRSTR1 USBRST): its registers and
+    /// FIFOs back to their power-on state. The host's side (its toggles,
+    /// lines, step count), the logs and the trace stay, as do CRC and SFM,
+    /// which have their own reset bit.
+    pub fn reset(&mut self) {
+        let fresh = Musb {
+            other: std::mem::take(&mut self.other),
+            ctl: std::mem::take(&mut self.ctl),
+            tick: self.tick,
+            host_tog_in: self.host_tog_in,
+            host_tog_out: self.host_tog_out,
+            ready_tick: std::mem::take(&mut self.ready_tick),
+            log: std::mem::take(&mut self.log),
+            trace: self.trace.take(),
+            ..Musb::new()
+        };
+        *self = fresh;
+    }
+
     fn info(&mut self, msg: String) {
         self.log.push(UsbLog { error: false, msg });
     }

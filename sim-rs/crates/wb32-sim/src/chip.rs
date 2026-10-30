@@ -17,12 +17,19 @@
 //!
 //! The peripherals take word accesses; a narrower one reads its bytes out
 //! of the word, and writes them into it (read, modify, write).
+//!
+//! A peripheral answers only while RCC gives it its clock (RM 7.3.12-7.3.15:
+//! its enable bit, and for APB ones the bus clock and the bus matrix's
+//! BMXnEN) and doesn't hold it in reset; otherwise reads give 0, writes are
+//! dropped and `Diag::ClockOff` reports it. Setting a reset bit (RM
+//! 7.3.21-7.3.23) puts the model back to its reset state. The system
+//! control block (PWR, ANCTL, IWDG, RCC) has no gate.
 
 use crate::diag::Diag;
 use crate::fmc::{self, Fmc};
 use crate::gpio::{Gpio, Matrix};
 use crate::ssi::{QSPI_IRQ, SPIM2_IRQ, Ssi};
-use crate::sysctl::{Refused, Sysctl};
+use crate::sysctl::{self, Gate, Refused, Sysctl};
 use crate::tim2::{self, Tim2};
 use crate::uart::{UART3_IRQ, Uart};
 use crate::usb::{self, Musb};
@@ -155,6 +162,38 @@ enum Periph {
     Fmc(u32),
 }
 
+/// GPIOD's unused space the tests drive the pins through (gpio.rs): not a
+/// register, so not gated.
+const SIM_CONTROL: u32 = 0xFF0;
+
+impl Periph {
+    /// The clock it needs, and its name for the diag; `None`: always on.
+    fn gate(self) -> Option<(Gate, &'static str)> {
+        Some(match self {
+            Periph::Gpio(o) if (SIM_CONTROL..0x1000).contains(&o) => return None,
+            Periph::Gpio(o) if o < 0x1000 => {
+                let port = o / 0x400;
+                (
+                    Gate::Apb1(5 + port),
+                    ["GPIOA", "GPIOB", "GPIOC", "GPIOD"][port as usize],
+                )
+            }
+            Periph::Gpio(o) if o < 0x1800 => (Gate::Apb1(10), "AFIO"),
+            Periph::Gpio(_) => (Gate::Apb1(9), "EXTI"),
+            Periph::Tim2(_) => (Gate::Apb1(2), "TIM2"),
+            Periph::Qspi(_) => (Gate::Apb1(12), "QSPI"),
+            Periph::Uart3(_) => (Gate::Apb2(3), "UART3"),
+            Periph::Spim2(_) => (Gate::Apb2(4), "SPIM2"),
+            Periph::Usb(o) if o < 0x400 => (Gate::Ahb(1), "USB"),
+            Periph::Usb(_) => (Gate::Ahb(8), "CRC/SFM"),
+            Periph::Fmc(_) => (Gate::Ahb(3), "FMC"),
+            Periph::Cache(_) => (Gate::Ahb(4), "CACHE"),
+            Periph::Sys(_) => (Gate::Ahb(5), "SYS"),
+            Periph::Sysctl(_) => return None,
+        })
+    }
+}
+
 fn periph(addr: u32) -> Option<Periph> {
     let inside = |base: u32, size: u32| addr.checked_sub(base).filter(|&o| o < size);
     if let Some(o) = inside(GPIO_BASE, 0x2000) {
@@ -238,6 +277,86 @@ impl Wb32 {
         self.cache.clear();
         *self.usb.borrow_mut() = Musb::new();
         self.fmc = Fmc::default();
+        self.clock_tim2();
+    }
+
+    /// Whether `p` answers now; reports it if not.
+    fn clocked(&mut self, p: Periph, addr: u32, write: Option<u32>) -> bool {
+        match p.gate() {
+            Some((g, block)) if !self.sysctl.clock_on(g) => {
+                self.diags.push(Diag::ClockOff { block, addr, write });
+                false
+            }
+            _ => true,
+        }
+    }
+
+    /// TIM2 counts PCLK1 while its clock is on.
+    fn clock_tim2(&mut self) {
+        let hz = if self.sysctl.clock_on(Gate::Apb1(2)) {
+            self.sysctl.clocks().pclk1
+        } else {
+            0
+        };
+        if hz != self.tim2.hz() {
+            self.tim2.set_clock(hz, self.now);
+        }
+    }
+
+    /// RCC reset bits now set (RM 7.3.21-7.3.23): those models go back to
+    /// their reset state. GPIO ports, AFIO and EXTI reset one by one; what's
+    /// outside the chip stays.
+    fn rcc_resets(&mut self) {
+        let held = |g| {
+            let (reg, bit) = match g {
+                Gate::Ahb(b) => (sysctl::AHBRSTR1, b),
+                Gate::Apb1(b) => (sysctl::APB1RSTR, b),
+                Gate::Apb2(b) => (sysctl::APB2RSTR, b),
+            };
+            self.sysctl.reg(reg) & 1 << bit != 0
+        };
+        let (ports, afio, exti) = (
+            [5, 6, 7, 8].map(|b| held(Gate::Apb1(b))),
+            held(Gate::Apb1(10)),
+            held(Gate::Apb1(9)),
+        );
+        let (tim2, qspi) = (held(Gate::Apb1(2)), held(Gate::Apb1(12)));
+        let (uart3, spim2) = (held(Gate::Apb2(3)), held(Gate::Apb2(4)));
+        let (usb, fmc, cache) = (held(Gate::Ahb(1)), held(Gate::Ahb(3)), held(Gate::Ahb(4)));
+        for (port, r) in ports.into_iter().enumerate() {
+            if r {
+                self.gpio.reset_port(port as u8);
+            }
+        }
+        if afio {
+            self.gpio.reset_afio();
+        }
+        if exti {
+            self.gpio.reset_exti();
+        }
+        if tim2 {
+            let hz = self.tim2.hz();
+            self.tim2 = Tim2::default();
+            self.tim2.set_clock(hz, self.now);
+        }
+        if qspi {
+            self.qspi.reset();
+        }
+        if uart3 {
+            self.uart3.reset();
+        }
+        if spim2 {
+            self.spim2.reset();
+        }
+        if usb {
+            self.usb.borrow_mut().reset();
+        }
+        if fmc {
+            self.fmc = Fmc::default();
+        }
+        if cache {
+            self.cache.clear();
+        }
     }
 
     fn log_bus_write(&mut self, addr: u32, value: u32) {
@@ -292,14 +411,20 @@ impl Wb32 {
             Periph::Qspi(o) => self.qspi.write(o, value, &self.gpio, &mut log),
             Periph::Spim2(o) => self.spim2.write(o, value, &self.gpio, &mut log),
             Periph::Uart3(o) => self.uart3.write(o, value, self.now, &self.gpio, &mut log),
-            Periph::Sysctl(o) => match self.sysctl.write(o, value, self.now, &mut log) {
-                Ok(()) => {}
-                Err(Refused::Locked) => {
-                    let (block, off) = Sysctl::block(o);
-                    self.diags.push(Diag::Locked { block, off, value });
+            Periph::Sysctl(o) => {
+                match self.sysctl.write(o, value, self.now, &mut log) {
+                    Ok(()) => {}
+                    Err(Refused::Locked) => {
+                        let (block, off) = Sysctl::block(o);
+                        self.diags.push(Diag::Locked { block, off, value });
+                    }
+                    Err(Refused::NotReady { src }) => self.diags.push(Diag::ClockNotReady { src }),
                 }
-                Err(Refused::NotReady { src }) => self.diags.push(Diag::ClockNotReady { src }),
-            },
+                if matches!(o, sysctl::AHBRSTR1 | sysctl::APB1RSTR | sysctl::APB2RSTR) {
+                    self.rcc_resets();
+                }
+                self.clock_tim2();
+            }
             Periph::Cache(o) => {
                 log(Write {
                     block: "CACHE",
@@ -399,6 +524,11 @@ impl Bus for Wb32 {
             Some(Region::Flash(o)) => self.flash.read(o, size),
             Some(Region::Rom(o)) => self.rom.read(o, size),
             Some(Region::Sram(o)) => self.sram.read(o, size),
+            None if let Some(p) = periph(addr)
+                && !self.clocked(p, addr, None) =>
+            {
+                0
+            }
             None if let Some(Periph::Usb(o)) = periph(addr) => self.usb.borrow_mut().read(o, size),
             None if let Some(p) = periph(addr & !3) => {
                 let shift = (addr & 3) * 8;
@@ -421,6 +551,11 @@ impl Bus for Wb32 {
             Some(Region::Sram(o)) => self.sram.write(o, size, value),
             Some(Region::Flash(_) | Region::Rom(_)) => {
                 self.diags.push(Diag::ReadOnly { addr, size, value })
+            }
+            None if let Some(p) = periph(addr)
+                && !self.clocked(p, addr, Some(value)) =>
+            {
+                self.log_bus_write(addr, value)
             }
             None if let Some(Periph::Usb(o)) = periph(addr) => {
                 self.log_bus_write(addr, value);
@@ -495,6 +630,7 @@ impl Bus for Wb32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cortex_m3_emu::TICK_HZ;
 
     #[test]
     fn flash_is_aliased_at_zero() {
@@ -561,5 +697,92 @@ mod tests {
                 },
             ]
         );
+    }
+
+    const RCC: u32 = SYSCTL_BASE + 0xC00;
+    /// GPIOA's ODR.
+    const PA_ODR: u32 = GPIO_BASE + 0x14;
+
+    /// APB1 on and undivided, its bus matrix and `bits` enabled.
+    fn apb1_on(chip: &mut Wb32, bits: u32) {
+        chip.write(RCC + 0x1C, Size::Word, 0x80);
+        chip.write(RCC + 0x48, Size::Word, 1 << 15 | bits);
+    }
+
+    #[test]
+    fn a_peripheral_answers_only_with_its_clock() {
+        let mut chip = Wb32::new();
+        // From reset APB1 has no clock: the write is dropped, the read is 0.
+        chip.write(PA_ODR, Size::Word, 0x55);
+        assert_eq!(chip.read(PA_ODR, Size::Word), 0);
+        // GPIOA's enable alone isn't enough without the bus matrix.
+        chip.write(RCC + 0x1C, Size::Word, 0x80);
+        chip.write(RCC + 0x48, Size::Word, 1 << 5);
+        chip.write(PA_ODR, Size::Word, 0x66);
+        assert_eq!(
+            chip.take_diags(),
+            [
+                Diag::ClockOff {
+                    block: "GPIOA",
+                    addr: PA_ODR,
+                    write: Some(0x55)
+                },
+                Diag::ClockOff {
+                    block: "GPIOA",
+                    addr: PA_ODR,
+                    write: None
+                },
+                Diag::ClockOff {
+                    block: "GPIOA",
+                    addr: PA_ODR,
+                    write: Some(0x66)
+                },
+            ]
+        );
+        apb1_on(&mut chip, 1 << 5);
+        chip.write(PA_ODR, Size::Word, 0x77);
+        assert_eq!(chip.read(PA_ODR, Size::Word), 0x77);
+        // GPIOB has its own bit; the sim's control words are always there.
+        assert_eq!(chip.read(GPIO_BASE + 0x400 + 0x14, Size::Word), 0);
+        assert_eq!(chip.take_diags().len(), 1);
+        chip.write(GPIO_BASE + 0xFF8, Size::Word, 1);
+        // The system control block has no gate.
+        assert_eq!(chip.read(RCC + 0x48, Size::Word), 1 << 15 | 1 << 5);
+        assert!(chip.diags().is_empty());
+    }
+
+    #[test]
+    fn a_reset_bit_holds_the_model_in_reset_then_releases_it() {
+        let mut chip = Wb32::new();
+        apb1_on(&mut chip, 1 << 5 | 1 << 6);
+        chip.write(PA_ODR, Size::Word, 0x77);
+        chip.write(GPIO_BASE + 0x400 + 0x14, Size::Word, 0x88);
+        chip.write(RCC + 0x90, Size::Word, 1 << 5);
+        assert_eq!(chip.read(PA_ODR, Size::Word), 0, "held in reset");
+        assert_eq!(chip.take_diags().len(), 1);
+        chip.write(RCC + 0x90, Size::Word, 0);
+        assert_eq!(chip.read(PA_ODR, Size::Word), 0, "back to its reset value");
+        assert_eq!(chip.read(GPIO_BASE + 0x400 + 0x14, Size::Word), 0x88);
+        assert!(chip.diags().is_empty());
+    }
+
+    #[test]
+    fn tim2_counts_pclk1_only_while_enabled() {
+        let mut chip = Wb32::new();
+        let cnt = TIM2_BASE + 0x24;
+        chip.write(RCC + 0x1C, Size::Word, 0x80);
+        chip.write(RCC + 0x48, Size::Word, 1 << 15);
+        // CEN with TIM2's clock off is dropped, and the timer has no clock.
+        chip.write(TIM2_BASE, Size::Word, 1);
+        assert_eq!(chip.tim2.hz(), 0);
+        apb1_on(&mut chip, 1 << 2);
+        chip.write(TIM2_BASE, Size::Word, 1);
+        // PCLK1 = MHSI 8 MHz: 8 counts a microsecond.
+        assert_eq!(chip.tim2.hz(), 8_000_000);
+        chip.advance(TICK_HZ / 1_000_000);
+        assert_eq!(chip.read(cnt, Size::Word), 8);
+        // Gating APB1's clock (SRCEN) stops it.
+        chip.write(RCC + 0x1C, Size::Word, 0);
+        assert_eq!(chip.tim2.hz(), 0);
     }
 }

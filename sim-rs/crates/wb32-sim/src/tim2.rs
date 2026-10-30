@@ -1,6 +1,7 @@
 //! TIM2, 0x4000_2000: an STM32-style general-purpose timer (CR1..CCR4,
-//! wb32fq95xx.h TIM_TypeDef and TIM_* bits) on IRQ 21, clocked from PCLK1 at
-//! 96 MHz with our clock setup. Written fresh rather than after Renode's
+//! wb32fq95xx.h TIM_TypeDef and TIM_* bits) on IRQ 21, clocked from PCLK1
+//! while RCC gives TIM2 its clock (`set_clock`; 96 MHz with our clock
+//! set-up, and stopped from reset). Written fresh rather than after Renode's
 //! STM32_Timer, which differs from the chip (BOARD_FACTS.md):
 //! - it's 16-bit: CNT, ARR and CCRx keep their low 16 bits;
 //! - compare flags are set only when the counter wraps, with the update.
@@ -11,9 +12,6 @@
 //! computed from the time since it was last folded in (`sync`).
 
 use cortex_m3_emu::TICK_HZ;
-
-/// Core ticks per timer clock (96 MHz).
-const CLOCK: u64 = TICK_HZ / 96_000_000;
 
 const CR1: u32 = 0x00;
 const DIER: u32 = 0x0C;
@@ -41,6 +39,8 @@ pub struct Tim2 {
     psc: u32,
     /// When `cnt` was last right: a timer clock edge.
     since: u64,
+    /// The timer clock, PCLK1, in Hz; 0 while RCC has it off.
+    hz: u64,
 }
 
 impl Default for Tim2 {
@@ -50,6 +50,7 @@ impl Default for Tim2 {
             cnt: 0,
             psc: 0,
             since: 0,
+            hz: 0,
         };
         t.regs[(ARR / 4) as usize] = 0xFFFF;
         t
@@ -65,12 +66,27 @@ impl Tim2 {
         &mut self.regs[(off / 4) as usize]
     }
 
+    /// Counting: enabled (CEN) and clocked.
     fn running(&self) -> bool {
-        self.r(CR1) & CEN != 0
+        self.r(CR1) & CEN != 0 && self.hz != 0
     }
 
+    /// Core ticks per count. A PCLK1 that doesn't divide TICK_HZ rounds to
+    /// the nearest tick (none of our images sets one).
     fn tick(&self) -> u64 {
-        CLOCK * (self.psc as u64 + 1)
+        (TICK_HZ + self.hz / 2) / self.hz * (self.psc as u64 + 1)
+    }
+
+    pub fn hz(&self) -> u64 {
+        self.hz
+    }
+
+    /// The timer clock changes at `now` (PCLK1, or RCC gating it): the
+    /// count so far stands, and the next one starts then.
+    pub fn set_clock(&mut self, hz: u64, now: u64) {
+        self.sync(now);
+        self.hz = hz;
+        self.since = now;
     }
 
     /// Timer clocks from `cnt` to the next wrap, and whether that wrap is
@@ -156,7 +172,7 @@ impl Tim2 {
             }
             CNT => self.cnt = v & 0xFFFF,
             CR1 => {
-                if !self.running() {
+                if self.r(CR1) & CEN == 0 {
                     self.since = now;
                 }
                 *self.r_mut(CR1) = v;
@@ -173,10 +189,19 @@ mod tests {
     use super::*;
 
     const MS: u64 = TICK_HZ / 1000;
+    /// Core ticks per timer clock at 96 MHz.
+    const CLOCK: u64 = TICK_HZ / 96_000_000;
+
+    /// Clocked at 96 MHz, as our clock set-up gives it.
+    fn tim() -> Tim2 {
+        let mut t = Tim2::default();
+        t.set_clock(96_000_000, 0);
+        t
+    }
 
     /// akko-rmk's set-up: 10 kHz, 2500 counts, update interrupt.
     fn periodic() -> Tim2 {
-        let mut t = Tim2::default();
+        let mut t = tim();
         t.write(CR1, URS, 0);
         t.write(PSC, 9599, 0);
         t.write(ARR, 2499, 0);
@@ -205,7 +230,7 @@ mod tests {
 
     #[test]
     fn sixteen_bits_and_compare_at_wrap_only() {
-        let mut t = Tim2::default();
+        let mut t = tim();
         t.write(ARR, 0x1_2345, 0);
         assert_eq!(t.read(ARR, 0), 0x2345);
         t.write(ARR, 0xFFFF, 0);
@@ -223,11 +248,27 @@ mod tests {
 
     #[test]
     fn psc_waits_for_an_update() {
-        let mut t = Tim2::default();
+        let mut t = tim();
         t.write(CR1, CEN, 0);
         t.write(PSC, 1, 0);
         assert_eq!(t.read(CNT, 10 * CLOCK), 10);
         t.write(EGR, 1, 10 * CLOCK);
         assert_eq!(t.read(CNT, 30 * CLOCK), 10);
+    }
+
+    #[test]
+    fn it_counts_pclk1_and_stops_without_its_clock() {
+        let mut t = Tim2::default();
+        t.write(CR1, CEN, 0);
+        assert_eq!(t.read(CNT, MS), 0, "no clock from reset");
+        assert_eq!(t.next_event(), u64::MAX);
+        // 48 MHz: 48 counts a microsecond.
+        t.set_clock(48_000_000, MS);
+        assert_eq!(t.read(CNT, MS + MS / 1000), 48);
+        // Gated at 2 ms: the count holds, then carries on at 96 MHz.
+        t.set_clock(0, 2 * MS);
+        assert_eq!(t.read(CNT, 3 * MS), 48_000 % 0x1_0000);
+        t.set_clock(96_000_000, 3 * MS);
+        assert_eq!(t.read(CNT, 3 * MS + 10 * CLOCK), 48_000 + 10);
     }
 }

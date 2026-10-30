@@ -678,8 +678,8 @@ impl Board {
     }
 
     /// Everything a test fails on unless it says otherwise: host errors,
-    /// the board parts' errors, the controllers' errors, and locked or
-    /// unmapped accesses.
+    /// the board parts' errors, the controllers' errors, and locked,
+    /// unmapped or unclocked accesses and refused clock switches.
     pub fn errors(&self) -> Vec<String> {
         let mut e = self.host_errors();
         e.extend(
@@ -701,7 +701,10 @@ impl Board {
                 .filter(|d| {
                     matches!(
                         d,
-                        wb32_sim::Diag::Locked { .. } | wb32_sim::Diag::Unmapped { .. }
+                        wb32_sim::Diag::Locked { .. }
+                            | wb32_sim::Diag::Unmapped { .. }
+                            | wb32_sim::Diag::ClockOff { .. }
+                            | wb32_sim::Diag::ClockNotReady { .. }
                     )
                 })
                 .map(|d| d.to_string()),

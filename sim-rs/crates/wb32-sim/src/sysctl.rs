@@ -39,6 +39,16 @@ const USBPRE: u32 = RCC + 0x14;
 const AHBPRE: u32 = RCC + 0x18;
 const APB1PRE: u32 = RCC + 0x1C;
 const APB2PRE: u32 = RCC + 0x20;
+pub const AHBENR1: u32 = RCC + 0x40;
+pub const APB1ENR: u32 = RCC + 0x48;
+pub const APB2ENR: u32 = RCC + 0x4C;
+pub const AHBRSTR1: u32 = RCC + 0x88;
+pub const APB1RSTR: u32 = RCC + 0x90;
+pub const APB2RSTR: u32 = RCC + 0x94;
+/// The APB bus matrices: "must be set for APB1 (APB2) peripheral's
+/// operation" (RM 7.3.14, 7.3.15).
+const BMX1EN: u32 = 1 << 15;
+const BMX2EN: u32 = 1 << 11;
 // ANCTL (RM 11.4): enables, and the status register each one sets.
 const MHSIENR: u32 = ANCTL + 0x2C;
 const FHSIENR: u32 = ANCTL + 0x38;
@@ -100,6 +110,26 @@ pub struct Clocks {
     pub pclk2: u64,
     /// MAINCLK through USBPRE: USB needs 48 MHz.
     pub usb: u64,
+}
+
+/// A peripheral's clock enable: its bus and its bit in that bus's enable
+/// and reset registers (RM 7.3.12, 7.3.14, 7.3.15, 7.3.21-7.3.23).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gate {
+    Ahb(u32),
+    Apb1(u32),
+    Apb2(u32),
+}
+
+impl Gate {
+    /// (enable register, reset register, bit).
+    fn regs(self) -> (u32, u32, u32) {
+        match self {
+            Gate::Ahb(b) => (AHBENR1, AHBRSTR1, b),
+            Gate::Apb1(b) => (APB1ENR, APB1RSTR, b),
+            Gate::Apb2(b) => (APB2ENR, APB2RSTR, b),
+        }
+    }
 }
 
 /// What a write did, when not simply stored.
@@ -223,6 +253,19 @@ impl Sysctl {
 
     fn source_enable(src: u32) -> u32 {
         [MHSIENR, FHSIENR, PLLENR, HSECR0][(src & 3) as usize]
+    }
+
+    /// Whether the peripheral behind `g` has its register clock: its enable
+    /// bit, and for an APB one the bus's clock (SRCEN) and its bus matrix
+    /// (BMXnEN); and that its reset bit doesn't hold it in reset.
+    pub fn clock_on(&self, g: Gate) -> bool {
+        let (en, rst, bit) = g.regs();
+        let bus = match g {
+            Gate::Ahb(_) => true,
+            Gate::Apb1(_) => self.clocks.pclk1 != 0 && self.reg(APB1ENR) & BMX1EN != 0,
+            Gate::Apb2(_) => self.clocks.pclk2 != 0 && self.reg(APB2ENR) & BMX2EN != 0,
+        };
+        bus && self.reg(en) & 1 << bit != 0 && self.reg(rst) & 1 << bit == 0
     }
 
     /// The clocks as the registers now set them.

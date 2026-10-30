@@ -131,6 +131,23 @@ impl Gpio {
         }
     }
 
+    /// RCC's reset of one port (RM 7.3.22): its registers back to 0.
+    pub fn reset_port(&mut self, port: u8) {
+        self.regs[port as usize] = Default::default();
+        self.update();
+    }
+
+    /// RCC's reset of AFIO (EXTICR) or of EXTI.
+    pub fn reset_afio(&mut self) {
+        self.exticr = [0; 4];
+        self.update();
+    }
+
+    pub fn reset_exti(&mut self) {
+        self.exti = [0; 6];
+        self.update();
+    }
+
     /// Starts counting `pin`'s rising edges. It starts out high (as
     /// gpio.py's chip select), so the first rise counts once it was low.
     pub fn watch(&mut self, pin: Pin) {

@@ -31,6 +31,7 @@ that pins it (`-` until the test is ported).
 | The ROM bootloader runs at 48 MHz with APB2 off, and feeds USB MAINCLK undivided (USBPRE 0x08); the firmware's 96 MHz goes through USBPRE / 2 (0x09). | The ROM dump in the sim (rom/rust agrees); RM 7.3.5 | `rom_sim.rs` `the_rom_runs_at_48_mhz_with_apb2_off` |
 | The core, SysTick (CLKSOURCE 1) and DWT CYCCNT run at HCLK; SysTick's external reference (CLKSOURCE 0) is HCLK/8. A clock switch carries both counters on from their values at the new rate. | RM2905025 7.2.3 (clock tree figure); ARM DDI 0403E B3.3 | `cpu.rs` `systick_external_reference_is_hclk_over_8`, `a_clock_change_rebases_systick_and_cyccnt`, `instructions_take_a_clock_of_the_bus_hclk` |
 | The ROM's start-up disconnect is 15 SysTick periods of 4.8 M core clocks: 1.5 s at its 48 MHz (0.72 s in Renode's flat 100 MIPS). | rom/rust main.rs, clock.rs (from the dump) | `rom_traces.rs` (boot runs 1.78 s) |
+| A peripheral's registers answer only while RCC clocks it: its enable bit (AHBENR1, APB1ENR, APB2ENR), for APB ones the bus clock (APBnPRE SRCEN) and the bus matrix (APB1ENR BMX1EN bit 15, APB2ENR BMX2EN bit 11), and its reset bit clear. Otherwise reads give 0 and writes are dropped (the sim reports `Diag::ClockOff`; what the chip does is a board check). A reset bit (AHBRSTR1, APB1RSTR, APB2RSTR) puts the peripheral back to its reset state. TIM2 counts PCLK1, and stops while gated. The ROM resets GPIOA-D (APB1RSTR 0x1E0) and USB (AHBRSTR1 bit 1) before handing over. | RM2905025 7.3.12-7.3.15, 7.3.21-7.3.23; the ROM dump | `chip.rs` `a_peripheral_answers_only_with_its_clock`, `a_reset_bit_holds_the_model_in_reset_then_releases_it`, `tim2_counts_pclk1_only_while_enabled`; `tim2::tests::it_counts_pclk1_and_stops_without_its_clock` |
 | SPIM2_MO is B15 on AF5; QSPI SCK/MI/MO are B3/B4/B5 on AF5; UART3 TX/RX are C10/C11 on AF7. A peripheral wired to a pin on another function sees nothing. | WB32FQ95 datasheet, alternate-function table | `ws2812::tests::b15_must_be_on_af5`, `nor::tests`, `radio::tests` |
 
 ## Open questions for the board
@@ -41,6 +42,7 @@ Things to read with Vial peek (0xDA) in an image that's being flashed anyway:
 - RCC+0x104 with and without the IWDG running.
 - Instructions per second: cycles taken by a known busy loop, against SysTick. The sim runs one instruction per HCLK cycle until hardware-gaps step 4; the board's flash wait states make it slower (asm::delay(HCLK/1000) took about 3000 TIM2 ticks, 2026-10-27).
 - CPUID, to confirm r2p0.
+- A read or write of a peripheral with its clock off (or held in reset): does it read 0 and drop the write, as the sim assumes, or fault?
 - The HSE crystal's start-up time (ANCTL HSESR after HSECR0, timed with SysTick at MHSI); the sim assumes 2 ms.
 - The radio module's timings (sim-rs `radio.rs`, assumed): a bonded select to CONNECTED (300 ms), a pairing (2 s), its 30 min sleep. Log them from the keyboard's side (the time between frames) in an image that's being flashed anyway.
 - AIRCR (0xE000_ED0C), to confirm bit 13 reads 0.
