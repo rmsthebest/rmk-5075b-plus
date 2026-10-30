@@ -418,6 +418,21 @@ fn a_torn_lighting_save_keeps_the_one_before() {
     t.no_led_errors();
 }
 
+/// A panic during a lighting save's sector erase: the MCU resets but the
+/// NOR erases on (60 ms), and the keyboard must still come back up, not
+/// find no flash at boot and go to DFU on the second panic.
+#[test]
+#[ignore = "F-1 (retro review 2026-10-30): SpiNor::new reads the ID without waiting out WIP"]
+fn a_panic_during_a_sector_erase_comes_back() {
+    let mut t = boot_to_lighting();
+    t.fn_tap_and_wait(RGB_VAD, 1);
+    t.part_should_show(Part::Nor, "^SE 0x020000", 4.0);
+    t.raw_hid_send(&[0x08, 0xD3, 0x50]);
+    t.b.run_for(0.01);
+    t.log_should_show("configured", 4.0);
+    assert!(t.b.in_flash(), "PC 0x{:08x}", t.b.pc());
+}
+
 /// A saved dimmer setting is gone after EE_CLR's reboot: the defaults are
 /// saved in its place (into the other sector). The release comes while
 /// that save's sector erase (60 ms) still runs, and must still reboot.

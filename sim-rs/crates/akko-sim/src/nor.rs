@@ -9,11 +9,16 @@
 //! AB RDP/RES. PP/SE/BE/CE need WEL (set by WREN, cleared when the command
 //! completes) and set WIP for the part's typical time (`busy_ticks`): PP
 //! 1.4 ms, SE 60 ms, BE 0.7 s (the MX25L4006E's, from Macronix's figures as
-//! distributors list them), CE 3.5 s (assumed; no figure found). A command
-//! during WIP but RDSR is refused, a read logged as an error. Programming ANDs bits
-//! in, as NOR does. A command ends at a rising edge of the chip select,
-//! which (as in qspi.py) is noticed at the next byte. Every erase, program
-//! and read goes to `log` ("SE 0x010000", "PP 0x010000 n=256").
+//! distributors list them), CE 3.5 s (assumed; no figure found). While WIP
+//! is set the part takes RDSR only: any other command is ignored (the bus
+//! reads 0xFF, as MISO isn't driven) and logged as an error. As the
+//! datasheet has it, WREN, WRDI, SE, BE, CE and PP act when the chip select
+//! rises on a byte boundary right after their last byte (PP after at least
+//! one data byte); otherwise they're ignored, an error too. Programming ANDs
+//! bits in, as NOR does. A command ends at a rising edge of the chip
+//! select, which (as in qspi.py) is noticed at the next byte, and acts at
+//! the end of its last byte. Every erase, program and read goes to `log`
+//! ("SE 0x010000", "PP 0x010000 n=256").
 //!
 //! The array survives a system reset (`reset` keeps it), as the chip keeps
 //! its data across a keyboard reset.
@@ -26,6 +31,8 @@ pub const SIZE: usize = 512 * 1024;
 pub const JEDEC_ID: [u8; 3] = [0xC2, 0x20, 0x13];
 pub const CS: Pin = (C, 12);
 const MS: u64 = TICK_HZ / 1000;
+/// A command being ignored to its end.
+const IGNORED: u8 = 0xFE;
 
 /// How long WIP stays set after a command (typical times).
 pub fn busy_ticks(cmd: u8) -> u64 {
@@ -150,6 +157,30 @@ impl Nor {
 
     /// The chip select went high: complete the command in progress.
     fn finish(&mut self) {
+        let n = self.args.len();
+        match self.cmd {
+            Some(0x06) if n == 0 => self.wel = true,
+            Some(0x04) if n == 0 => self.wel = false,
+            Some(c @ (0x60 | 0xC7)) if n == 0 => {
+                if self.need_wel("CE") {
+                    self.erase(c, 0, SIZE, "CE");
+                }
+            }
+            Some(0x20) if n == 3 => {
+                if self.need_wel("SE") {
+                    self.erase(0x20, self.addr & !0xFFF, 0x1000, "SE")
+                }
+            }
+            Some(0xD8) if n == 3 => {
+                if self.need_wel("BE") {
+                    self.erase(0xD8, self.addr & !0xFFFF, 0x10000, "BE")
+                }
+            }
+            Some(c @ (0x06 | 0x04 | 0x60 | 0xC7 | 0x20 | 0xD8)) => self
+                .errors
+                .push(format!("{} ended after {n} more bytes, ignored", name(c))),
+            _ => {}
+        }
         match self.cmd {
             Some(c @ (0x03 | 0x0B)) if self.args.len() >= 3 => {
                 let n = self.args.len() - 3 - (c == 0x0B) as usize;
@@ -158,7 +189,9 @@ impl Nor {
                     | self.args[2] as usize;
                 self.log.push(format!("{} 0x{a:06x} n={n}", name(c)));
             }
-            Some(c @ (0x9F | 0x06 | 0x04 | 0xB9 | 0xAB)) => self.log.push(name(c).to_string()),
+            Some(c @ (0x9F | 0x06 | 0x04 | 0xB9 | 0xAB)) if n == 0 || c == 0x9F || c == 0xAB => {
+                self.log.push(name(c).to_string())
+            }
             _ => {}
         }
         if self.cmd == Some(0x02) && self.pp_count != 0 {
@@ -200,17 +233,16 @@ impl Nor {
             if self.deep && b != 0xAB {
                 return 0xFF;
             }
+            if self.busy() && b != 0x05 {
+                self.errors
+                    .push(format!("{} while busy (WIP), ignored", name(b)));
+                self.cmd = Some(IGNORED);
+                return 0xFF;
+            }
             match b {
-                0x06 if !self.busy() => self.wel = true,
-                0x04 if !self.busy() => self.wel = false,
-                0x60 | 0xC7 => {
-                    if self.need_wel("CE") {
-                        self.erase(b, 0, SIZE, "CE");
-                    }
-                }
                 0xB9 => self.deep = true,
                 0xAB => self.deep = false,
-                0x06 | 0x04 | 0x9F | 0x05 | 0x03 | 0x0B | 0x02 | 0x20 | 0xD8 => {}
+                0x06 | 0x04 | 0x60 | 0xC7 | 0x9F | 0x05 | 0x03 | 0x0B | 0x02 | 0x20 | 0xD8 => {}
                 _ => self.warnings.push(format!("unknown command 0x{b:02x}")),
             }
             return 0xFF;
@@ -234,31 +266,18 @@ impl Nor {
                         | (self.args[1] as usize) << 8
                         | self.args[2] as usize;
                     self.addr = a % SIZE;
-                    match c {
-                        0x20 if self.need_wel("SE") => {
-                            self.erase(c, self.addr & !0xFFF, 0x1000, "SE")
+                    if c == 0x02 {
+                        if self.need_wel("PP") {
+                            self.pp_addr = self.addr;
+                        } else {
+                            self.cmd = Some(IGNORED);
                         }
-                        0xD8 if self.need_wel("BE") => {
-                            self.erase(c, self.addr & !0xFFFF, 0x10000, "BE")
-                        }
-                        0x02 => {
-                            if self.need_wel("PP") {
-                                self.pp_addr = self.addr;
-                            } else {
-                                // Ignore the data bytes.
-                                self.cmd = Some(0xFE);
-                            }
-                        }
-                        _ => {}
                     }
                 }
                 0xFF
             }
             0x0B if n == 4 => 0xFF, // the dummy byte
             0x03 | 0x0B => {
-                if self.busy() {
-                    self.errors.push("READ while busy (WIP)".to_string());
-                }
                 let v = self.mem[self.addr];
                 self.addr = (self.addr + 1) % SIZE;
                 v
@@ -345,7 +364,7 @@ mod tests {
         assert_eq!(se, 60 * MS);
         assert_eq!(rdsr(&mut n, &mut g, se - 1) & 1, 1, "WIP");
         run(&mut n, &mut g, se - 1, &[0x03, 0x00, 0x10, 0x00, 0]);
-        assert_eq!(n.errors, ["READ while busy (WIP)"]);
+        assert_eq!(n.errors, ["READ while busy (WIP), ignored"]);
         assert_eq!(rdsr(&mut n, &mut g, se), 0, "done, WEL cleared");
         // A page program: 1.4 ms.
         run(&mut n, &mut g, se, &[0x06]);
@@ -353,6 +372,54 @@ mod tests {
         assert_eq!(rdsr(&mut n, &mut g, se + 14 * MS / 10 - 1) & 1, 1);
         assert_eq!(rdsr(&mut n, &mut g, se + 14 * MS / 10) & 1, 0);
         assert_eq!(n.mem[0x1000], 0x5A);
+    }
+
+    #[test]
+    fn only_rdsr_is_answered_while_busy() {
+        // A reset mid-erase leaves the part busy: RDID reads nothing.
+        let mut g = Gpio::default();
+        g.watch(CS);
+        let mut n = Nor {
+            pins_checked: true,
+            ..Nor::default()
+        };
+        run(&mut n, &mut g, 0, &[0x06]);
+        run(&mut n, &mut g, 0, &[0x20, 0x00, 0x10, 0x00]);
+        let id = run(&mut n, &mut g, MS, &[0x9F, 0, 0, 0]);
+        assert_eq!(id, [0xFF; 4]);
+        assert_eq!(
+            run(&mut n, &mut g, MS, &[0x05, 0])[1] & 1,
+            1,
+            "RDSR answers"
+        );
+        let id = run(&mut n, &mut g, busy_ticks(0x20), &[0x9F, 0, 0, 0]);
+        assert_eq!(id[1..], JEDEC_ID);
+        assert_eq!(n.errors, ["RDID while busy (WIP), ignored"]);
+    }
+
+    #[test]
+    fn an_erase_acts_at_the_chip_select_after_its_last_byte() {
+        let mut g = Gpio::default();
+        g.watch(CS);
+        let mut n = Nor {
+            pins_checked: true,
+            ..Nor::default()
+        };
+        n.mem[0x1000] = 0;
+        // One byte too many: ignored, and WEL stays set.
+        run(&mut n, &mut g, 0, &[0x06]);
+        run(&mut n, &mut g, 0, &[0x20, 0x00, 0x10, 0x00, 0x00]);
+        assert_eq!(run(&mut n, &mut g, 0, &[0x05, 0])[1], 0b10, "WEL, not WIP");
+        assert_eq!(n.mem[0x1000], 0);
+        assert_eq!(n.errors, ["SE ended after 4 more bytes, ignored"]);
+        // WREN with a byte after it doesn't set WEL either.
+        run(&mut n, &mut g, 0, &[0x04]);
+        run(&mut n, &mut g, 0, &[0x06, 0x00]);
+        assert_eq!(run(&mut n, &mut g, 0, &[0x05, 0])[1], 0);
+        run(&mut n, &mut g, 0, &[0x06]);
+        run(&mut n, &mut g, 0, &[0x20, 0x00, 0x10, 0x00]);
+        assert_eq!(run(&mut n, &mut g, 0, &[0x05, 0])[1] & 1, 1, "erasing");
+        assert_eq!(n.mem[0x1000], 0xFF);
     }
 
     #[test]
