@@ -136,6 +136,9 @@ fn led_colours_over(t: &mut T, i: usize, secs: f64) -> Vec<u32> {
         .collect()
 }
 
+/// ANCTL+0x004, which the vendor's stop entry and exit trim.
+const ANCTL_TRIM: u32 = 0x4001_0404;
+
 /// Vial channel 0xD9: 0x53 ('S') on, 1 off, 0 reads.
 fn stop_mode(t: &mut T, arg: u8) {
     t.raw_hid_send_and_run(&[0x08, 0xD9, arg]);
@@ -185,6 +188,8 @@ fn asleep_and_stopped() -> T {
     for want in ["PWR+0x000 = 0x0003b004", "PWR+0x020 = 0x000003b3"] {
         assert!(writes.iter().any(|w| w == want), "no {want}");
     }
+    // PRE_LP: ANCTL+0x004 down from the board's trim (10) to 8.
+    assert_eq!(t.b.word(ANCTL_TRIM), 8);
     t
 }
 
@@ -645,6 +650,8 @@ fn in_stop_mode_a_key_wakes_it_and_is_typed() {
     should_be_stopped(&mut t, false);
     should_be_asleep(&mut t, false, false);
     radio_should_not_get(&t, VERSION_ASK);
+    // POST_LP: the trim from the information block, back.
+    assert_eq!(t.b.word(ANCTL_TRIM), akko_sim::INFO_TRIM.1 & 0xF);
     stop_counts_should_be(&mut t, 1, 1);
     no_radio_errors(&t);
     // PRE_LP, POST_LP and the clocks' set-up again open ANCTL first.

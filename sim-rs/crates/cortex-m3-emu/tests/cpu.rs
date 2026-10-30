@@ -10,6 +10,8 @@ struct TestBus {
     flash: Memory,
     ram: Memory,
     irq: u64,
+    /// The event input (RXEV), pulsed once.
+    event: bool,
     /// HCLK, which the core and SysTick run from.
     hz: u64,
 }
@@ -34,7 +36,8 @@ impl Bus for TestBus {
     fn irq_lines(&mut self) -> cortex_m3_emu::IrqLines {
         cortex_m3_emu::IrqLines {
             level: self.irq,
-            raised: 0,
+            event: std::mem::take(&mut self.event),
+            ..Default::default()
         }
     }
     fn hclk_hz(&self) -> u64 {
@@ -87,6 +90,7 @@ fn machine_at(at: u32, code: &[(u32, &str)]) -> (Cpu, TestBus) {
         flash: Memory::new(0x1000),
         ram: Memory::new(0x1000),
         irq: 0,
+        event: false,
         hz: cortex_m3_emu::DEFAULT_HCLK_HZ,
     };
     bus.flash.write(0, Size::Word, STACK);
@@ -448,6 +452,22 @@ fn wfe_consumes_a_pending_event_then_sleeps() {
         "asleep until the deadline, nothing to wake it"
     );
     assert_eq!(cpu.sleeps, 1);
+}
+
+/// The event input sets the event register (ARM DDI 0403E B1.5.18): it
+/// ends a WFE, not a WFI.
+#[test]
+fn an_external_event_ends_wfe_not_wfi() {
+    let (mut cpu, mut bus) = machine(&[(0xBF20, "wfe"), (0xBF30, "wfi"), (0xE7FE, "b 0x44")]);
+    cpu.run_until(&mut bus, 1_000);
+    assert_eq!(cpu.sleep, cortex_m3_emu::Sleep::Wfe);
+    bus.event = true;
+    cpu.run_until(&mut bus, 2_000);
+    assert_eq!(cpu.sleep, cortex_m3_emu::Sleep::Wfi, "past the WFE");
+    bus.event = true;
+    cpu.run_until(&mut bus, 3_000);
+    assert_eq!(cpu.sleep, cortex_m3_emu::Sleep::Wfi);
+    assert_eq!((cpu.instructions, cpu.sleeps), (2, 2));
 }
 
 #[test]

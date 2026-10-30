@@ -135,6 +135,14 @@ impl Image {
     }
 }
 
+/// This board's chip's word at 0x1FFF_F310, in information block 3 (RM
+/// 3.2.2: factory data, read-only): its low nibble is the trim the HAL's
+/// stop exit puts back into ANCTL+0x004 (wb32-hal stop.rs, the vendor's
+/// POST_LP). From the board's dump (`$ROM_WORK/dump/info.bin`, 2026-10-28);
+/// only this word is copied, and `tests/board_wiring.rs` checks it against
+/// the dump where there is one.
+pub const INFO_TRIM: (u32, u32) = (0x1FFF_F310, 0x0000_000A);
+
 /// A ROM bootloader to run in place of the boot ROM.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rom {
@@ -260,6 +268,8 @@ impl Board {
         stub.extend_from_slice(&(ROM_PARKED | 1).to_le_bytes());
         stub.extend_from_slice(&0xE7FEu16.to_le_bytes()); // b .
         chip.load(ROM_BASE, &stub).expect("the stub fits the ROM");
+        chip.load(INFO_TRIM.0, &INFO_TRIM.1.to_le_bytes())
+            .expect("information block 3 is in the ROM's space");
         let host = Host::new(chip.usb.clone(), 0);
         let nor = Rc::new(RefCell::new(Nor::default()));
         let leds = Rc::new(RefCell::new(Ws2812::default()));

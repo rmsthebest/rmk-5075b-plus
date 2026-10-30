@@ -87,6 +87,9 @@ pub struct IrqLines {
     pub level: u64,
     /// Lines that went high since the last read, even if already low again.
     pub raised: u64,
+    /// The external event input (RXEV) pulsed since the last read: it sets
+    /// the event register, which a WFE waits for (ARM DDI 0403E B1.5.18).
+    pub event: bool,
 }
 
 /// A plain little-endian memory: flash, SRAM, ROM.

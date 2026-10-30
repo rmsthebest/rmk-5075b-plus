@@ -67,6 +67,10 @@ pub const USB_BASE: u32 = 0x4001_4000;
 pub const SYS_BASE: u32 = 0x4001_6400;
 pub const FMC_BASE: u32 = 0x4001_7800;
 
+/// The trim the chip loads into ANCTL+0x004 at reset (assumed: the RM
+/// doesn't list that register; the vendor's stop exit puts this back).
+pub const INFO_TRIM: u32 = 0x1FFF_F310;
+
 /// From an EXTI edge in stop to the core running: the MHSI's start-up, at
 /// its maximum (DS 5.2.4). A board check.
 pub const STOP_WAKE: u64 = 2 * cortex_m3_emu::TICK_HZ / 1_000_000;
@@ -302,6 +306,8 @@ impl Wb32 {
         self.asleep = false;
         self.gpio.reset();
         self.sysctl.reset();
+        self.sysctl
+            .load_trim(self.rom.read(INFO_TRIM - ROM_BASE, Size::Byte) & 0xF);
         self.tim2 = Tim2::default();
         self.tim2.sync(self.now);
         self.qspi.reset();
@@ -771,6 +777,7 @@ impl Bus for Wb32 {
             return IrqLines {
                 level: self.gpio.irq_level(),
                 raised: 0,
+                event: self.gpio.take_event(),
             };
         }
         let level = self.gpio.irq_level()
@@ -779,7 +786,11 @@ impl Bus for Wb32 {
             | self.qspi.irq_level()
             | self.spim2.irq_level()
             | self.uart3.irq_level();
-        IrqLines { level, raised: 0 }
+        IrqLines {
+            level,
+            raised: 0,
+            event: self.gpio.take_event(),
+        }
     }
 }
 
@@ -997,5 +1008,49 @@ mod tests {
         // Run 1.12 mA x 1/4, stop 35 uA x 1/2, MHSI + FHSI 80 uA x 1/2.
         assert!((e.floor_ma - 0.3375).abs() < 1e-9, "{e}");
         assert!((e.sleep_as_run_ma - 0.6175).abs() < 1e-9, "{e}");
+    }
+
+    /// RM figure 10-1: a trigger sets PR only through IMR, and pulses the
+    /// core's event input through EMR; the NVIC line follows PR.
+    #[test]
+    fn exti_pends_through_imr_and_sends_events_through_emr() {
+        let mut chip = Wb32::new();
+        let exti = GPIO_BASE + 0x1800;
+        apb1_on(&mut chip, 1 << 9);
+        let mut fall = |chip: &mut Wb32| {
+            chip.write(GPIO_BASE + 0xFF4, Size::Word, 1 << 16);
+            chip.write(GPIO_BASE + 0xFF4, Size::Word, 0);
+        };
+        chip.write(exti + 0x0C, Size::Word, 1);
+        fall(&mut chip);
+        assert_eq!(chip.read(exti + 0x14, Size::Word), 0, "masked: no PR");
+        assert_eq!(chip.gpio.irq_level(), 0);
+        assert!(!chip.irq_lines().event);
+        chip.write(exti + 0x04, Size::Word, 1);
+        fall(&mut chip);
+        assert_eq!(chip.read(exti + 0x14, Size::Word), 0, "an event sets no PR");
+        assert!(chip.irq_lines().event);
+        assert!(!chip.irq_lines().event, "a pulse");
+        chip.write(exti + 0x04, Size::Word, 0);
+        chip.write(exti, Size::Word, 1);
+        fall(&mut chip);
+        assert_eq!(chip.read(exti + 0x14, Size::Word), 1);
+        assert_eq!(chip.gpio.irq_level(), 1 << 6, "EXTI0");
+        chip.write(exti, Size::Word, 0);
+        assert_eq!(chip.gpio.irq_level(), 1 << 6, "PR still pending");
+        chip.write(exti + 0x14, Size::Word, 1);
+        assert_eq!(chip.gpio.irq_level(), 0);
+        // SWIER triggers the same way.
+        chip.write(exti + 0x10, Size::Word, 1 << 1);
+        assert_eq!(chip.read(exti + 0x14, Size::Word), 0);
+        // 19 lines.
+        chip.write(exti + 0x04, Size::Word, u32::MAX);
+        assert_eq!(chip.read(exti + 0x04, Size::Word), 0x7_FFFF);
+        // In stop, a WFE ends on an event line.
+        chip.write(exti + 0x04, Size::Word, 1);
+        assert!(chip.sleep(true));
+        fall(&mut chip);
+        let lines = chip.irq_lines();
+        assert!(lines.event && lines.level == 0, "{lines:?}");
     }
 }

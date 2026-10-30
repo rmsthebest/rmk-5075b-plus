@@ -67,6 +67,7 @@ const LSIENR: u32 = ANCTL + 0x44;
 const HSECR0: u32 = ANCTL + 0x4C;
 const PLLCR: u32 = ANCTL + 0x74;
 const PLLENR: u32 = ANCTL + 0x78;
+const ANCTL_TRIM: u32 = ANCTL + 0x04;
 const STATUS: [(u32, u32); 5] = [
     (MHSIENR, ANCTL + 0x30),
     (FHSIENR, ANCTL + 0x3C),
@@ -250,6 +251,13 @@ impl Sysctl {
             MHSIENR
         };
         Some(on.max(self.ready_at(input)?) + startup(PLLENR))
+    }
+
+    /// ANCTL+0x004, which the RM doesn't list, from the information block's
+    /// trim at reset (an assumption: the vendor's stop entry lowers its low
+    /// nibble to 8 and its exit puts the trim back, wb32-hal stop.rs).
+    pub fn load_trim(&mut self, trim: u32) {
+        self.regs.insert(ANCTL_TRIM, trim);
     }
 
     fn ready(&self, enable: u32, now: u64) -> bool {

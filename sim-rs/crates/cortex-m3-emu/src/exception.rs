@@ -90,7 +90,7 @@ impl Cpu {
     pub(crate) fn update_irqs(&mut self, bus: &mut impl Bus) {
         let lines = bus.irq_lines();
         self.ppb.irq_inputs(lines.level, lines.raised);
-        if std::mem::take(&mut self.ppb.sev) {
+        if std::mem::take(&mut self.ppb.sev) || lines.event {
             self.event = true;
         }
     }

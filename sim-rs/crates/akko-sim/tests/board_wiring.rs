@@ -110,3 +110,18 @@ fn the_lighting_off_powers_the_leds_down() {
     assert!(!t.led_power());
     assert!(t.led_colours().iter().all(|&c| c == 0));
 }
+
+/// The trim word the board puts in information block 3 is the chip's, where
+/// the dump is at hand (akko_sim::Rom::dump_dir).
+#[test]
+fn the_info_trim_is_the_dumps() {
+    let Ok(info) = std::fs::read(akko_sim::Rom::dump_dir().join("info.bin")) else {
+        println!("no info.bin: skipped");
+        return;
+    };
+    let (addr, word) = akko_sim::INFO_TRIM;
+    let o = (addr - 0x1FFF_F000) as usize;
+    assert_eq!(info[o..o + 4], word.to_le_bytes());
+    let mut t = T::boot();
+    assert_eq!(t.b.word(0x4001_0404), word & 0xF, "ANCTL+0x004 from reset");
+}

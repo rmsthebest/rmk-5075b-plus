@@ -17,10 +17,14 @@
 //!   0xFF8 write: any value releases every key
 //!
 //! EXTI lines 0-15 follow the pin AFIO EXTICR selects. After every write
-//! here (and every change of an input) each line's level is recomputed; an
-//! edge enabled in RTSR/FTSR sets PR, and each NVIC line (EXTI0-4, EXTI9_5,
-//! EXTI15_10: IRQs 6-10, 16, 33 in wb32fq95xx.h) is high while PR & IMR has
-//! a bit in its group. PR clears on writing 1.
+//! here (and every change of an input) each line's level is recomputed. As
+//! RM figure 10-1 draws it, a trigger (an edge enabled in RTSR/FTSR, or
+//! SWIER going to 1) sets PR only where IMR enables the line, and pulses
+//! the core's event input where EMR does (gpio.py sets PR whatever IMR
+//! says). Each NVIC line (EXTI0-4, EXTI9_5, EXTI15_10: IRQs 6-10, 16, 33 in
+//! wb32fq95xx.h) is high while PR has a bit in its group. PR clears on
+//! writing 1. The registers hold the RM's 19 lines (16-18, PVD, RTC alarm
+//! and USB wakeup, have no source here).
 
 use crate::chip::Write;
 use std::collections::{BTreeMap, BTreeSet};
@@ -58,10 +62,13 @@ const CFG_REGS: [(u32, u32); 8] = [
 const AFIO: u32 = 0x1400;
 const EXTI: u32 = 0x1800;
 const IMR: usize = 0;
+const EMR: usize = 1;
 const RTSR: usize = 2;
 const FTSR: usize = 3;
 const SWIER: usize = 4;
 const PR: usize = 5;
+/// The RM's 19 lines (10.5: bits 31:19 reserved).
+const LINES: u32 = (1 << 19) - 1;
 /// NVIC line and the EXTI lines feeding it.
 const EXTI_IRQS: [(u32, u32); 7] = [
     (6, 1 << 0),
@@ -91,6 +98,8 @@ pub struct Gpio {
     exti: [u32; 6],
     line_last: [Option<bool>; 16],
     irq_level: u64,
+    /// An event pulse to the core since `take_event`.
+    event: bool,
     pub matrix: Matrix,
     /// Keys held: (row, col).
     pub pressed: BTreeSet<(u8, u8)>,
@@ -225,6 +234,18 @@ impl Gpio {
         self.exti[PR]
     }
 
+    /// Whether an EMR line pulsed the core's event input since last asked.
+    pub fn take_event(&mut self) -> bool {
+        std::mem::take(&mut self.event)
+    }
+
+    /// Lines triggered (figure 10-1): the pending bits behind IMR, an event
+    /// behind EMR.
+    fn trigger(&mut self, lines: u32) {
+        self.exti[PR] |= lines & self.exti[IMR];
+        self.event |= lines & self.exti[EMR] != 0;
+    }
+
     pub fn irq_level(&self) -> u64 {
         self.irq_level
     }
@@ -267,10 +288,11 @@ impl Gpio {
             });
             let i = (o / 4) as usize;
             if o % 4 == 0 && i < self.exti.len() {
+                let v = v & LINES;
                 match i {
                     PR => self.exti[PR] &= !v,
                     SWIER => {
-                        self.exti[PR] |= v & !self.exti[SWIER];
+                        self.trigger(v & !self.exti[SWIER]);
                         self.exti[SWIER] = v;
                     }
                     _ => self.exti[i] = v,
@@ -358,11 +380,11 @@ impl Gpio {
             if old.is_some_and(|o| o != level)
                 && ((level && self.exti[RTSR] & bit != 0) || (!level && self.exti[FTSR] & bit != 0))
             {
-                self.exti[PR] |= bit;
+                self.trigger(bit);
             }
         }
         self.update_watched();
-        let active = self.exti[PR] & self.exti[IMR];
+        let active = self.exti[PR];
         self.irq_level = EXTI_IRQS
             .iter()
             .filter(|(_, mask)| active & mask != 0)
