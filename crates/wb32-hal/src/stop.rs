@@ -19,7 +19,7 @@
 //! doesn't stop at all while one is pending, so none is lost: try again
 //! later. Time (SysTick) stands still while stopped; TIM2 (the watchdog's
 //! tick, `crate::tick`) stops with APB1's clock, and is paused here as well
-//! (CR1.CEN), which the sim needs: Renode's timer doesn't stop.
+//! (CR1.CEN), which the Renode sim needed (its timer didn't stop).
 
 use cortex_m::peripheral::{NVIC, SCB, SYST};
 use wb32_pac::{EXTI, PWR, RCC, TIM2, pwr};

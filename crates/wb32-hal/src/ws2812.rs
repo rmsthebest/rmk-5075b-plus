@@ -20,7 +20,7 @@
 //! ChibiOS-contrib's SPIv1 LLD, sends and receives instead, with the FIFO
 //! half full: about an interrupt a byte, which at 4 entries kept the CPU
 //! busy for most of each 3.7 ms frame (sim-rs m7_power); the set-up is
-//! otherwise QMK's (`sim/golden/qmk_spim2_init.txt`; sim-rs m5_lighting
+//! otherwise QMK's (`sim-rs/golden/qmk/qmk_spim2_init.txt`; sim-rs m5_lighting
 //! names the differences). The interrupt runs at `prio`; QMK uses 9
 //! (`0x90`), above the flash's QSPI. A late refill only stretches a low
 //! phase of the line (harmless well below the 280 us latch). A frame that

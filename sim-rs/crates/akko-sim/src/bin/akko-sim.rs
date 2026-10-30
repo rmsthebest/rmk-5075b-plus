@@ -1,11 +1,9 @@
 //! The board simulator from the command line.
 //!   akko-sim trace <image> [secs=0.5] [block-regex=.]
 //! prints the image's register writes in order, one per line ("BLOCK+0xOFF =
-//! 0xVALUE"), as ../../sim/trace.sh does, so the two can be diffed
-//! (compare/trace-diff.sh). The SPI flash's commands follow, as "FLASH
-//! ..." lines (trace.sh has them in among the writes; they're compared as
-//! a stream of their own). Then any diags (unmapped accesses, LOCKED
-//! writes) to stderr.
+//! 0xVALUE"), in the golden traces' format (Renode's sim/trace.sh, ../golden).
+//! The SPI flash's commands follow, as "FLASH ..." lines. Then any diags
+//! (unmapped accesses, LOCKED writes) to stderr.
 //!   akko-sim gdb <image> [port=3333]
 //! boots the image halted at its reset vector and serves GDB on
 //! localhost (akko_sim::gdb), one connection after another:

@@ -1,4 +1,4 @@
-//! ../../sim/tests/boot_guard.robot: boot-guard's escape hatch, through the
+//! Renode's sim/tests/boot_guard.robot: boot-guard's escape hatch, through the
 //! m1b-stub and m1a-bounce images. "In DFU" means parked in the ROM stub.
 
 use akko_sim::{Board, Image};

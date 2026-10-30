@@ -1,7 +1,7 @@
 //! The USB device controller (Mentor MUSB, full speed) at 0x4001_4000, with
 //! CRC (0x800) and SFM (0xC00) in the same window as plain registers; SFM
 //! USBPCON (0xC40) is the PHY enable a host checks. A port of the device
-//! half of ../../sim/peripherals/usb.py; the host half is akko-sim's.
+//! half of Renode's sim/peripherals/usb.py; the host half is akko-sim's.
 //!
 //! Device registers (USB_TypeDef in wb32fq95xx.h), all 8 bits:
 //!   0x00 FADDR  0x01 POWER  0x02 INTRIN  0x04 INTROUT  0x06 INTRUSB

@@ -3,9 +3,9 @@
 A Cortex-M3 interpreter and WB32FQ95 models in Rust, with the tests as plain
 `cargo test`. It is the gate for every firmware image: the workbench's "Run
 sim tests" (`../tools/bench.py`) runs the whole suite, about 100 s, and
-freezes the akko-rmk it ran. The Renode sim in `../sim` runs the same suites
-as a cross-check ("Cross-check in Renode"). The QMK build runs here too
-(`qmk_reference.rs`, `qmk_power.rs`).
+freezes the akko-rmk it ran. The QMK build runs here too
+(`qmk_reference.rs`, `qmk_power.rs`). It replaced the Renode sim the suites
+were first written for (see History).
 
 ```fish
 sim-rs/run.sh                   # build and snapshot the images, run every test
@@ -31,10 +31,22 @@ system reset (SRAM kept), `monitor time` the emulated time, and `monitor key
 runs as fast as it can otherwise, with the USB host and the board's parts going
 on as in the tests. No watchpoints yet.
 
-`run.sh` builds the firmware in `target/sim-rs*` (not the repo's `target/`, so a
-Renode run can go on at the same time) and copies the images to
+`run.sh` builds the firmware in `target/sim-rs*` (not the repo's `target/`, so
+other builds can go on at the same time) and copies the images to
 `sim-rs/target/images/`, which is all the tests read. `AKKO_SIM_IMAGES=` points
 them at another directory.
+
+`akko-sim trace <image> [secs] [block-regex]` prints an image's register
+writes in order, in the golden traces' format, for diffing by hand.
+
+## Golden traces
+
+`golden/` holds register-write traces recorded in Renode, which the tests
+compare against:
+- `golden/qmk/`: the flashed QMK build (`akko_5075b_plus_fixes.bin`). `qmk_sysctl_writes.txt` is its PWR/ANCTL/RCC writes (the 96 MHz bring-up, then the board's clock enables); `qmk_clock_init.txt` the part `wb32_hal::rcc::init` ports, the cache write included (`m2_hal.rs`); `qmk_qspi_init.txt` its QSPI set-up, chip select and first flash commands on a blank chip; `qmk_spim2_init.txt` its WS2812 SPIM2 set-up; `qmk_usb_init.txt` ChibiOS's `wb32_usb_init`, which `wb32_hal::usb` reproduces write for write. `qmk_reference.rs` checks QMK against them.
+- `golden/rom/`: the ROM bootloader's `boot` (347 writes), `download` (605) and `leave` (634) scenarios, every peripheral write without PCs (`rom_traces.rs`, on the dump and on rom/rust's build).
+
+Renode got some things wrong while recording them: its RCC reset to 0, its SSI FIFOs were 8 deep with IER reset 0, its AIRCR read bit 13, its log folded repeated lines, and its RETTOBASE ended the QSPI goldens early (BOARD_FACTS.md). The tests adjust for each where they read the files (`common::golden`, `at_fifo_depth`, `fold_repeats`, `rom_traces.rs`) rather than the files being edited.
 
 ## Crates
 
@@ -47,10 +59,11 @@ them at another directory.
 ## References
 
 The simulator checks our PAC, HAL and firmware, so it must not be built from
-them. Its references are the Renode sim (its models were checked against the
-QMK binary and its golden traces) and the keyboard itself:
+them. Its references are the keyboard itself, the chip's and ARM's manuals,
+and the Renode sim it replaced (its models were checked against the QMK binary,
+and its golden traces stay in `golden/`):
 - No crate here depends on `wb32-pac`, `wb32-hal` or any other crate of the repo's; `crates/akko-sim/tests/deps.rs` checks `Cargo.lock`.
-- Register facts come from `../sim/peripherals/*.py`, the vendor `wb32fq95xx.h` and the reference manual (RM2905025), and each model says which.
+- Register facts come from Renode's models (`sim/peripherals/*.py`, see History), the vendor `wb32fq95xx.h` and the reference manual (RM2905025), and each model says which.
 - Where the board and a model disagree, the board wins, recorded in [BOARD_FACTS.md](BOARD_FACTS.md).
 
 ## Status
@@ -97,3 +110,8 @@ QMK binary and its golden traces) and the keyboard itself:
 Next: the plan's board checks (reset values, TIM2, RCC after stop, the busy-loop rate), as images are batched for the keyboard.
 - Hardware gaps, step 7 (the power estimate, `wb32-sim` `power.rs`): the chip charges a meter from the datasheet's figures as its state changes (sleep, wake, clock and oscillator writes, FMC ops, resets): 140 pC a core clock awake (140 µA/MHz), 35 µA stopped, MHSI 25 µA and FHSI 55 µA while enabled, the FMC's 2 mA programming and 1.5 mA erasing. Sleep mode has no figure anywhere, so `Estimate` gives a range, from sleep costing nothing to sleep costing as much as run, with the shares of time awake, asleep (and at what HCLK) and stopped, and how long the HSE and PLL (no figures either) were on. m7 and qmk_power print it. Measured: lights on 1.5 to 13.5 mA, off 0.14 to 13.5, a key held 7.4 to 13.5; QMK 13.5 mA whatever it does. Seen: on the battery with the host asleep, the keyboard sleeps at 96 MHz with the HSE and PLL on unless stop mode is turned on (it's opt-in), so 99.9% of the time is in the unknown sleep current (0.1 to 13.5 mA); with stop mode on it's 35 µA (`idle_power_stopped_on_the_dongle`). Both firmwares leave MHSI and FHSI on, 80 µA neither uses. A meter that counts sleep as run (seeded) fails four m7 tests.
 - Hardware gaps, step 8 (small items): the EXTI as RM figure 10-1 draws it: a trigger sets PR only through IMR, an EMR line pulses the core's event input (`IrqLines::event`, RXEV: the event register, which ends a WFE, in stop as well), the NVIC line follows PR, and the registers hold 19 lines. gpio.py (and so our port of it) set PR whatever IMR said; the firmware never relied on it (its EXTI code ANDs PR with IMR and clears PR before unmasking), and a seeded return to it fails the new test. The board's information-block word at 0x1FFF_F310 (0x0A, from the dump; `akko_sim::INFO_TRIM`) is in every board, and the chip loads ANCTL+0x004 from its low nibble at reset (assumed; the RM doesn't list the register), so the HAL's stop entry and exit now write it (8, then 10) and m6 checks both. Before, both read 0 and neither write ran, so their ANCTL unlock went untested. SYS MEMSZ stays the ROM sim's assumption (0x03, a board check). Not modelled, as neither firmware touches them: TIM1, TIM3, TIM4, DMAC1/2, the ADC, the RTC and BKP, I2C, the other SPIs and UARTs, CRC, the IWDG's counting.
+- Renode retired: `../sim` (the board in Renode: Python models, robot suites, the QMK hooks, `trace.sh`), `../rom/sim` (the ROM in Renode) and the Renode compare tools (`compare/`, `compare-renode`) are gone, and the workbench's "Cross-check in Renode" with them. Every suite had been ported test for test (steps 4-9), and since the hardware gaps the two sims no longer ran the same timing, so the cross-check had stopped checking much. The golden traces moved to `golden/`.
+
+## History
+
+The suites were first written for a Renode sim, and the models here were ported from its Python ones. Comments cite those files by their old paths (`sim/peripherals/gpio.py`, `sim/tests/m4_rmk.robot`, `rom/sim/trace.py`, ...). They were removed after commit 8b8d204, so `git show 8b8d204:sim/peripherals/gpio.py` reads one, and `git checkout 8b8d204 -- sim rom/sim sim-rs/compare` brings the whole Renode set-up back (Renode 1.17.0 portable in `../tools/renode`, the robot venv in `../tools/renode-venv`; `sim/README.md` has the set-up).

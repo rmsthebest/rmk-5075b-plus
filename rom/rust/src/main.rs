@@ -1,7 +1,7 @@
 //! The WB32FQ95's ROM bootloader (system memory 0x1FFFE000-0x1FFFEFFF,
 //! version 4), rewritten in Rust from its disassembly to show what it does.
 //! Each function names the ROM range it stands for; register writes are in
-//! the ROM's order and at its widths, odd parts kept, so that its Renode
+//! the ROM's order and at its widths, odd parts kept, so that its
 //! write traces match the ROM's (README.md). It runs in the sim only and
 //! never goes on the board.
 //!

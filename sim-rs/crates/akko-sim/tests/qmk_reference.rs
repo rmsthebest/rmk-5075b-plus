@@ -1,4 +1,4 @@
-//! ../../sim/tests/qmk_reference.robot: the known-good QMK build (flashed and
+//! Renode's sim/tests/qmk_reference.robot: the known-good QMK build (flashed and
 //! in daily use) run in the simulator. These check the simulator's models
 //! against real firmware that works on the board: if one fails after a model
 //! change, the model is wrong, not QMK. The image is QMK's ELF, whose flash
@@ -16,7 +16,7 @@ fn boot_qmk() -> T {
     T::start(Image::Qmk)
 }
 
-/// QMK past what the board model can't run (../../sim/qmk-hooks.resc):
+/// QMK past what the board model can't run (Renode's sim/qmk-hooks.resc):
 /// spi_flash_start returns false at once, so every flash operation fails
 /// fast and QMK goes on with default settings to USB.
 fn boot_qmk_with_hooks() -> T {

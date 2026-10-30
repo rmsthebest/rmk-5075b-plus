@@ -524,12 +524,12 @@ pub fn lit_keys(colours: &[u32]) -> Vec<usize> {
         .collect()
 }
 
-/// A golden trace from ../../sim/golden (recorded in Renode), its RCC
+/// A golden trace from ../../golden/qmk (recorded in Renode), its RCC
 /// writes as they come from the RM's reset values. Renode's RCC resets
 /// every register to 0; the RM's RCC_AHBENR1 is 0x3D (7.3.12), and
 /// firmware sets its bits with a read-modify-write, which keeps those.
 pub fn golden(name: &str) -> String {
-    let path = format!("{}/../../../sim/golden/{name}", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/../../golden/qmk/{name}", env!("CARGO_MANIFEST_DIR"));
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
     text.lines()
         .map(|l| match l.strip_prefix("RCC+0x040 = 0x") {

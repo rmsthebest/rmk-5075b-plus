@@ -1,12 +1,13 @@
 # The WB32FQ95 ROM bootloader rewritten in Rust (README.md). Not a member of
-# the repo's workspace: it never goes on the board, only into the Renode sim.
+# the repo's workspace: it never goes on the board, only into the simulator
+# (sim-rs).
 [package]
 name = "wb32-rom-dfu"
 version = "0.1.0"
 edition = "2024"
 publish = false
 license = "MIT OR Apache-2.0"
-description = "The WB32FQ95 ROM DFU bootloader, reconstructed in Rust for reading and for the Renode sim"
+description = "The WB32FQ95 ROM DFU bootloader, reconstructed in Rust for reading and for the simulator"
 
 [[bin]]
 name = "wb32-rom-dfu"

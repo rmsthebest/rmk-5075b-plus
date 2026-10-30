@@ -22,5 +22,5 @@ counter at `0x2000_7100`, which match `firmware/memory.x`, are all this board's.
 sequence itself is generic to the WB32FQ95.
 
 ## Tested how
-- `sim/tests/boot_guard.robot` and the panic tests in `m3_usb`/`m4_rmk`.
+- `sim-rs` `boot_guard.rs` and the panic tests in `m3_usb.rs`/`m4_rmk.rs`.
 - Every image flashed to the board has relied on it.

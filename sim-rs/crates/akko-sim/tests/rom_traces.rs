@@ -1,5 +1,5 @@
-//! ../../rom/sim/traces: the ROM's peripheral write traces from Renode
-//! (../../rom/sim/trace.py), one line per write in order, "<peripheral>+0x<off>
+//! ../../golden/rom: the ROM's peripheral write traces from Renode
+//! (its rom/sim/trace.py), one line per write in order, "<peripheral>+0x<off>
 //! = 0x<value>", which our run of the same scenario must match line for
 //! line, on the ROM dump and on rom/rust's build alike (with Renode's
 //! folding of repeated lines, and where Renode is wrong, below).
@@ -98,7 +98,7 @@ fn renode_folded(lines: Vec<(String, u32)>) -> Vec<String> {
 
 fn check(rom: Rom, scenario: &str) {
     let path = format!(
-        "{}/../../../rom/sim/traces/{scenario}.txt",
+        "{}/../../golden/rom/{scenario}.txt",
         env!("CARGO_MANIFEST_DIR")
     );
     let want: Vec<String> = std::fs::read_to_string(&path)

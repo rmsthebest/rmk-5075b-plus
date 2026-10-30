@@ -1,4 +1,4 @@
-//! The memory map (../../sim/wb32fq95.repl):
+//! The memory map (Renode's sim/wb32fq95.repl):
 //!   0x0000_0000  flash alias: booting from flash maps it at 0, which is
 //!                where the core fetches the initial SP and reset vector
 //!   0x0800_0000  flash, 256 KB: the chip is a WB32FQ95xC, as the DFU tool
@@ -109,11 +109,11 @@ pub struct Wb32 {
     /// Renode's `cpu AddHook` counters (m7_power's handler counts).
     pub pc_hits: Option<HashMap<u32, u64>>,
     /// Register writes, in order, while `Some`: what the Renode models log
-    /// as "MMIO W" (../../sim/trace.sh), plus TIM2's.
+    /// as "MMIO W" (Renode's sim/trace.sh), plus TIM2's.
     pub writes: Option<Vec<Write>>,
     /// Every write to a peripheral (the core's NVIC/SCB/SysTick included)
     /// and every flash write the FMC makes, in order, while `Some`: what
-    /// Renode logs with `LogAllPeripheralsAccess` (../../rom/sim/trace.py).
+    /// Renode logs with `LogAllPeripheralsAccess` (Renode's rom/sim/trace.py).
     pub bus_writes: Option<Vec<BusWrite>>,
 }
 
@@ -133,9 +133,9 @@ impl fmt::Display for BusWrite {
     }
 }
 
-/// Renode's peripheral names (../../sim/wb32fq95.repl, akko.resc,
-/// ../../rom/sim/rom.resc) and their bases.
-const RENODE_NAMES: [(&str, u32, u32); 13] = [
+/// The peripheral names the golden traces use (Renode's sim/wb32fq95.repl,
+/// akko.resc and rom/sim/rom.resc) and their bases.
+const TRACE_NAMES: [(&str, u32, u32); 13] = [
     ("nvic", 0xE000_E000, 0x1000),
     ("dwt", 0xE000_1000, 0x1000),
     ("gpio", GPIO_BASE, 0x2000),
@@ -151,8 +151,8 @@ const RENODE_NAMES: [(&str, u32, u32); 13] = [
     ("flash", FLASH_BASE, FLASH_SIZE as u32),
 ];
 
-fn renode_name(addr: u32) -> Option<(&'static str, u32)> {
-    RENODE_NAMES
+fn trace_name(addr: u32) -> Option<(&'static str, u32)> {
+    TRACE_NAMES
         .iter()
         .find(|(_, base, size)| addr.wrapping_sub(*base) < *size)
         .map(|&(name, base, _)| (name, addr - base))
@@ -451,7 +451,7 @@ impl Wb32 {
 
     fn log_bus_write(&mut self, addr: u32, value: u32) {
         if let Some(log) = &mut self.bus_writes
-            && let Some((periph, off)) = renode_name(addr)
+            && let Some((periph, off)) = trace_name(addr)
         {
             log.push(BusWrite {
                 periph,
@@ -1017,7 +1017,7 @@ mod tests {
         let mut chip = Wb32::new();
         let exti = GPIO_BASE + 0x1800;
         apb1_on(&mut chip, 1 << 9);
-        let mut fall = |chip: &mut Wb32| {
+        let fall = |chip: &mut Wb32| {
             chip.write(GPIO_BASE + 0xFF4, Size::Word, 1 << 16);
             chip.write(GPIO_BASE + 0xFF4, Size::Word, 0);
         };

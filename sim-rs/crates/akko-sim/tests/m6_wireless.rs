@@ -1,4 +1,4 @@
-//! ../../sim/tests/m6_wireless.robot: the radio module on UART3 (src/radio.rs,
+//! Renode's sim/tests/m6_wireless.robot: the radio module on UART3 (src/radio.rs,
 //! the wireless crate). The module logs every frame the keyboard sends
 //! ("<- ..."), ACKs it, answers battery inquiries, and sends what a test
 //! tells it to ("-> ..."). The frames' bytes are the fixed QMK tree's (the

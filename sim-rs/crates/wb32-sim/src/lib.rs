@@ -1,7 +1,7 @@
 //! The WB32FQ95 (as on the Akko 5075B Plus) for cortex-m3-emu.
 //!
-//! Register facts here come from the Renode models in ../../sim/peripherals
-//! (checked against the QMK binary), the vendor's wb32fq95xx.h and the
+//! Register facts here come from the Renode sim's models (sim/peripherals,
+//! removed after 8b8d204; checked against the QMK binary), the vendor's wb32fq95xx.h and the
 //! reference manual (RM2905025), never from our wb32-pac or wb32-hal: those
 //! are what the simulator tests. Each model cites its sources.
 

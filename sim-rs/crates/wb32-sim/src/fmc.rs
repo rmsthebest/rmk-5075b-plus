@@ -1,5 +1,5 @@
 //! The flash controller (FMC) at 0x4001_7800, +0x200, and SYS at
-//! 0x4001_6400, as the ROM drives them: ports of ../../rom/sim/peripherals/
+//! 0x4001_6400, as the ROM drives them: ports of Renode's rom/sim/peripherals/
 //! fmc.py and sys.py (from rom/notes.md "Flash erase and program" and RM 3.3).
 //!
 //! FMC:

@@ -1,5 +1,5 @@
 //! The board's WS2812 chain on SPIM2's MOSI (B15). A port of the decoder
-//! half of ../../sim/peripherals/spim2.py.
+//! half of Renode's sim/peripherals/spim2.py.
 //!
 //! QMK's ws2812_spi encoding: 4 SPI bits per WS2812 bit (0 = 1000, 1 =
 //! 1110), so every byte of a frame is two bits and never 0x00; a 0x00 byte

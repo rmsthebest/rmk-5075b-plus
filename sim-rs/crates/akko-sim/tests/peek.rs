@@ -1,4 +1,4 @@
-//! ../../rom/sim/tests/peek.robot: the rom-peek feature (firmware/src/main.rs
+//! Renode's rom/sim/tests/peek.robot: the rom-peek feature (firmware/src/main.rs
 //! `peek`, rom/tools/rompeek.py) on the board: akko-rmk built with
 //! `--features rom-peek`.
 

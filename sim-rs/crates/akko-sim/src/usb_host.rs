@@ -1,5 +1,5 @@
 //! The scripted USB host on the board's USB port: the host half of
-//! ../../sim/peripherals/usb.py, with ../../rom/sim/peripherals/usb_rom.py's
+//! Renode's sim/peripherals/usb.py, with Renode's rom/sim/peripherals/usb_rom.py's
 //! additions (the bulk OUT command, bulk IN reports) folded in.
 //!
 //! It attaches once D+/D- (PA11/PA12) are in their USB alternate function,

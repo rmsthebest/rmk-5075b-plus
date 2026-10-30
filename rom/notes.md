@@ -132,9 +132,9 @@ There's no automatic exit and no timeout. It stays in DFU until RESET (0x83) or 
 
 ## Dependencies outside the ROM (out/calls.txt)
 
-## Confirmed in the sim (rom/sim/README.md)
+## Confirmed in the sim
 
-The real ROM in Renode enumerated as decoded. GET_INFO gave the predicted 16 bytes. ERASE, WRITE_PAGE and READ round-tripped a page, the address checks refused the ROM and blocks 0-3, and GO and RESET both ended in a downloaded app (VTOR = 0, SP from the app). The write traces are in sim/traces/.
+The real ROM in Renode (since replaced by sim-rs, `rom_sim.rs`) enumerated as decoded. GET_INFO gave the predicted 16 bytes. ERASE, WRITE_PAGE and READ round-tripped a page, the address checks refused the ROM and blocks 0-3, and GO and RESET both ended in a downloaded app (VTOR = 0, SP from the app). The write traces are in `sim-rs/golden/rom/`.
 
 ## Open questions
 
@@ -145,7 +145,7 @@ The real ROM in Renode enumerated as decoded. GET_INFO gave the predicted 16 byt
 
 ## The Rust translation (rust/, step 4)
 
-`rust/` rewrites the whole ROM in Rust, one function per ROM function, each naming its range. Built for 0x1FFFE000 (3.9 KB) with the ROM's SRAM layout, it gives **the same write traces as the ROM in all three scenarios** (boot 347 writes, download 605, leave 634: `diff` empty), and the ROM suites pass on it (`sim/run.sh --rust`, 9/9).
+`rust/` rewrites the whole ROM in Rust, one function per ROM function, each naming its range. Built for 0x1FFFE000 (3.9 KB) with the ROM's SRAM layout, it gives **the same write traces as the ROM in all three scenarios** (boot 347 writes, download 605, leave 634: `diff` empty), and the ROM suites pass on it (9/9 then in Renode; `sim-rs` `rom_sim.rs` now).
 
 Matching the traces corrected two readings of the decompiled C:
 - The FHSI retrim in 0x1FFFEE54 lowers the trim by 16 on *every* try, not by 16 from the original each time.

@@ -1,4 +1,4 @@
-//! ../../sim/compare/qmk_power.robot: m7_power's CPU numbers for QMK, for
+//! Renode's sim/compare/qmk_power.robot: m7_power's CPU numbers for QMK, for
 //! the README's comparison. QMK's main loop never sleeps, so 0.2 s is
 //! enough. spi_flash_start is stubbed as there (qmk_reference.rs's hooks).
 //! Its key reports go to the radio module here (its settings can't be read),

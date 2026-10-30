@@ -2,8 +2,9 @@
 
 What the chip on the Akko 5075B Plus actually does, where that matters to the
 simulator. The models follow these lines, not our wb32-pac or wb32-hal, and
-not Renode where Renode disagrees. Each line names its source and the test
-that pins it (`-` until the test is ported).
+not Renode (the sim this one replaced, removed after 8b8d204) where Renode
+disagrees. Each line names its source and the test that pins it (`-` until
+the test is ported).
 
 | Fact | Source | Test |
 |---|---|---|

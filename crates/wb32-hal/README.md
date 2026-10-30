@@ -35,8 +35,8 @@ sequences are proven on silicon, and the code was checked against the reference 
 
 ## Tested how
 Through the firmware in this repo:
-- the Renode suites in `sim/` (a model of every peripheral used here);
-- QMK's binary as a reference for register sequences (`sim/golden/`);
+- the simulator's suites in `sim-rs/` (a model of every peripheral used here);
+- QMK's binary as a reference for register sequences (`sim-rs/golden/qmk/`);
 - the board itself, for every driver.
 
 There are no stand-alone examples yet. `firmware/src/bin/m2-blink.rs` and `m3-usb.rs` are the

@@ -1,6 +1,5 @@
 /target
 __pycache__/
-/rom/sim/results/
 /rom/rust/target/
 # battery-level tracking from qmk_power runs: a short-term reference, not kept
 /logs/

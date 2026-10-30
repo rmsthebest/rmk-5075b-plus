@@ -1,5 +1,5 @@
 //! The board's SPI NOR flash on QSPI, chip select C12 (active low). A port
-//! of the flash half of ../../sim/peripherals/qspi.py.
+//! of the flash half of Renode's sim/peripherals/qspi.py.
 //!
 //! The part number isn't known (the case stays shut), so the JEDEC ID and
 //! size are QMK's default part's, the MX25L4006E (C2 20 13, 512 KB); the

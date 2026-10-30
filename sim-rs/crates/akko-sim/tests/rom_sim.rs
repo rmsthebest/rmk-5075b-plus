@@ -1,4 +1,4 @@
-//! ../../rom/sim/tests: the ROM bootloader's vendor bulk pipe, with the
+//! Renode's rom/sim/tests: the ROM bootloader's vendor bulk pipe, with the
 //! command set in rom/notes.md ("DFU state machine"), on both the chip's ROM
 //! (the dump in $ROM_WORK) and rom/rust's build. All multi-byte fields are
 //! little-endian. peek.robot (the firmware's rom-peek channel) is in peek.rs.

@@ -3,7 +3,6 @@
 
     python3 tools/bench.py        (opens http://127.0.0.1:8475 in the browser)
     python3 tools/bench.py test   (the "Run sim tests" button, in the terminal)
-    python3 tools/bench.py renode (the "Cross-check in Renode" button)
 
 Everything is a button, so the keyboard being flashed can be the only one
 plugged in. Only the stdlib is used; the page is served on localhost only and
@@ -19,8 +18,6 @@ Safety rules, as tools/flash.sh and the sim-first workflow:
     target/bench/, with a stamp holding its sha256. "Flash RMK" flashes that
     frozen copy and only after precheck.py passes on it again and its hash
     matches the stamp.
-  - "Cross-check in Renode" runs the Renode suites (sim/run.sh) and reports;
-    it never freezes.
   - "Flash QMK" flashes ../akko_5075b_plus_fixes.bin and only if its hash is
     the known-good one below.
   - DFU: "Enter DFU", and flashing, send a running akko-rmk there over USB
@@ -43,7 +40,6 @@ import sys
 import threading
 import time
 import webbrowser
-import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -64,7 +60,6 @@ RESULTS_FILE = BENCH / "signoff.json"
 LOGS = BENCH / "logs"
 QMK_BIN = ROOT.parent / "akko_5075b_plus_fixes.bin"
 QMK_SHA = "d5e10b44ed718de45f0da4c4e08914578baa9104895e88a2c3e67e912c3af306"
-RENODE_RESULTS = ROOT / "target/sim-results/robot_output.xml"
 DFU = "wb32-dfu-updater_cli"
 PORT = 8475
 DFU_WAIT_S = 180
@@ -293,17 +288,6 @@ def do_test(job):
              "tests": total["passed"], "sim": "sim-rs", "time": time.strftime("%Y-%m-%d %H:%M")}
     STAMP.write_text(json.dumps(stamp, indent=1))
     job.say(f"Frozen akko-rmk {stamp['sha256'][:12]} ({rev}), ready to flash.")
-
-
-def do_renode(job):
-    RENODE_RESULTS.unlink(missing_ok=True)
-    try:
-        job.run("sim/run.sh")
-    finally:
-        if RENODE_RESULTS.exists():
-            total = ET.parse(RENODE_RESULTS).getroot().find("statistics/total/stat").attrib
-            job.say(f"Renode: {total['pass']} passed, {total['fail']} failed, {total['skip']} skipped"
-                    " (a cross-check: nothing frozen)")
 
 
 def do_flash_rmk(job):
@@ -605,7 +589,6 @@ def do_reset(job):
 
 ACTIONS = {
     "test": ("Run sim tests", do_test),
-    "renode": ("Cross-check in Renode", do_renode),
     "flash-rmk": ("Flash RMK", do_flash_rmk),
     "flash-qmk": ("Flash QMK", do_flash_qmk),
     "capture": ("Capture 60 s", do_capture),
@@ -673,9 +656,9 @@ PAGE = (Path(__file__).with_name("bench.html")).read_text()
 
 
 def main():
-    if sys.argv[1:2] in (["test"], ["renode"]):
+    if sys.argv[1:2] == ["test"]:
         JOB.echo = True
-        JOB._run(do_test if sys.argv[1] == "test" else do_renode)
+        JOB._run(do_test)
         sys.exit(0 if JOB.status == "ok" else 1)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://127.0.0.1:{PORT}/?t={TOKEN}"

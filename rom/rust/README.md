@@ -1,6 +1,6 @@
 # Step 4: `wb32-rom-dfu`, the ROM rewritten in Rust
 
-The whole WB32FQ95 ROM bootloader (0x1FFFE000–0x1FFFEFFF, version 4) as a `no_std` Rust program, written from the disassembly (`$ROM_WORK/out/rom.lst`, `decomp.c`). Use it to read what the ROM does. **It runs in the Renode sim only and never goes on the board.** DFU can't write 0x1FFFE000 anyway, and no bench or flash script refers to it.
+The whole WB32FQ95 ROM bootloader (0x1FFFE000–0x1FFFEFFF, version 4) as a `no_std` Rust program, written from the disassembly (`$ROM_WORK/out/rom.lst`, `decomp.c`). Use it to read what the ROM does. **It runs in the simulator (`sim-rs`) only and never goes on the board.** DFU can't write 0x1FFFE000 anyway, and no bench or flash script refers to it.
 
 Every function names the ROM range it stands for (`/// ROM 0x1FFFE754-0x1FFFE7C7`). Register writes keep the ROM's order and its access widths, odd parts included (a register written twice, a 0xAAAA before 0x5555), with comments instead of tidying.
 
@@ -24,9 +24,7 @@ Registers come from `crates/wb32-pac`. The values written are the ROM's raw cons
 ```fish
 cd rom/rust; cargo build --release        # its own target/, never the repo's
 cd ../..
-rom/sim/run.sh --rust                     # the ROM suites on this build: 9/9
-python3 -I rom/sim/trace.py boot --image rom/rust/target/thumbv7m-none-eabi/release/wb32-rom-dfu --out /tmp/boot.txt
-diff rom/sim/traces/boot.txt /tmp/boot.txt   # empty; the same for download and leave
+sim-rs/run.sh -p akko-sim --test rom_sim --test rom_traces   # on the dump and on this build
 ```
 
 **Equivalence:** all three write traces (boot 347 writes, download 605, leave 634) are identical to the ROM's. Matching them corrected two readings of the decompiled C. The differences that don't show in a trace are listed in ../notes.md "The Rust translation".

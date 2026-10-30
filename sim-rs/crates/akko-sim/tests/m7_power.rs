@@ -1,4 +1,4 @@
-//! ../../sim/tests/m7_power.robot: what the firmware costs while idle, and
+//! Renode's sim/tests/m7_power.robot: what the firmware costs while idle, and
 //! how soon a key reaches USB. A sleeping core jumps to its next event, so
 //! the instructions executed per second of emulated time stand for the time
 //! the CPU is awake; the chip counts how often each interrupt handler runs

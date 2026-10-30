@@ -3,7 +3,7 @@
 //! Set up as QMK's `spi_start` does for the external flash
 //! (`platforms/chibios/drivers/spi_master.c` and ChibiOS-contrib
 //! `LLD/SPIv1/hal_spi_lld.c`): SCK B3, MISO B4, MOSI B5 on AF5, mode 0,
-//! 8-bit frames, MSB first, `BAUDR` = divisor. `sim/golden/qmk_qspi_init.txt`
+//! 8-bit frames, MSB first, `BAUDR` = divisor. `sim-rs/golden/qmk/qmk_qspi_init.txt`
 //! holds QMK's sequence. Differences: the clock stays on and the block stays
 //! enabled between transfers (QMK turns both off after each flash operation),
 //! and transfers are polled, not interrupt driven.

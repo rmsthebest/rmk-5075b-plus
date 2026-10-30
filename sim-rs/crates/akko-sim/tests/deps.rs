@@ -1,4 +1,5 @@
-//! The simulator's references are the Renode sim and the keyboard, never our
+//! The simulator's references are the keyboard, the chip's and ARM's manuals,
+//! and the Renode sim it replaced (its models and golden traces), never our
 //! own PAC, HAL or firmware crates: a model built from them would agree with
 //! any mistake in them (BOARD_FACTS.md). Cargo.lock lists every crate the
 //! workspace builds, so check it.

@@ -470,7 +470,7 @@ mod tests {
         assert_eq!(Sysctl::default().reg(PWR + 0x20), 0x3BE);
     }
 
-    /// QMK's set-up (sim/golden/qmk_clock_init.txt): HSE, then the PLL at
+    /// QMK's set-up (golden/qmk/qmk_clock_init.txt): HSE, then the PLL at
     /// HSE / 2 x 16 = 96 MHz, then MAINCLK to the PLL; APB1 and APB2 on,
     /// undivided.
     #[test]

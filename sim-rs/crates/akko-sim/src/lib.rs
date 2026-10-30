@@ -27,7 +27,7 @@ const PPB: std::ops::Range<u32> = 0xE000_0000..0xE010_0000;
 /// Where the ROM stub's reset handler spins: "PC is here" means "entered DFU".
 pub const ROM_PARKED: u32 = 0x1FFF_E008;
 
-/// The key matrix (ROW2COL), as ../../sim/peripherals/gpio.py: rows
+/// The key matrix (ROW2COL), as Renode's sim/peripherals/gpio.py: rows
 /// A0-A4, C13; columns C0-C3, A6, B10-B14, A10, C6-C9.
 pub const ROWS: [Pin; 6] = [(A, 0), (A, 1), (A, 2), (A, 3), (A, 4), (C, 13)];
 pub const COLS: [Pin; 15] = [
@@ -257,7 +257,7 @@ impl Default for Board {
 impl Board {
     /// A blank board with the ROM stub in place of the boot ROM (we don't
     /// ship its contents): initial SP, then a reset handler that spins at
-    /// ROM_PARKED. As ../sim/akko.resc.
+    /// ROM_PARKED. As Renode's sim/akko.resc.
     pub fn new() -> Self {
         let mut chip = Wb32::with_matrix(Matrix {
             rows: ROWS.to_vec(),
@@ -339,7 +339,7 @@ impl Board {
         self.cpu.reset(&mut self.chip);
     }
 
-    /// A board running a ROM bootloader, entered as ../../rom/sim/rom.resc
+    /// A board running a ROM bootloader, entered as Renode's rom/sim/rom.resc
     /// does: a reset, then SP and PC from the ROM's vector table (the
     /// dump's are 0x2000_0450 and 0x1FFF_E091), as boot-guard's jump.
     pub fn start_rom(rom: Rom) -> Result<Board, LoadError> {

@@ -31,4 +31,4 @@ A generic rgb_matrix crate would need the layout as a parameter. That split is p
   frame (494 cases).
 - `tools/rgbref/board.py` does the same for the vendor's board code (27 cases).
 - Unit tests: `cargo test -p akko-lighting --target x86_64-unknown-linux-gnu`.
-- `sim/tests/m5_lighting.robot` checks what reaches the LEDs.
+- `sim-rs` `m5_lighting.rs` checks what reaches the LEDs.

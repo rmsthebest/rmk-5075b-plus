@@ -1,4 +1,4 @@
-//! ../../sim/tests/m2_hal.robot: the HAL core (clocks, SysTick time base,
+//! Renode's sim/tests/m2_hal.robot: the HAL core (clocks, SysTick time base,
 //! GPIO, EXTI) on embassy, through the m2-blink image.
 
 use akko_sim::{Board, Image};
@@ -36,7 +36,7 @@ fn milliseconds(b: &mut Board) -> u64 {
 fn clock_setup_matches_qmk() {
     let golden = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../sim/golden/qmk_clock_init.txt"
+        "/../../golden/qmk/qmk_clock_init.txt"
     ))
     .unwrap();
     let golden: Vec<&str> = golden.trim().lines().collect();

@@ -4,9 +4,8 @@
 #   sim-rs/run.sh <cargo test args>   e.g. sim-rs/run.sh -p akko-sim boot
 # The gate for every image (tools/bench.py's "Run sim tests"): the whole
 # suite, about 100 s. --no-fail-fast, so a run reports every failure.
-# The images are built the way sim/run.sh builds them, but in target/sim-rs*
-# rather than the repo's own target/, so a Renode run going on at the same
-# time keeps its images. They are then copied to sim-rs/target/images/, which
+# The images are built in target/sim-rs* rather than the repo's own target/,
+# so other builds don't disturb them. They are then copied to sim-rs/target/images/, which
 # is all the tests read: a cargo build during a run can't swap an image under
 # them. AKKO_SIM_IMAGES= points the tests at another snapshot. The ROM
 # suites also read the ROM dump from $ROM_WORK/dump (../rom/README.md).
@@ -22,7 +21,7 @@ cargo build --release --target-dir "$build" --bin m3-usb
 cargo build --release --target-dir "$build" --bin akko-rmk
 cargo build --release --target-dir "$build-mac" --bin akko-rmk --features mac
 cargo build --release --target-dir "$build-rom-peek" --bin akko-rmk --features rom-peek
-# rom/rust's bootloader, in its own target dir as rom/sim/run.sh builds it.
+# rom/rust's bootloader, in its own target dir.
 (cd rom/rust && cargo build --release)
 
 images=sim-rs/target/images

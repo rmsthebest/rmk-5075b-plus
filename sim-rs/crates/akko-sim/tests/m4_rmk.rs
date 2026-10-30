@@ -1,4 +1,4 @@
-//! ../../sim/tests/m4_rmk.robot: the RMK keyboard image (akko-rmk) on the
+//! Renode's sim/tests/m4_rmk.robot: the RMK keyboard image (akko-rmk) on the
 //! USB host, with the key matrix, knob and Win/Mac switch on the GPIOs and
 //! RMK's storage on the SPI NOR flash. Every test starts from a blank flash
 //! unless it says otherwise; the first boot then writes the default keymap,

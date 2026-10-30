@@ -1,6 +1,6 @@
 //! GPIO ports A-D (0x4000_0000, 0x400 each), AFIO (0x4000_1400) and EXTI
 //! (0x4000_1800), with a ROW2COL key matrix on the pins. A port of
-//! ../../sim/peripherals/gpio.py, register for register.
+//! Renode's sim/peripherals/gpio.py, register for register.
 //!
 //! Register layout per port (wb32fq95xx.h GPIO_TypeDef):
 //!   0x00 MODER  0x04 OTYPER  0x08 OSPEEDR  0x0C PUPDR  0x10 IDR  0x14 ODR

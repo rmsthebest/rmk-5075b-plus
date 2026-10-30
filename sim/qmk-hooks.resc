@@ -1,9 +1,0 @@
-# Hooks that let the QMK build (akko_5075b_plus_fixes.bin) run past what the
-# simulator doesn't model. Include after loading the image and resetting.
-#
-# The external SPI flash (QSPI, used for QMK's EEPROM) isn't modelled. Make
-# spi_flash_start() return false straight away, so every flash operation fails
-# fast instead of waiting forever; QMK then carries on with default settings
-# and reaches USB init. Address from .build/akko_5075b_plus_via.elf, which is
-# byte-identical to the .bin.
-cpu AddHook 0x08005b9c "self.SetRegisterUlong(0, 0); self.PC = self.LR"

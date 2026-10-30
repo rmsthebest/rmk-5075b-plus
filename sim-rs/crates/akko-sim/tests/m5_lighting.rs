@@ -1,4 +1,4 @@
-//! ../../sim/tests/m5_lighting.robot: the RGB lighting of the RMK image
+//! Renode's sim/tests/m5_lighting.robot: the RGB lighting of the RMK image
 //! (akko-rmk). The LED chain is the WS2812 decoder on SPIM2, which logs any
 //! malformed frame as an error. Lighting starts once RMK's storage is up:
 //! the first frame goes out about 2.8 s after a reset with a blank flash.
@@ -126,7 +126,7 @@ fn a_frame_goes_out_every_16_ms_while_the_colours_change() {
 }
 
 /// The first register writes, through the first frame, against QMK's
-/// (sim/golden/qmk_spim2_init.txt), recorded in Renode with an 8-deep FIFO:
+/// (golden/qmk/qmk_spim2_init.txt), recorded in Renode with an 8-deep FIFO:
 /// SPIM2's is 4 (RM 22.2), so the depth probe stops earlier
 /// (`at_fifo_depth`). The set-up is QMK's but for CR0's transmit-only mode
 /// (TMOD 01); each frame then sets TXFTLR to a quarter of the FIFO and IER

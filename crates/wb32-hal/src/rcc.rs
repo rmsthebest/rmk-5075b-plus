@@ -5,7 +5,7 @@
 //! board (`mcuconf.h`: HSE on, PLLDIV 2, PLLMUL 16, all bus prescalers 1).
 //! It performs the same register writes in the same order, including the
 //! read-modify-writes that change nothing, so the simulator can diff it
-//! against QMK's sequence (`sim/golden/qmk_sysctl_writes.txt`).
+//! against QMK's sequence (`sim-rs/golden/qmk/qmk_sysctl_writes.txt`).
 
 use wb32_pac::{ANCTL, CACHE, GPIOD, PWR, RCC, anctl, gpio, pwr, rcc};
 

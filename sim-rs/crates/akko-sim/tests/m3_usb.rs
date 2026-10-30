@@ -1,4 +1,4 @@
-//! ../../sim/tests/m3_usb.robot: USB through musb, with the m3-usb image
+//! Renode's sim/tests/m3_usb.robot: USB through musb, with the m3-usb image
 //! (CDC-ACM log and commands plus an HID boot keyboard) on the scripted host.
 
 mod common;

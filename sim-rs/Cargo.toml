@@ -1,6 +1,5 @@
-# Our own simulator for the Akko 5075B Plus (README.md), replacing the Renode
-# one in ../sim once both agree. A host workspace of its own: the repo root's
-# builds for thumbv7m.
+# Our own simulator for the Akko 5075B Plus (README.md), which replaced the
+# Renode one. A host workspace of its own: the repo root's builds for thumbv7m.
 [workspace]
 resolver = "3"
 members = ["crates/*"]
