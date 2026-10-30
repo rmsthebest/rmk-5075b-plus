@@ -3,8 +3,8 @@
 //! pull D+ low (usb::disconnect), then wait their argument in milliseconds.
 
 use crate::clock::delay;
-use crate::mmio::*;
 use crate::dfu::{ARG_ERROR, FLASH, region};
+use crate::mmio::*;
 use crate::usb;
 use core::arch::asm;
 use wb32_pac::RCC;

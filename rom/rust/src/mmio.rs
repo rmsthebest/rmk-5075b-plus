@@ -61,15 +61,16 @@ pub const NVIC_ICER1: Reg<u32, RW> = reg(0xE000_E184);
 pub const NVIC_IPR14: Reg<u32, RW> = reg(0xE000_E40E);
 
 // What the PAC doesn't have.
-/// RCC+0x104, not in the reference manual. Non-zero turns the IWDG on
-/// (notes.md "Watchdog"); what sets it is an open question.
-pub const RCC_IWDG_ON: Reg<u32, RW> = reg(0x4001_0D04);
+/// RCC+0x104, not in the reference manual. Non-zero means the IWDG is
+/// already running (the ROM never starts it); whether it mirrors
+/// SYS_RSTCR.IWDG_EN or is a live status is an open question (notes.md).
+pub const RCC_IWDG_RUNNING: Reg<u32, RW> = reg(0x4001_0D04);
 /// ANCTL+0x34, between MHSISR and FHSIENR: bits 20-27 take an FHSI trim.
 pub const ANCTL_FHSITRIM: Reg<u32, RW> = reg(0x4001_0434);
-/// 0x4000B800-0x4000BBFF is "Reserved" in the manual. RCC_RNGCLKENR clocks
-/// it, so it's likely an undocumented RNG: data at +0, control at +4.
-pub const RNG_DR: Reg<u32, RW> = reg(0x4000_B800);
-pub const RNG_CR: Reg<u32, RW> = reg(0x4000_B804);
+/// The RNG, "Reserved" in the FQ95 manual. Named after wb32f3g71xx.h, the
+/// sister chip's header: RAND (8-bit random number) at +0, STOP at +4.
+pub const RNG_RAND: Reg<u32, RW> = reg(0x4000_B800);
+pub const RNG_STOP: Reg<u32, RW> = reg(0x4000_B804);
 
 /// The information blocks (notes.md "Information blocks").
 pub const INFO: usize = 0x1FFF_F000;

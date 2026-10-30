@@ -178,7 +178,11 @@ pub fn set_halt(ep: u8) {
 pub fn halted(ep: u8) -> bool {
     if ep & 0x0F != 0 {
         w8(USB.index(), ep & 0x0F);
-        let stall = if ep & 0x80 != 0 { r8(USB.incsr1()) & 0x10 } else { r8(USB.outcsr1()) & 0x20 };
+        let stall = if ep & 0x80 != 0 {
+            r8(USB.incsr1()) & 0x10
+        } else {
+            r8(USB.outcsr1()) & 0x20
+        };
         return stall != 0;
     }
     false

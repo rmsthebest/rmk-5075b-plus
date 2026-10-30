@@ -21,8 +21,8 @@
 //!
 //! SYS (read-only identification for the ROM's GET_INFO):
 //!   0x00 SYS_ID 0x3A50E980, what wb32-dfu-updater_cli prints for this chip
-//!   0x04 MEMSZ  0x03: an assumption (the ROM's tables then give 256 KB /
-//!               36 KB, as the tool reports); the board's value is unread
+//!   0x04 MEMSZ  0x03: inferred, the only bits 5:0 for which the ROM's tables
+//!               give the 256 KB / 36 KB the tool reported (rom/notes.md)
 //!   0x34 BTSR   2: booted from user flash (the ROM is entered by a jump)
 
 use crate::chip::{FLASH_BASE, FLASH_SIZE};

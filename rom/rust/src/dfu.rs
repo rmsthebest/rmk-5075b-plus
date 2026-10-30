@@ -33,7 +33,12 @@ fn cmd(i: usize) -> u8 {
 }
 
 fn arg(i: usize) -> u32 {
-    unsafe { (BSS.cmd.ptr() as *const u8).add(4 + 4 * i).cast::<u32>().read() }
+    unsafe {
+        (BSS.cmd.ptr() as *const u8)
+            .add(4 + 4 * i)
+            .cast::<u32>()
+            .read()
+    }
 }
 
 fn reply(i: usize, v: u8) {
@@ -84,7 +89,7 @@ pub fn run() -> ! {
 
 /// ROM 0x1FFFEB42-0x1FFFEB77: `0d <version> <SYS_ID> <flash bytes> <SRAM
 /// bytes>`. The ROM's chip answers `01 00 0d 04 80 e9 50 3a 00 00 04 00 00
-/// 90 00 00`. What 0x0D stands for isn't known.
+/// 90 00 00`. 0x0D is the length of the rest, 13 bytes.
 fn get_info() -> usize {
     reply(2, 0x0D);
     // The bootloader version, the low byte of vector 7.
@@ -107,7 +112,9 @@ fn erase() -> u8 {
         0x00 => {
             let addr = arg(0) & !0xFF;
             let pages = arg(1);
-            if region(addr) != FLASH || region(addr.wrapping_add(pages << 8).wrapping_sub(1)) != FLASH {
+            if region(addr) != FLASH
+                || region(addr.wrapping_add(pages << 8).wrapping_sub(1)) != FLASH
+            {
                 return ARG_ERROR;
             }
             for i in 0..pages {
@@ -149,7 +156,12 @@ fn write_page() -> u8 {
     }
     flash::op(0, flash::CLEAR_LATCH);
     for i in 0..(n >> 2) as usize {
-        w32(FMC.buf(i), unsafe { (BSS.cmd.ptr() as *const u8).add(12 + 4 * i).cast::<u32>().read() });
+        w32(FMC.buf(i), unsafe {
+            (BSS.cmd.ptr() as *const u8)
+                .add(12 + 4 * i)
+                .cast::<u32>()
+                .read()
+        });
     }
     if flash::op(addr, flash::PROGRAM) {
         return WRITE_FAILED;
@@ -166,7 +178,10 @@ fn read() -> Result<usize, u8> {
     if protected() {
         return Err(PROTECTED);
     }
-    if n > 0x100 || region(addr) == NOWHERE || region(addr.wrapping_add(n).wrapping_sub(1)) == NOWHERE {
+    if n > 0x100
+        || region(addr) == NOWHERE
+        || region(addr.wrapping_add(n).wrapping_sub(1)) == NOWHERE
+    {
         return Err(ARG_ERROR);
     }
     for i in 0..n as usize {

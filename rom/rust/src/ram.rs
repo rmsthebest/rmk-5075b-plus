@@ -62,7 +62,11 @@ pub static DATA: Data = Data {
     status: V::new(0),
     ep0: V::new(0),
     _pad: 0,
-    strings: [crate::desc::LANGS.as_ptr(), crate::desc::MANUFACTURER.as_ptr(), crate::desc::PRODUCT.as_ptr()],
+    strings: [
+        crate::desc::LANGS.as_ptr(),
+        crate::desc::MANUFACTURER.as_ptr(),
+        crate::desc::PRODUCT.as_ptr(),
+    ],
 };
 
 #[repr(C)]
@@ -105,7 +109,12 @@ impl Ctrl {
     }
     #[inline(always)]
     fn half(&self, i: usize) -> u16 {
-        unsafe { (self.setup.ptr() as *const u8).add(i).cast::<u16>().read_volatile() }
+        unsafe {
+            (self.setup.ptr() as *const u8)
+                .add(i)
+                .cast::<u16>()
+                .read_volatile()
+        }
     }
     pub fn request_type(&self) -> u8 {
         self.byte(0)

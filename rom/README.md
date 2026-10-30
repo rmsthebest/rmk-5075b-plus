@@ -51,6 +51,6 @@ rom/tools/ghidra.sh                    # $ROM_WORK/out/decomp.c etc.
 sim-rs/run.sh -p akko-sim --test rom_sim --test rom_traces --test peek
 ```
 
-The real ROM runs in the board simulator (`sim-rs`): `rom_sim.rs` enumerates it, downloads through it and leaves it, `rom_traces.rs` holds its register writes to the traces in `sim-rs/golden/rom/` (recorded in the Renode sim this replaced), and `peek.rs` checks the `rom-peek` channel. Both run on the dump and on `rust/`'s build. The ROM's FMC and SYS models are in `sim-rs/crates/wb32-sim/src/fmc.rs`; SYS MEMSZ 0x03 is an **assumption** (the value that gives the 256 KB / 36 KB the vendor tool reports).
+The real ROM runs in the board simulator (`sim-rs`): `rom_sim.rs` enumerates it, downloads through it and leaves it, `rom_traces.rs` holds its register writes to the traces in `sim-rs/golden/rom/` (recorded in the Renode sim this replaced), and `peek.rs` checks the `rom-peek` channel. Both run on the dump and on `rust/`'s build. The ROM's FMC and SYS models are in `sim-rs/crates/wb32-sim/src/fmc.rs`; SYS MEMSZ 0x03 is inferred: it's the only value whose low 6 bits give the 256 KB / 36 KB the vendor tool reports through the ROM's tables (notes.md).
 
 `disasm.py` and `ghidra.sh` take `--rom FILE --base ADDR` to run on other images. For example, `--rom ../stock_5075.bin --base 0x08000000` takes the first 4 KB of the stock firmware.

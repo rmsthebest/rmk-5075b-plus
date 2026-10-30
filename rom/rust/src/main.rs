@@ -121,10 +121,14 @@ const NONE: Vector = Vector { word: 0 };
 #[unsafe(link_section = ".vector_table")]
 #[used]
 static VECTORS: Vectors = Vectors([
-    Vector { word: ram::STACK_TOP },
+    Vector {
+        word: ram::STACK_TOP,
+    },
     Vector { handler: reset },
     HANG, // NMI
-    Vector { handler: hard_fault },
+    Vector {
+        handler: hard_fault,
+    },
     HANG, // MemManage
     HANG, // BusFault
     HANG, // UsageFault

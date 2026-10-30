@@ -45,9 +45,17 @@ From main 0x1FFFE940, in order. The register names are pointer + offset resolved
 3. ANCTL_MHSIENR = 1 and a wait on MHSISR. MAINCLKSRC = 0 (MHSI) and MAINCLKUEN = 1. CACHE_CR = the constant at 0x1FFFED30.
 4. **Optional IWDG**, only if RCC+0x104 (0x40010D04, not in the RM; RSTSTAT is at +0x100) is non-zero:
    - a 0x6E0-tick SysTick wait, then RCC_AHBENR0 |= 4;
-   - the IWDG starts: KR 0xAAAA, KR 0x5555 + PR = 6 (/256), KR 0x5555 + RLR = 0xFFF, waiting on SR between steps. That's about 26 s at a 40 kHz LSI.
+   - the IWDG is reloaded and given the longest timeout: KR 0xAAAA, KR 0x5555 + PR = 6 (/256), KR 0x5555 + RLR = 0xFFF, waiting on SR between steps (0x1FFFE9B0-0x1FFFE9F6). That's about 33 s at the 32 kHz LSI (RM table 19-1).
 
-   The feed, 0x1FFFE904, **re-reads RCC+0x104 every time** and writes KR = 0xAAAA only while it's non-zero. It's called from the receive/send loops, every delay and every erased page. So that register works as an "IWDG is running" flag. Guess: hardware sets it, from a reset cause or an option bit in the information blocks. **This bears on our IWDG question.** If our firmware's IWDG sets it, DFU keeps the dog fed. If it doesn't, DFU would be reset about 26 s (or whatever we programmed) after entry. Unresolved; the sim can't tell us, but the board could, with a 0xDA-style read of 0x40010D04 after starting an IWDG.
+   **The ROM never writes 0xCCCC**, the key that starts the IWDG (RM 18; no 0xCCCC anywhere in out/rom.lst). So this doesn't start a watchdog. It takes over one that is already running, and RCC+0x104 means "the IWDG is running".
+
+   The feed, 0x1FFFE904, **re-reads RCC+0x104 every time** and writes KR = 0xAAAA only while it's non-zero. It's called from the receive/send loops, every delay and every erased page.
+
+   What sets it is still open (see "Open questions"). The lead is SYS_RSTCR (0x40016418) bit 0 **IWDG_EN**, "IWDG automatically start after reset" (RM 3.3.6), the hardware-watchdog option, loaded from information block 7. The ROM never reads SYS_RSTCR itself (out/mmio.txt). Ours is presumably software start: block 7's configuration words are 0x1FFFF710-0x1FFFF71B = all zeros, with no 0x5AA5 key as block 4 has at +0x18 (the byte layout is inferred from block 4; the RM doesn't give it). Two readings:
+   - RCC+0x104 mirrors IWDG_EN. A hardware-started IWDG is fed in DFU, but one our firmware started with 0xCCCC is not: DFU would be reset when it times out.
+   - It's a live "running" status. Any running IWDG is fed.
+
+   **This doesn't matter for our firmware.** RMK uses no IWDG (rejected 2026-10-29), and boot-guard enters the ROM right after a reset, before anything could start one. The question only matters if an IWDG is ever added.
 5. ANCTL_PORCR = 0x7BE, ANCTL_FHSIENR = 1 (fast HSI on). VTOR = 0x1FFFE000, SysTick off, NVIC ICER0/1 = all.
 6. IRQs on. **The trim check:** if 0x1FFFF24C != 0x000B *and* 0x1FFFF24E != 0xFFF4, it hangs forever. Ours are 0x000B/0xFFF4.
 7. Buses: AHBPRE = 0, APB1PRE = 0x80, APB1ENR = 0x81E0, a pulse of APB1RSTR bits 5-8, then APB1ENR = 0x8120.
@@ -87,7 +95,7 @@ Commands. All fields are little-endian, `addr` is at +4 and `n` at +8:
 
 | Byte | Name | Request | What the ROM does |
 |---|---|---|---|
-| 0x01 | GET_INFO | `01 00` | Replies 16 bytes: `01 00 0d <ver> <SYS_ID 0x40016400> <flash bytes> <sram bytes>`. ver = the byte at 0x1FFFE01C (vector slot 7: **0x04**, the bootloader version). The sizes come from SYS_MEMSZ (0x40016404) through the byte table at 0x1FFFEE44, x 4 KB. Sub-id other than 0: ARGERR. |
+| 0x01 | GET_INFO | `01 00` | Replies 16 bytes: `01 00 0d <ver> <SYS_ID 0x40016400> <flash bytes> <sram bytes>`. **0x0D is the length** of what follows, 13 = 1 + 4 + 4 + 4: the updater's `fn_get_info` (dfufwdevice.c) reads byte 2 as `data_len` and copies that many bytes. ver = the byte at 0x1FFFE01C (vector slot 7: **0x04**, the bootloader version; the updater prints it as nibbles, "0.4"). The sizes come from SYS_MEMSZ (0x40016404) through the byte tables at 0x1FFFEE44 (flash, bits 3:0) and 0x1FFFEE40 (SRAM, bits 5:4), x 4 KB. Sub-id other than 0: ARGERR. |
 | 0x5E | ERASE | `5e 00 .. addr n` | Not if read-protected (0x1A), chip erase included. Page erase: addr rounded down to 256 bytes, n pages; every page must be in flash (0x1FFFE8CC = 1). FMC op 0x08 per page, feeding the IWDG. |
 | | | `5e f0` | Chip erase: FMC op 0x1B on address 0. |
 | 0x6A | WRITE_PAGE | `6a .. addr n data` | addr rounded down to 256 bytes, n bytes of data at +12. Allowed in flash (region 1), or in **information blocks 4-7, 0x1FFFF400-0x1FFFF7FF** (region 2: addr + 0xE0000C00 < 0x400). n <= 0x100; only the start address is checked. Read protection refuses region 1 (0x1A) but **not region 2**, which is what lets the updater lift protection by writing block 4 (0x1FFFEBEC). For region 2 the ROM erases the page first (op 0x08). Then op 0x04 (clear the page latch), the data words into the latch at 0x40017900, and op 0x0C (program). Failure: 0x12. |
@@ -103,7 +111,7 @@ Address check 0x1FFFE8CC: 1 if `addr - 0x08000000 < table[SYS_MEMSZ & 0xF] << 12
 ## Flash erase and program (FMC)
 
 0x1FFFE104(addr, op) runs one FMC operation:
-1. It calls 0x1FFFEE54, an FHSI check, which reads 0x1FFFF340. **QMK's `pre_op_code` (hal_efl_lld.c) is byte-for-byte this function**: 228 bytes, identical. It restarts FHSI and enables a block at 0x4000B800, which the RM lists as reserved but which RCC_RNGCLKENR clocks (likely an undocumented RNG). It reads 0x4000B800 twenty times. If more than two of the ten even-numbered samples equal the one before, FHSI counts as stuck: its trim (ANCTL+0x34 bits 20-27, from 0x1FFFF340 bits 20-27) is lowered by 16 per try and FHSI restarted, up to five tries. It leaves the analog registers unlocked.
+1. It calls 0x1FFFEE54, an FHSI check, which reads 0x1FFFF340. **QMK's `pre_op_code` (hal_efl_lld.c) is byte-for-byte this function**: 228 bytes, identical. It restarts FHSI and enables the **RNG** at 0x4000B800 (APB2ENR |= 0xA00, i.e. RNGEN bit 9 and BMX2EN bit 11, then RCC_RNGCLKENR = 1). The FQ95 RM lists 0x4000B800 as reserved, but chibios-contrib's wb32f3g71xx.h, the sister chip, has `RNG_BASE` there: RAND (an 8-bit random number) at +0 and STOP at +4. The FQ95 header keeps RCC_APB2ENR_RNGEN and RNGCLKENR, so it's the same block, undocumented. The ROM writes STOP = 0 to start it, then reads RAND twenty times. The RNG presumably draws its entropy from FHSI, which is why a repeating RAND means FHSI is stuck (guess). If more than two of the ten even-numbered samples equal the one before, FHSI counts as stuck: its trim (ANCTL+0x34 bits 20-27, from 0x1FFFF340 bits 20-27) is lowered by 16 per try and FHSI restarted, up to five tries. It leaves the analog registers unlocked.
 2. FMC_ADDR = addr, RCC_PCLKENR = 1, FMC_CON = 0x7F5F0D40 | op, and the keys 0x5188DA08, 0x12586590 go to FMC_KEY.
 3. It copies a 12-byte routine from 0x1FFFEF38 to the stack and runs it there: `str r0,[r1]; nop; ldr r0,[r1]; lsls r0,#24; bmi` (CON = 0x800080 to start, then wait for bit 7 to clear). The ROM is itself in the flash macro (RM 26.1: "stored in the System memory area in the Flash memory module"), so it can't run from there while the flash is busy. **QMK's `FLASH_OP_RAM_CODE` is the same 12 bytes.**
 4. RCC_PCLKENR = 0, FMC_CON = 0x005F0000, then the result is FMC_STAT bit 2 (error).
@@ -138,10 +146,12 @@ The real ROM in Renode (since replaced by sim-rs, `rom_sim.rs`) enumerated as de
 
 ## Open questions
 
-- What sets RCC+0x104 (0x40010D04), the IWDG flag? It needs the board.
-- The real SYS_MEMSZ value (the sim assumes 0x03).
-- What 0x0D in GET_INFO's reply stands for.
-- What the block at 0x4000B800 is (the FMC preparation's FHSI check).
+- What sets RCC+0x104 (0x40010D04), the "IWDG running" flag: the IWDG_EN option, or a live status? (Step 4 of "Clocks and USB set-up"; doesn't matter while we have no IWDG.) Only the board can tell. A peek of 0x40010D04 and SYS_RSTCR (0x40016418) shows the resting values: both 0 is expected and settles nothing. The test that does settle it starts an IWDG (0xCCCC) and reads 0x40010D04 again, but an IWDG can't be stopped, so that image would have to keep feeding it until the next reset. Not worth a flash on its own.
+
+Answered (2026-10-30):
+- **SYS_MEMSZ[5:0] = 0x03.** Inverting the ROM's tables: flash 0x1FFFEE44 = `80 08 60 40 20 08 18 10 08 08 08 08 08 08 08 30` (x 4 KB, by bits 3:0) and SRAM 0x1FFFEE40 = `09 07 05 03` (by bits 5:4). The 256 KB / 36 KB the updater printed on this board occur only at FLASH_SIZE = 3 and SRAM_SIZE = 0, as in the RM's encoding (3.3.2). Bits 31:6 are reserved and the ROM doesn't read them, so the sim's 0x03 is exact for everything the ROM sees.
+- **0x0D in GET_INFO** is the payload length, 13 bytes (DFU state machine table).
+- **0x4000B800 is the RNG** (Flash erase and program, step 1).
 
 ## The Rust translation (rust/, step 4)
 

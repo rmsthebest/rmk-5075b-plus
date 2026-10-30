@@ -50,7 +50,7 @@ pub fn op(addr: u32, op: u32) -> bool {
 }
 
 /// ROM 0x1FFFEE54-0x1FFFEF37: restarts FHSI, then checks it through the
-/// block at 0x4000B800 (mmio::RNG_DR): of ten samples, more than two equal
+/// RNG at 0x4000B800 (mmio::RNG_RAND): of ten samples, more than two equal
 /// to the one before means it's stuck, and FHSI is retrimmed from
 /// information block 3 (0x1FFFF340 bits 20-27, less 16 per try) and
 /// restarted. Up to five tries; the analog registers are left unlocked.
@@ -64,13 +64,13 @@ fn prepare() {
     m32(RCC.apb2pre(), |v| v | 0x80);
     m32(RCC.apb2enr(), |v| v | 0xA00);
     w32(RCC.rngclkenr(), 1);
-    w32(RNG_CR, 0);
+    w32(RNG_STOP, 0);
     let mut trim = (r32(reg(INFO + 0x340)) >> 20) & 0xFF;
     for _ in 0..5 {
         let mut same = 0;
         let mut prev = 0xFFFF_FFFF;
         for i in 0..20 {
-            let v = r32(RNG_DR);
+            let v = r32(RNG_RAND);
             if i & 1 == 0 {
                 same += (v == prev) as u32;
                 prev = v;

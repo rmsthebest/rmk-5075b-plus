@@ -21,8 +21,8 @@ pub fn start() {
     w32(RCC.mainclkuen(), 1);
     w32(CACHE.cr(), 0x0300_0011);
 
-    if r32(RCC_IWDG_ON) != 0 {
-        iwdg_start();
+    if r32(RCC_IWDG_RUNNING) != 0 {
+        iwdg_take_over();
     }
 
     w32(ANCTL.porcr(), 0x7BE);
@@ -73,12 +73,11 @@ pub fn start() {
     w32(PWR.anakey1(), 0);
 }
 
-/// ROM 0x1FFFE98E-0x1FFFE9F7: the IWDG, when RCC+0x104 asks for it:
-/// prescaler 6, reload 0xFFF (about 26 s on the LSI). There is no 0xCCCC
-/// start key; RCC+0x104 presumably reflects a watchdog that's already
-/// running. The 0xAAAA before the first 0x5555 and the second 0x5555 are
-/// the ROM's.
-fn iwdg_start() {
+/// ROM 0x1FFFE98E-0x1FFFE9F7: takes over a running IWDG (RCC+0x104 set):
+/// prescaler 6, reload 0xFFF (about 33 s on the 32 kHz LSI). There is no
+/// 0xCCCC start key, so it never starts one. The 0xAAAA before the first
+/// 0x5555 and the second 0x5555 are the ROM's.
+fn iwdg_take_over() {
     w32(SYST_CSR, 0);
     w32(SYST_RVR, 0x6E0);
     w32(SYST_CVR, 0);
@@ -100,7 +99,7 @@ fn iwdg_start() {
 /// ROM 0x1FFFE904-0x1FFFE91F: feeds the IWDG when it's on and not busy.
 /// Every wait loop calls it.
 pub fn feed() {
-    if r32(RCC_IWDG_ON) != 0 && r32(IWDG.sr()) & 0x02 == 0 {
+    if r32(RCC_IWDG_RUNNING) != 0 && r32(IWDG.sr()) & 0x02 == 0 {
         w32(IWDG.kr(), 0xAAAA);
     }
 }
