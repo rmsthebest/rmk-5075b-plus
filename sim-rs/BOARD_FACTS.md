@@ -47,7 +47,7 @@ the test is ported).
 ## Open questions for the board
 
 Things to read with Vial peek (0xDA) in an image that's being flashed anyway:
-- Reset values of the registers the models assume (RCC, ANCTL, the GPIO MODER/PUPDR), and ANCTL+0x004 (0x4001_0404) after a reset (the sim assumes the trim, 0x0A) and in a stop diag image after PRE_LP.
+- Reset values of the registers the models assume (RCC, ANCTL, and the GPIO's, which the sim takes from RM 8.4: port A MODER 0x2A80_0000, OSPEEDR 0x0F00_0000, PUPDR 0x2580_0000, SMIT 0xFFFF, port D SMIT 0x7), and ANCTL+0x004 (0x4001_0404) after a reset (the sim assumes the trim, 0x0A) and in a stop diag image after PRE_LP.
 - EXTI: an edge on a line with IMR 0 leaves PR clear (figure 10-1), and a PR bit with IMR cleared afterwards still holds the NVIC line.
 - SYS MEMSZ (0x4001_6404); rom/sim assumes 0x03.
 - RCC+0x104 with and without the IWDG running.

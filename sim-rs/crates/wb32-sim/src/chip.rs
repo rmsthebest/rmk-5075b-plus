@@ -934,6 +934,25 @@ mod tests {
     }
 
     #[test]
+    fn gpio_registers_come_up_at_the_rms_reset_values() {
+        // RM 8.4.1, 8.4.3, 8.4.4, 8.4.11; and the same after an RCC reset.
+        let mut chip = Wb32::new();
+        apb1_on(&mut chip, 0xF << 5);
+        let regs = |chip: &mut Wb32, port: u32| {
+            [0x00, 0x08, 0x0C, 0x28].map(|o| chip.read(GPIO_BASE + port * 0x400 + o, Size::Word))
+        };
+        let a = [0x2A80_0000, 0x0F00_0000, 0x2580_0000, 0xFFFF];
+        assert_eq!(regs(&mut chip, 0), a);
+        assert_eq!(regs(&mut chip, 1), [0, 0, 0, 0xFFFF]);
+        assert_eq!(regs(&mut chip, 3), [0, 0, 0, 0x7]);
+        chip.write(GPIO_BASE, Size::Word, 0);
+        chip.write(RCC + 0x90, Size::Word, 1 << 5);
+        chip.write(RCC + 0x90, Size::Word, 0);
+        assert_eq!(regs(&mut chip, 0), a);
+        assert!(chip.diags().is_empty());
+    }
+
+    #[test]
     fn tim2_counts_pclk1_only_while_enabled() {
         let mut chip = Wb32::new();
         let cnt = TIM2_BASE + 0x24;

@@ -47,6 +47,7 @@ const BSRR: u32 = 0x18;
 const AFRL: u32 = 0x20;
 const AFRH: u32 = 0x24;
 const CFGMSK: u32 = 0x30;
+const SMIT: u32 = 0x28;
 /// The configuration registers CFGMSK guards, and their field width.
 const CFG_REGS: [(u32, u32); 8] = [
     (0x00, 2),
@@ -88,11 +89,49 @@ pub struct Matrix {
     pub cols: Vec<Pin>,
 }
 
+/// A port's registers out of reset (RM 8.4.1-8.4.13): port A comes up with
+/// PA11-PA14 (USB, SWD) in alternate-function mode (AF0, AFRH being 0),
+/// PA11 and PA14 pulled down, PA12 and PA13 up, and OSPEEDR 0x0F00_0000
+/// (PA12/PA13's fields 11, which the RM calls reserved); the Schmitt
+/// triggers are on for every pin of A-C and D0-D2. Everything else is 0.
+fn port_reset(port: usize) -> [u32; 13] {
+    let mut r = [0; 13];
+    if port == A as usize {
+        r[(MODER / 4) as usize] = 0x2A80_0000;
+        r[2] = 0x0F00_0000; // OSPEEDR
+        r[(PUPDR / 4) as usize] = 0x2580_0000;
+    }
+    r[(SMIT / 4) as usize] = if port == D as usize { 0x7 } else { 0xFFFF };
+    r
+}
+
+#[derive(Clone, Debug)]
+struct Regs([[u32; 13]; PORTS]);
+
+impl Default for Regs {
+    fn default() -> Self {
+        Regs(std::array::from_fn(port_reset))
+    }
+}
+
+impl std::ops::Deref for Regs {
+    type Target = [[u32; 13]; PORTS];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Regs {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Gpio {
     /// Per port, the registers at 0x00..=0x30 by offset / 4 (IDR and BSRR
     /// unused).
-    regs: [[u32; 13]; PORTS],
+    regs: Regs,
     exticr: [u32; 4],
     /// IMR, EMR, RTSR, FTSR, SWIER, PR.
     exti: [u32; 6],
@@ -125,7 +164,7 @@ impl Gpio {
         }
     }
 
-    /// A system reset: registers back to 0. What's outside the chip (keys,
+    /// A system reset: registers back to their reset values. What's outside the chip (keys,
     /// driven pins, watches) stays.
     pub fn reset(&mut self) {
         *self = Gpio {
@@ -140,9 +179,10 @@ impl Gpio {
         }
     }
 
-    /// RCC's reset of one port (RM 7.3.22): its registers back to 0.
+    /// RCC's reset of one port (RM 7.3.22): its registers back to their
+    /// reset values.
     pub fn reset_port(&mut self, port: u8) {
-        self.regs[port as usize] = Default::default();
+        self.regs[port as usize] = port_reset(port as usize);
         self.update();
     }
 
