@@ -15,8 +15,10 @@
 //! when its stop bit ends; the bytes the peer puts on `wire` arrive one
 //! character time each, from when the line is free, into the RX FIFO. One
 //! arriving at a full FIFO is lost and sets LSR.OE; one with UART3's clock
-//! off at any time from its start bit on (stop mode) is lost unseen. The line's level, start
-//! bit first, is `rx_level`: the chip puts it on C11, so EXTI 11 sees it.
+//! off at any time from its start bit on (stop mode), or with C11 off AF7 as
+//! it ends, is lost unseen; one received at a rate over 2% off the far end's
+//! 115,200 baud is garbled, an error. The line's level, start bit first, is
+//! `rx_level`: the chip puts it on C11, so EXTI 11 sees it.
 //!
 //! Interrupts (IIR, table 25-2, highest first): receive line status (OE,
 //! with RLSIE), received data at the trigger level (RDAIE), character
@@ -46,6 +48,10 @@ const RX_TRIGGER: [usize; 4] = [1, 4, 8, 14];
 /// 8N1 at 115,200 baud: how long a byte takes on the wire while the chip
 /// can't say (no clock, no divisor).
 const DEFAULT_CHAR: u64 = 10 * TICK_HZ / 115_200;
+/// The far end's bit time: the board's radio module, 115,200 baud.
+const FAR_BIT: u64 = DEFAULT_CHAR / 10;
+/// UART3_RX's alternate function on C11 (the datasheet's AF table).
+const RX_AF: u8 = 7;
 
 /// The line set-up when a byte goes out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,7 +135,8 @@ pub struct Uart {
     now: u64,
     /// Bytes the far end has put on the line, not yet arriving.
     pub wire: VecDeque<u8>,
-    /// Bytes that arrived while UART3 had no clock.
+    /// Bytes that arrived while UART3 had no clock, or with `rx_pin` not
+    /// on UART3's alternate function.
     pub lost: u32,
     /// Firmware misuse.
     pub errors: Vec<String>,
@@ -489,10 +496,24 @@ impl Uart {
             }
             self.now = self.now.max(t);
             if t == rx_end {
-                let RxByte { b, clocked, .. } = self.rx_shift.take().unwrap();
+                let RxByte {
+                    b, clocked, bit, ..
+                } = self.rx_shift.take().unwrap();
+                // The pin isn't UART3's: the receiver sees an idle line.
+                let routed = self.rx_pin.is_none_or(|p| gpio.alternate(p) == Some(RX_AF));
                 // The receiver missed its start bit, or more.
-                if !clocked {
+                if !clocked || !routed {
                     self.lost += 1;
+                } else if bit.abs_diff(FAR_BIT) * 50 > FAR_BIT {
+                    // Over 2% off the far end's rate: garbled.
+                    let e = format!(
+                        "{}: receiving at {} baud, the far end sends 115200",
+                        self.block,
+                        TICK_HZ / bit
+                    );
+                    if !self.errors.contains(&e) {
+                        self.errors.push(e);
+                    }
                 } else if self.rx.len() < self.depth() {
                     self.rx.push_back(b);
                 } else {
@@ -576,6 +597,33 @@ mod tests {
         u.advance(3 * char, &gpio);
         assert_eq!((u.read(0x84), u.read(0x14) & 0x61), (2, 0x61));
         assert_eq!((u.read(0x00), u.read(0x00)), (0x42, 0x43));
+    }
+
+    #[test]
+    fn a_byte_arrives_only_through_c11_on_af7_at_the_far_ends_rate() {
+        let (mut u, _, mut gpio) = uart3();
+        let rx = (crate::gpio::C, 11);
+        u.rx_pin = Some(rx);
+        // C11 an input (reset): the byte never reaches the receiver.
+        u.wire.push_back(0x55);
+        u.advance(1000 * US, &gpio);
+        assert_eq!((u.read(0x84), u.lost), (0, 1));
+        // C11 on AF7 (MODER 10, AFRH nibble 3 = 7): received.
+        gpio.write(0x800, 0b10 << 22, &mut |_| {});
+        gpio.write(0x824, 7 << 12, &mut |_| {});
+        u.wire.push_back(0x55);
+        u.advance(2000 * US, &gpio);
+        assert_eq!(u.read(0x84), 1);
+        assert!(u.errors.is_empty());
+        // DLL 26: 230,400 baud against the module's 115,200.
+        let mut log = |_| {};
+        u.write(0x0C, 0x83, 0, &gpio, &mut log);
+        u.write(0x00, 26, 0, &gpio, &mut log);
+        u.write(0x0C, 0x03, 0, &gpio, &mut log);
+        u.wire.push_back(0x55);
+        u.advance(3000 * US, &gpio);
+        assert_eq!(u.read(0x84), 1, "garbled, not received");
+        assert_eq!(u.errors.len(), 1, "{:?}", u.errors);
     }
 
     #[test]
