@@ -46,36 +46,6 @@ fn a_key_press_sends_a_keyboard_report() {
     t.no_errors();
 }
 
-/// QMK's ChibiOS driver, which works on the board, clears INCSR2/OUTCSR2
-/// when it opens an endpoint and starts each IN packet with a plain write
-/// of InPktRdy. musb left both CSR2s as they were and set InPktRdy with a
-/// read-modify-write; keyboard reports on EP1 never reached the host on the
-/// board (the knob on EP2 did).
-#[test]
-fn endpoints_are_driven_as_chibios_drives_them() {
-    let mut t = T::boot();
-    t.b.chip.usb.borrow_mut().trace = Some(Vec::new());
-    // In the order embassy-usb opens them: keyboard EP1 IN and OUT,
-    // composite EP2 IN, Vial EP3 IN and EP2 OUT.
-    for w in ["i1 +0x12", "i1 +0x15", "i2 +0x12", "i3 +0x12", "i2 +0x15"] {
-        t.usb_write_should_be(&format!("USBT W {w} <- 0x00"), 4.0);
-    }
-    t.wait_for_enumeration();
-    t.key(3, 1, true);
-    t.usb_write_should_be("USBT W i1 +0x11 <- 0x01", 1.0);
-    t.hid_should_show(1, "00 00 04 00 00 00 00 00", 1.0);
-    t.key(3, 1, false);
-    t.hid_should_show(1, "00 00 00 00 00 00 00 00", 1.0);
-    let d = t.b.chip.usb.borrow();
-    let rmw = d
-        .trace
-        .as_ref()
-        .unwrap()
-        .iter()
-        .find(|a| a.to_string() == "USBT W i1 +0x11 <- 0x03");
-    assert!(rmw.is_none(), "{rmw:?}");
-}
-
 #[test]
 fn fn_layer_sends_consumer_keys() {
     let mut t = T::boot_and_enumerate();

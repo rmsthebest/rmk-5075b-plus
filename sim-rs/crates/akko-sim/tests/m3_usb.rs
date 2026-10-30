@@ -124,10 +124,11 @@ fn enumerates_as_a_cdc_acm_and_hid_composite_device() {
     let mut t = T::boot_and_enumerate();
     t.log_should_show("device 1209:0001, EP0 64 bytes");
     t.log_should_show("string 2 = '5075B Plus M3 USB test'");
-    // IN and OUT of one number are separate FIFOs: CDC data OUT and the
-    // notification IN share EP1, the keyboard's OUT reuses EP2.
+    // IN and OUT of one number are separate FIFOs. musb gives each endpoint
+    // a free number first and pairs different types only once none is left:
+    // the keyboard's IN shares EP2 with CDC data OUT, its OUT shares EP1.
     t.log_should_show(
-        "configured: if 0 class 02 eps [81], if 1 class 0a eps [01 82], if 2 class 03 eps [83 02]",
+        "configured: if 0 class 02 eps [81], if 1 class 0a eps [02 83], if 2 class 03 eps [82 01]",
     );
     t.no_host_errors();
 }
@@ -192,12 +193,12 @@ fn type_command_types_m3_ok_and_enter() {
         t.wait(
             1.0,
             "key down",
-            |e| matches!(e, UsbEvent::Hid { ep: 3, data } if data == &down),
+            |e| matches!(e, UsbEvent::Hid { ep: 2, data } if data == &down),
         );
         t.wait(
             1.0,
             "key up",
-            |e| matches!(e, UsbEvent::Hid { ep: 3, data } if data == &[0; 8]),
+            |e| matches!(e, UsbEvent::Hid { ep: 2, data } if data == &[0; 8]),
         );
     }
     t.no_host_errors();
