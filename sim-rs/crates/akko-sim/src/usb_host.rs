@@ -64,6 +64,8 @@ pub mod cmd {
     pub const GET_REPORT: u32 = 0x0C;
     pub const SHORT_SETUP: u32 = 0x0D;
     pub const BULK_OUT: u32 = 0x0E;
+    pub const RESET_IN_SET_ADDRESS: u32 = 0x0F;
+    pub const SUSPEND_RESUME_IN_TRANSFER: u32 = 0x10;
 }
 
 /// What the host saw, as usb.py logs it.
@@ -721,6 +723,72 @@ impl Cx {
                     .await;
                 if !got.data().is_some_and(|d| d.starts_with(&[18, 1])) {
                     self.err(format!("no device descriptor after a short SETUP: {got:?}"));
+                }
+            }
+            0x0F => {
+                // SET_ADDRESS(7)'s SETUP, then a bus reset instead of its
+                // status stage (a host restarting enumeration), then a normal
+                // enumeration from address 0.
+                let setup = [0x00, 5, 7, 0, 0, 0, 0, 0];
+                if self.d.borrow_mut().tok_setup(self.addr(), &setup) != Tok::Ack {
+                    self.err("SET_ADDRESS(7): SETUP not ACKed");
+                    return;
+                }
+                self.log("SET_ADDRESS(7) SETUP, then a bus reset before its status stage");
+                wait_ms(2).await;
+                self.clone().enumerate_device().await;
+            }
+            0x10 => {
+                // A 128-byte SET_REPORT on interface 0 whose data stage stops
+                // after the first packet. With the device waiting for the
+                // second one (embassy-usb doesn't poll the bus meanwhile), the
+                // bus suspends and resumes, then the host abandons the
+                // transfer with a new SETUP (SetupEnd).
+                let setup = [0x21, 0x09, 0x00, 0x02, 0, 0, 128, 0];
+                self.set_ctl(Ctl::Setup);
+                if self.d.borrow_mut().tok_setup(self.addr(), &setup) != Tok::Ack {
+                    self.err("SET_REPORT(128 bytes): SETUP not ACKed");
+                    return;
+                }
+                step().await;
+                self.set_ctl(Ctl::Data);
+                let pkt = [0u8; 64];
+                if self
+                    .retry(|d, a| d.tok_out0(a, &pkt), "SET_REPORT data OUT")
+                    .await
+                    != Tok::Ack
+                {
+                    return;
+                }
+                self.log("SET_REPORT(128 bytes): first data packet, then the bus idles");
+                self.h.borrow_mut().suspended = true;
+                wait_ms(3).await;
+                {
+                    let mut d = self.d.borrow_mut();
+                    d.power |= usb::P_SUSMD;
+                    d.intrusb |= usb::U_SUSPEND;
+                }
+                wait_ms(5).await;
+                self.log("resume");
+                {
+                    let mut d = self.d.borrow_mut();
+                    d.power &= !usb::P_SUSMD;
+                    d.intrusb |= usb::U_RESUME;
+                }
+                self.h.borrow_mut().suspended = false;
+                wait_ms(20).await;
+                {
+                    let mut d = self.d.borrow_mut();
+                    d.c0 |= usb::C0_SETUPEND;
+                    d.intrin |= 1;
+                }
+                let got = self
+                    .get_descriptor("device, after the abandoned SET_REPORT", 1, 0, 18, 0, 0x80)
+                    .await;
+                if !got.data().is_some_and(|d| d.starts_with(&[18, 1])) {
+                    self.err(format!(
+                        "no device descriptor after the abandoned SET_REPORT: {got:?}"
+                    ));
                 }
             }
             0x0C => {

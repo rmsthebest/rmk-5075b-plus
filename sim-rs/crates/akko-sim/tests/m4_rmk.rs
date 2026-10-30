@@ -248,6 +248,48 @@ fn odd_host_requests_dont_crash_usb() {
     t.no_panic_since_start_up();
 }
 
+/// A bus reset where SET_ADDRESS's status stage should be: musb's
+/// accept_set_address waited for a SetupEnd that never came, and since
+/// embassy-usb doesn't poll the bus meanwhile, USB never answered again.
+#[test]
+fn a_bus_reset_during_set_address_doesnt_hang_usb() {
+    let mut t = T::boot_and_enumerate();
+    t.b.host.command(cmd::RESET_IN_SET_ADDRESS);
+    t.log_should_show(
+        "SET_ADDRESS(7) SETUP, then a bus reset before its status stage",
+        1.0,
+    );
+    t.log_should_show(
+        "configured: if 0 class 03 eps [81 01], if 1 class 03 eps [82], if 2 class 03 eps [83 02]",
+        4.0,
+    );
+    t.key(3, 1, true);
+    t.hid_should_show(1, "00 00 04 00 00 00 00 00", 1.0);
+    t.key(3, 1, false);
+    t.hid_should_show(1, "00 00 00 00 00 00 00 00", 1.0);
+    t.no_errors();
+}
+
+/// The bus suspends and resumes while the device waits in a control
+/// transfer's data stage, so both are pending when embassy-usb next polls
+/// the bus. musb reported Resume before Suspend, which left the device
+/// believing the awake host was suspended: keys no longer typed.
+#[test]
+fn a_suspend_and_resume_during_a_transfer_leave_it_awake() {
+    let mut t = T::boot_and_enumerate();
+    t.b.host.command(cmd::SUSPEND_RESUME_IN_TRANSFER);
+    t.log_should_show(
+        "GET_DESCRIPTOR(device, after the abandoned SET_REPORT) -> 18 bytes",
+        1.0,
+    );
+    t.b.run_for(0.05);
+    t.key(3, 1, true);
+    t.hid_should_show(1, "00 00 04 00 00 00 00 00", 1.0);
+    t.key(3, 1, false);
+    t.hid_should_show(1, "00 00 00 00 00 00 00 00", 1.0);
+    t.no_errors();
+}
+
 /// A SETUP that isn't 8 bytes: musb's setup() looped on it without acking
 /// RxPktRdy, so the CPU spun until the watchdog reset. Now it is acked and
 /// stalled, and the next request is answered. The host waits 2.5 s before
