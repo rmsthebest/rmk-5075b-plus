@@ -118,6 +118,11 @@ impl SpiNor {
             jedec_id: [0; 3],
             last_yield: Instant::from_ticks(0),
         };
+        // A reset during a program or erase leaves it running, and the chip
+        // answers only RDSR until it's done (QMK waits before every
+        // command): out of time, or a stalled bus, the RDID below fails.
+        let deadline = Instant::now() + ERASE_TIMEOUT;
+        while f.status().is_ok_and(|s| s & WIP != 0) && Instant::now() <= deadline {}
         let mut id = [0; 3];
         // A stalled bus leaves the id zero: no capacity, so no storage.
         if f.command(&[RDID], &mut id).is_ok() {
