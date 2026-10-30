@@ -53,6 +53,12 @@ const I_FLUSH: u8 = 0x08;
 const I_SENDSTALL: u8 = 0x10;
 const I_SENTSTALL: u8 = 0x20;
 const I_CLRTOG: u8 = 0x40;
+// INCSR2: AUTOSET, ISO and FRCDATATOG are writable; bit 5 is reserved and
+// reads 1 (reset value 0x20), the rest read 0.
+const I2_RW: u8 = 0xC8;
+const I2_RESET: u8 = 0x20;
+// OUTCSR2: AUTOCLR and ISO are writable, the rest read 0.
+const O2_RW: u8 = 0xC0;
 // OUTCSR1
 const O_OUTPKTRDY: u8 = 0x01;
 const O_OVERRUN: u8 = 0x04;
@@ -220,7 +226,7 @@ impl Musb {
         self.ep0_rx.clear();
         self.ep0_tx.clear();
         self.incsr1 = [0; NEP];
-        self.incsr2 = [0; NEP];
+        self.incsr2 = [I2_RESET; NEP];
         self.inmaxp = [0; NEP];
         self.outcsr1 = [0; NEP];
         self.outcsr2 = [0; NEP];
@@ -386,10 +392,10 @@ impl Musb {
                     0x10 => self.inmaxp[i] = v,
                     0x11 if i == 0 => self.csr0_write(v),
                     0x11 => self.incsr1_write(i, v),
-                    0x12 => self.incsr2[i] = v,
+                    0x12 => self.incsr2[i] = I2_RESET | v & I2_RW,
                     0x13 => self.outmaxp[i] = v,
                     0x14 => self.outcsr1_write(i, v),
-                    0x15 => self.outcsr2[i] = v,
+                    0x15 => self.outcsr2[i] = v & O2_RW,
                     _ => {}
                 }
             }
@@ -652,5 +658,32 @@ impl Musb {
         self.outcsr1[n] |= O_OUTPKTRDY;
         self.introut |= 1 << n;
         Tok::Ack
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn csr2(d: &mut Musb, ep: u32) -> (u32, u32) {
+        d.write(0x0E, ep);
+        (d.read(0x12, Size::Byte), d.read(0x15, Size::Byte))
+    }
+
+    /// RM2905025: INCSR2 resets to 0x20 (bit 5 reserved, reads 1) and only
+    /// AUTOSET/ISO/FRCDATATOG take writes; OUTCSR2 resets to 0 and only
+    /// AUTOCLR/ISO take writes. A bus reset puts both back.
+    #[test]
+    fn csr2_reset_values_and_writable_bits() {
+        let mut d = Musb::new();
+        assert_eq!(csr2(&mut d, 1), (0x20, 0x00));
+        d.write(0x12, 0x00);
+        d.write(0x15, 0x00);
+        assert_eq!(csr2(&mut d, 1), (0x20, 0x00));
+        d.write(0x12, 0xFF);
+        d.write(0x15, 0xFF);
+        assert_eq!(csr2(&mut d, 1), (0xE8, 0xC0));
+        d.dev_reset(false);
+        assert_eq!(csr2(&mut d, 1), (0x20, 0x00));
     }
 }
