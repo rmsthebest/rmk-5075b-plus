@@ -6,8 +6,10 @@
 //! the firmware around them: when frames go out, the pairing keys, where
 //! the reports go, what's kept across a reset, sleep and stop mode.
 //!
-//! Neither sim models what stop mode does to the clocks (BOARD_FACTS.md):
-//! a stop is SysTick off, SLEEPDEEP and WFI, which wakes on any interrupt.
+//! A stop is the chip's (BOARD_FACTS.md): every clock off, only EXTI lines
+//! wake it, and it comes back on MHSI with RCC at its reset values, so the
+//! firmware must set the clocks up again; a frame that starts while UART3
+//! has no clock is lost.
 
 mod common;
 
@@ -601,9 +603,10 @@ fn a_flat_battery_sleeps_it_until_the_cable_goes_in() {
 }
 
 /// Lower sleep stopped: only the cable and the UART are armed. A key
-/// doesn't wake it; a frame from the module does, but it's read and the
-/// keyboard stops again (the host resuming doesn't end a flat battery's
-/// sleep); the cable going in ends it.
+/// doesn't wake it; a frame from the module does, and is lost with the
+/// clocks (`in_stop_mode_the_modules_uart_wakes_it`); the module sends it
+/// again and it's read, and the keyboard stops again (the host resuming
+/// doesn't end a flat battery's sleep); the cable going in ends it.
 #[test]
 fn in_stop_mode_a_flat_battery_stops_it_until_the_cable_goes_in() {
     let mut t = boot();
@@ -621,8 +624,18 @@ fn in_stop_mode_a_flat_battery_stops_it_until_the_cable_goes_in() {
     t.b.run_for(0.3);
     should_be_stopped(&mut t, true);
     key(&mut t, KEY_A, false);
-    // As the module would send it (the firmware told it USB: no link).
+    // As the module would send it (the firmware told it USB: no link),
+    // and again 10 ms later, unACKed.
+    t.b.radio.borrow_mut().retransmit_ms = Some(10);
+    let (lost, acks) = (t.b.chip.uart3.lost, t.b.radio.borrow().acks);
     module_sends(&mut t, HOST_RESUME);
+    t.b.run_for(0.1);
+    assert_eq!(t.b.chip.uart3.lost - lost, 3, "the frame that woke it");
+    assert_eq!(
+        t.b.radio.borrow().acks - acks,
+        1,
+        "the one sent again, read"
+    );
     t.b.run_for(1.5);
     should_be_asleep(&mut t, true, true);
     should_be_stopped(&mut t, true);
