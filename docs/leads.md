@@ -6,20 +6,15 @@ it has run on the keyboard and we're confident in it. There is no rush.
 
 ## Board checks
 
-Since b39480e (flashed 2026-10-30, bin 47f23bd3), these are in the tree but not on the keyboard:
-the review's leftovers (d42b381, 84ec9c7), our runnables in StaticCells (02f0895) and RMK's
-storage built in place (82ee88f, rmk b32708d4). The last one runs on every boot against the real
-NOR, so it's the one to watch: the keymap and the lighting settings should survive a reset and a
-power cycle, and a Vial keymap edit should still be saved.
+Passed on the keyboard 2026-10-30 (bin 5d5fc10f, git aa35970), everything from the review
+included: RMK's storage built in place (the keymap and lighting survived the flash, a Vial
+remap survived a replug and a power cycle), a key held through a 1 min sleep timeout (slept
+once, stayed asleep, woke on release), Caps Lock across a switch (the LED blinks off at the
+switch and comes back when the new link reports Caps on, as the vendor's), USB to 2.4G with the
+lights staying on, typing, the knob and the lights.
 
-Each item is proven in the sim; these confirm it on the board:
-
-1. Caps Lock on over USB, then Fn+Y: the Caps LED goes off on the dongle (C-1/D-1).
-2. On the dongle with a 1 min sleep timeout, hold a key past it: it sleeps once (lights off) and
-   stays asleep; releasing the key wakes it (E-1).
-3. On USB, Fn+Y: the lights don't blink off during the switch (B-6).
-4. Optional: Vial 0xD2 after a deliberate fault reads "HardFault" (A-1). No Vial trigger for a
-   fault exists yet.
+Still open, optional: Vial 0xD2 after a deliberate fault reads "HardFault" (A-1). No Vial
+trigger for a fault exists yet.
 
 The QSPI FIFO depth (review #25) is in sim-rs/BOARD_FACTS.md, "Open questions for the board".
 
