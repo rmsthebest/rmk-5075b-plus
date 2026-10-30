@@ -11,9 +11,14 @@
 //!   2. Read matrix position (0,0) (Esc: column C0 driven low, row A0 read
 //!      with pull-up). If Esc is held, set the magic word and reset, so the
 //!      ROM is always entered from a clean reset state.
-//! - `HardFault` and `DefaultHandler` that request the bootloader, so a
-//!   crash lands in DFU instead of hanging.
+//! - `HardFault` and `DefaultHandler` that follow the panic handler's crash
+//!   policy without touching the stack (a stack overflow may be what
+//!   faulted): they leave "HardFault" for [`take_panic_message`] and reset
+//!   into the firmware, or enter DFU when a crash came before since
+//!   [`mark_stable`].
 //! - [`request_bootloader`] for the firmware's own bootloader keycode.
+//!   Every way into DFU clears the crash count: DFU on purpose isn't a
+//!   crash, and the image flashed next starts clean.
 //! - With `panic-dfu`, a panic handler that keeps the panic message for the
 //!   next boot ([`take_panic_message`]) and resets into the firmware; a
 //!   second panic before the firmware called [`mark_stable`] requests the
@@ -54,12 +59,20 @@ __boot_guard_enter_rom:
     ldr  r1, [r0, #4]
     bx   r1
 
-    @ Set the magic word and reset. Usable from any state.
+    @ Clear the crash count, set the magic word and reset. Usable from any
+    @ state.
     .global __boot_guard_reset_to_dfu
     .type __boot_guard_reset_to_dfu,%function
     .thumb_func
 __boot_guard_reset_to_dfu:
     cpsid i
+    ldr  r0, ={count_addr}
+    ldr  r1, ={crash_magic}
+    movs r2, #0
+    str  r1, [r0]
+    str  r2, [r0, #4]
+    mvns r2, r2
+    str  r2, [r0, #8]
     ldr  r0, ={magic_addr}
     ldr  r1, ={magic}
     str  r1, [r0]
@@ -70,28 +83,101 @@ __boot_guard_reset_to_dfu:
     dsb
 1:  b    1b
 
-    @ cortex-m-rt PROVIDEs these; ours take precedence.
+    @ cortex-m-rt PROVIDEs these; ours take precedence. The panic
+    @ handler's crash policy, with no stack: the record "HardFault", then
+    @ the crash count + 1 and a reset, or after CRASHES_BEFORE_DFU, DFU.
     .global HardFault
     .type HardFault,%function
     .thumb_func
 HardFault:
-    b    __boot_guard_reset_to_dfu
-
     .global DefaultHandler
     .type DefaultHandler,%function
     .thumb_func
 DefaultHandler:
-    b    __boot_guard_reset_to_dfu
+    cpsid i
+    @ The record's length, check and message, then its magic word.
+    ldr  r0, ={record_addr}
+    adr  r1, 4f
+    movs r2, #0
+1:  ldr  r3, [r1, r2]
+    adds r2, #4
+    str  r3, [r0, r2]
+    cmp  r2, #{fault_words} * 4
+    bne  1b
+    ldr  r1, ={panic_magic}
+    str  r1, [r0]
+    @ The crash count, 0 if its words don't check out.
+    ldr  r0, ={count_addr}
+    ldr  r1, ={crash_magic}
+    movs r3, #0
+    ldr  r2, [r0]
+    cmp  r2, r1
+    bne  2f
+    ldr  r2, [r0, #8]
+    mvns r2, r2
+    ldr  r3, [r0, #4]
+    cmp  r2, r3
+    beq  2f
+    movs r3, #0
+2:  cmp  r3, #{before}
+    bhs  __boot_guard_reset_to_dfu
+    adds r3, #1
+    str  r1, [r0]
+    str  r3, [r0, #4]
+    mvns r3, r3
+    str  r3, [r0, #8]
+    dsb
+    ldr  r0, =0xE000ED0C        @ SCB->AIRCR
+    ldr  r1, =0x05FA0004        @ VECTKEY | SYSRESETREQ
+    str  r1, [r0]
+    dsb
+3:  b    3b
 
     .balign 4
     .global __boot_guard_pool
 __boot_guard_pool:
     .ltorg
+    @ The fault record after its magic word (FAULT_RECORD), here rather
+    @ than in .rodata so the reviewed listing holds its bytes and no
+    @ layout-dependent address.
+    .balign 4
+4:  .word {r0}, {r1}, {r2}, {r3}, {r4}
     "#,
     rom = const ROM_BOOTLOADER,
     magic_addr = const MAGIC_ADDR,
     magic = const MAGIC,
+    count_addr = const CRASH_COUNT_ADDR,
+    crash_magic = const CRASH_MAGIC,
+    before = const CRASHES_BEFORE_DFU,
+    record_addr = const PANIC_RECORD_ADDR,
+    panic_magic = const PANIC_MAGIC,
+    fault_words = const FAULT_WORDS,
+    r0 = const FAULT_RECORD[0],
+    r1 = const FAULT_RECORD[1],
+    r2 = const FAULT_RECORD[2],
+    r3 = const FAULT_RECORD[3],
+    r4 = const FAULT_RECORD[4],
 );
+
+/// The fault handlers' panic record after its magic word: length, check,
+/// message (padded to a word).
+const FAULT_MSG: &[u8] = b"HardFault";
+const FAULT_WORDS: usize = 2 + FAULT_MSG.len().div_ceil(4);
+
+const _: () = assert!(FAULT_WORDS == 5, "the asm's .word list has 5 operands");
+
+const FAULT_RECORD: [u32; FAULT_WORDS] = {
+    let len = FAULT_MSG.len() as u32;
+    let mut w = [0; FAULT_WORDS];
+    w[0] = len;
+    w[1] = panic_check(len, FAULT_MSG);
+    let mut i = 0;
+    while i < FAULT_MSG.len() {
+        w[2 + i / 4] |= (FAULT_MSG[i] as u32) << (8 * (i % 4));
+        i += 1;
+    }
+    w
+};
 
 // First bring-up image: go straight back to the ROM on every boot, before
 // touching any peripheral. Proves the vector table, linker layout and ROM
@@ -236,11 +322,22 @@ fn panic_record() -> *mut PanicRecord {
     PANIC_RECORD_ADDR as *mut PanicRecord
 }
 
-fn panic_check(len: u32, msg: &[u8]) -> u32 {
+const fn panic_check(len: u32, msg: &[u8]) -> u32 {
     // FNV-1a over the length and the message.
+    const fn step(h: u32, b: u8) -> u32 {
+        (h ^ b as u32).wrapping_mul(0x0100_0193)
+    }
     let mut h: u32 = 0x811C_9DC5;
-    for b in len.to_le_bytes().iter().chain(msg) {
-        h = (h ^ *b as u32).wrapping_mul(0x0100_0193);
+    let len = len.to_le_bytes();
+    let mut i = 0;
+    while i < 4 {
+        h = step(h, len[i]);
+        i += 1;
+    }
+    let mut i = 0;
+    while i < msg.len() {
+        h = step(h, msg[i]);
+        i += 1;
     }
     h
 }
@@ -328,8 +425,8 @@ impl core::fmt::Write for RecordWriter {
 
 /// A panic leaves its message for [`take_panic_message`] and resets into the
 /// firmware, or, when it follows another panic since [`mark_stable`],
-/// enters DFU. A fault while formatting the message ends in DFU, through
-/// HardFault.
+/// enters DFU. A fault while formatting the message is a crash too, through
+/// HardFault, and leaves its own record.
 #[cfg(feature = "panic-dfu")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
@@ -354,7 +451,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     }
     let crashes = crash_count();
     if crashes >= CRASHES_BEFORE_DFU {
-        set_crash_count(0);
         request_bootloader()
     }
     set_crash_count(crashes + 1);

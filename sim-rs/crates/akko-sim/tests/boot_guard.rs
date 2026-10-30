@@ -132,13 +132,25 @@ fn m1b_returns_to_dfu_on_its_own() {
     println!("m1b back in DFU at {s:.1} s");
 }
 
-#[test]
-fn hardfault_lands_in_dfu() {
-    let mut b = boot(Image::M1bStub);
-    b.run_for(0.05);
-    // UDF #0 in RAM; with no UsageFault handler enabled it escalates to HardFault
+/// UDF #0 in RAM, jumped to; with no UsageFault handler enabled it
+/// escalates to HardFault.
+fn fault(b: &mut Board) {
     b.chip.write(0x2000_5000, Size::Half, 0xDE00);
     b.cpu.r[15] = 0x2000_5000;
+}
+
+/// A HardFault is a crash, as a panic (A-1, retro review 2026-10-30): the
+/// first resets into the firmware, and the next before the firmware marks
+/// itself stable (m1b never does) enters DFU.
+#[test]
+fn a_hardfault_resets_a_second_one_enters_dfu() {
+    let mut b = boot(Image::M1bStub);
+    b.run_for(0.05);
+    fault(&mut b);
+    b.run_for(0.1);
+    assert_eq!(b.resets, 1);
+    assert!(b.in_flash(), "PC 0x{:08x}", b.pc());
+    fault(&mut b);
     b.run_for(0.1);
     assert!(b.in_rom(), "PC 0x{:08x}", b.pc());
 }
