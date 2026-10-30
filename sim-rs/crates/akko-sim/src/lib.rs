@@ -124,6 +124,36 @@ impl Image {
             .map(|s| s.address() as u32 & !1)
     }
 
+    /// The functions (`nm`'s FUNC symbols, mangled) holding each of
+    /// `addrs`, as (name, offset into it); None outside every function.
+    pub fn functions_at(self, addrs: &[u32]) -> Vec<Option<(String, u32)>> {
+        use object::{Object, ObjectSymbol, SymbolKind};
+        let Ok(data) = self.read() else {
+            return vec![None; addrs.len()];
+        };
+        let Ok(file) = object::File::parse(&*data) else {
+            return vec![None; addrs.len()];
+        };
+        let funcs: Vec<(u32, u32, String)> = file
+            .symbols()
+            .filter(|s| s.kind() == SymbolKind::Text && s.size() > 0)
+            .filter_map(|s| {
+                let start = s.address() as u32 & !1;
+                Some((start, start + s.size() as u32, s.name().ok()?.to_string()))
+            })
+            .collect();
+        addrs
+            .iter()
+            .map(|&a| {
+                let a = a & !1;
+                funcs
+                    .iter()
+                    .find(|(start, end, _)| (*start..*end).contains(&a))
+                    .map(|(start, _, name)| (name.clone(), a - start))
+            })
+            .collect()
+    }
+
     pub fn read(self) -> Result<Vec<u8>, LoadError> {
         let path = self.path();
         std::fs::read(&path).map_err(|e| {

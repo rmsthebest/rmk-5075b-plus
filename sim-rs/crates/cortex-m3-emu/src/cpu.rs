@@ -27,6 +27,21 @@ pub enum Sleep {
     Wfe,
 }
 
+/// The lowest the SP has been since `Cpu::watch_sp`: the state after the
+/// step that took it there, and the stack's words from there up to `top`
+/// (for a caller to find the return addresses in).
+#[derive(Clone, Debug)]
+pub struct SpLow {
+    pub sp: u32,
+    /// The last instruction executed (for an exception entry, the one it
+    /// interrupted; `ipsr` is then the exception's).
+    pub pc: u32,
+    pub lr: u32,
+    pub ipsr: u16,
+    pub top: u32,
+    pub stack: Vec<u32>,
+}
+
 pub struct Cpu {
     pub config: Config,
     /// R0-R15. R13 is the SP in use; the other one is in `other_sp`.
@@ -75,6 +90,8 @@ pub struct Cpu {
     pub debugger: bool,
     /// Set when a BKPT halted the core (the caller clears it).
     pub debug_halt: bool,
+    /// The stack's low-water mark, if watched (`watch_sp`).
+    pub sp_low: Option<SpLow>,
     /// The address of the instruction executing (for faults and diags).
     pub(crate) cur_pc: u32,
     /// The IT state it executes in.
@@ -129,6 +146,7 @@ impl Cpu {
             stubs: HashMap::new(),
             debugger: false,
             debug_halt: false,
+            sp_low: None,
             cur_pc: 0,
             cur_it: ItState::default(),
             pending_sync: None,
@@ -155,7 +173,9 @@ impl Cpu {
             std::mem::take(&mut self.stubs),
             self.debugger,
         );
+        let sp_low = self.sp_low.take();
         *self = Cpu::new(self.config);
+        self.sp_low = sp_low;
         (
             self.now,
             self.instructions,
@@ -439,6 +459,44 @@ impl Cpu {
     pub fn step(&mut self, bus: &mut impl Bus) {
         self.step_inner(bus);
         self.take_sync(bus);
+        if let Some(low) = &self.sp_low {
+            if self.r[SP] < low.sp {
+                self.sp_lowered(bus);
+            }
+        }
+    }
+
+    /// Watches the stack's low-water mark (`sp_low`), the stack being the
+    /// RAM below `top`.
+    pub fn watch_sp(&mut self, top: u32) {
+        self.sp_low = Some(SpLow {
+            sp: u32::MAX,
+            pc: 0,
+            lr: 0,
+            ipsr: 0,
+            top,
+            stack: Vec::new(),
+        });
+    }
+
+    #[cold]
+    fn sp_lowered(&mut self, bus: &mut impl Bus) {
+        let sp = self.r[SP];
+        let (pc, lr, ipsr) = (self.cur_pc, self.r[LR], self.ipsr);
+        let Some(low) = &mut self.sp_low else {
+            return;
+        };
+        let top = low.top;
+        low.sp = sp;
+        low.pc = pc;
+        low.lr = lr;
+        low.ipsr = ipsr;
+        low.stack.clear();
+        let mut a = sp & !3;
+        while a < top {
+            low.stack.push(bus.read(a, Size::Word));
+            a += 4;
+        }
     }
 
     /// Follows the bus's core clock.

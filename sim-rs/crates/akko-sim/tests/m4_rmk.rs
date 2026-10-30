@@ -10,7 +10,7 @@ mod common;
 use akko_sim::usb_host::{CONFIGURED, cmd, hex};
 use akko_sim::{Image, Part};
 use common::*;
-use cortex_m3_emu::{Bus, Size};
+use cortex_m3_emu::{Bus, Size, Sleep};
 use regex::Regex;
 
 const PANIC_RECORD: u32 = 0x2000_7000;
@@ -579,10 +579,13 @@ fn a_panic_resets_into_the_keyboard_a_second_one_enters_dfu() {
     t.pc_should_be_in_rom();
 }
 
-/// UDF #0 in RAM above the image's 28K, jumped to: a HardFault.
+/// UDF #0 in RAM above the image's 28K, jumped to: a HardFault. The jump
+/// is made awake: a core idling in WFE would otherwise wait for its next
+/// interrupt before it got there.
 fn hardfault(t: &mut T) {
     t.b.chip.write(0x2000_7400, Size::Half, 0xDE00);
     t.b.cpu.r[15] = 0x2000_7400;
+    t.b.cpu.sleep = Sleep::Awake;
 }
 
 /// A HardFault follows the crash policy, as a panic (A-1, retro review
@@ -670,8 +673,11 @@ fn a_hang_trips_the_watchdog_a_reset_then_dfu() {
 }
 
 /// Stack high-water mark over first boot (default keymap written to flash),
-/// typing, the knob and Vial; fails under 12 KB spare (16.9 KB after the
-/// 2026-10-27 headroom pass; 4.9 KB before).
+/// typing, the knob and Vial; fails under 14 KB spare (16.9 KB after the
+/// 2026-10-27 headroom pass, 4.9 KB before; 12.3 KB after the retro
+/// review's fixes, 15.4 KB once RMK's storage was built in place,
+/// 2026-10-30). With --nocapture it prints where the deepest point was
+/// (`print_stack_peak`).
 #[test]
 fn the_stack_has_headroom() {
     let mut t = T::boot();
@@ -681,6 +687,7 @@ fn the_stack_has_headroom() {
     for a in (0x2000_0000..top).step_by(4) {
         t.b.chip.write(a, Size::Word, 0xAAAA_AAAA);
     }
+    t.b.cpu.watch_sp(top);
     t.wait_for_enumeration();
     t.tap(3, 1);
     t.key(5, 10, true);
@@ -702,9 +709,60 @@ fn the_stack_has_headroom() {
     }
     let (used, size) = (top - a, top - 0x2000_0000);
     println!("stack: {used} of {size} bytes used");
+    print_stack_peak(&mut t);
     assert!(
-        size - used >= 12288,
+        size - used >= 14336,
         "only {} bytes of stack spare",
         size - used
     );
+}
+
+/// The call chain at the stack's deepest point (`Cpu::watch_sp`): the
+/// return addresses among the stacked words, each the word after a BL or
+/// BLX in a function of the image. A heuristic, as a debugger's stack scan:
+/// a stale return address left in a frame can show up too. Each line's
+/// bytes are from its return address's slot to the next one's, about the
+/// frame of the function named on the line above.
+fn print_stack_peak(t: &mut T) {
+    let low = t.b.cpu.sp_low.clone().expect("watching the stack");
+    let after_call = |t: &mut T, ret: u32| {
+        let ret = ret & !1;
+        let h = |t: &mut T, a: u32| t.b.chip.read(a, Size::Half);
+        let bl = h(t, ret - 4) & 0xF800 == 0xF000 && h(t, ret - 2) & 0xD000 == 0xD000;
+        bl || h(t, ret - 2) & 0xFF87 == 0x4780
+    };
+    let mut found = Vec::new();
+    for (i, &w) in low.stack.iter().enumerate() {
+        let at = low.sp + 4 * i as u32;
+        if (0xFFFF_FFE0..=0xFFFF_FFFF).contains(&w) {
+            found.push((at, w, true));
+        } else if w & 1 == 1 && (0x0800_0000..0x0804_0000).contains(&w) && after_call(t, w) {
+            found.push((at, w, false));
+        }
+    }
+    let mut addrs = vec![low.pc, low.lr];
+    addrs.extend(found.iter().map(|f| f.1));
+    let names = Image::AkkoRmk.functions_at(&addrs);
+    let name = |n: &Option<(String, u32)>| match n {
+        Some((m, off)) => format!("{:#}+{off:#x}", rustc_demangle::demangle(m)),
+        None => "?".to_string(),
+    };
+    println!(
+        "deepest: sp {:#010x} ({} bytes below the top), exception {}",
+        low.sp,
+        low.top - low.sp,
+        low.ipsr
+    );
+    println!("  at {}", name(&names[0]));
+    println!("  lr {}", name(&names[1]));
+    let mut prev = low.sp;
+    for (f, n) in found.iter().zip(&names[2..]) {
+        let what = if f.2 {
+            format!("exception frame (EXC_RETURN {:#x})", f.1)
+        } else {
+            name(n)
+        };
+        println!("  {:5} +{:5}  {what}", f.0 - prev, f.0 - low.sp);
+        prev = f.0;
+    }
 }

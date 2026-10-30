@@ -12,3 +12,6 @@ cortex-m3-emu.workspace = true
 wb32-sim.workspace = true
 object.workspace = true
 regex = "1"
+
+[dev-dependencies]
+rustc-demangle = "0.1"

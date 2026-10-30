@@ -21,7 +21,7 @@ pub mod ppb;
 mod timing;
 
 pub use bus::{Bus, IrqLines, Memory, Size};
-pub use cpu::{Cpu, Sleep};
+pub use cpu::{Cpu, Sleep, SpLow};
 pub use decode::{Insn, ItState, Op, decode};
 pub use disasm::disasm;
 pub use exception::{Exc, Fault};

@@ -133,10 +133,11 @@ fn m1b_returns_to_dfu_on_its_own() {
 }
 
 /// UDF #0 in RAM, jumped to; with no UsageFault handler enabled it
-/// escalates to HardFault.
+/// escalates to HardFault. The jump is made awake, as `m4_rmk::hardfault`.
 fn fault(b: &mut Board) {
     b.chip.write(0x2000_5000, Size::Half, 0xDE00);
     b.cpu.r[15] = 0x2000_5000;
+    b.cpu.sleep = cortex_m3_emu::Sleep::Awake;
 }
 
 /// A HardFault is a crash, as a panic (A-1, retro review 2026-10-30): the
